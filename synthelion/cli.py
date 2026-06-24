@@ -9,8 +9,10 @@ import sys
 
 
 def main() -> None:
-    # Force UTF-8 output without BOM — needed on Windows where the default
-    # console encoding (cp1252) would mangle non-ASCII compressed text.
+    # Force UTF-8 I/O — needed on Windows (default cp1252 mangles non-ASCII).
+    # utf-8-sig on stdin strips BOM written by PowerShell pipes.
+    if hasattr(sys.stdin, "reconfigure"):
+        sys.stdin.reconfigure(encoding="utf-8-sig")
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
 
@@ -84,7 +86,12 @@ def _cmd_compress(args) -> None:
     svc = CompressionService()
     r = svc.compress(text, level_map[args.level], iso3=args.language)
     if args.json:
-        print(json.dumps({"compressed": r.compressed_text, "efficiency_pct": round(r.efficiency_pct, 2)}))
+        print(json.dumps({
+            "compressed": r.compressed_text,
+            "efficiency_pct": round(r.efficiency_pct, 2),
+            "energy_mwh": round(r.estimated_energy_saved_mwh, 3),
+            "co2_mg": round(r.estimated_co2_saved_mg, 3),
+        }))
     else:
         print(r.compressed_text)
         print(f"\n[{r.efficiency_pct:.1f}% saved — {r.original_tokens} → {r.compressed_tokens} tokens]", file=sys.stderr)
