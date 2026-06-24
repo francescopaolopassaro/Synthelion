@@ -127,7 +127,7 @@ Any agent that supports the [Model Context Protocol](https://modelcontextprotoco
 
 | Agent | Settings file |
 |---|---|
-| Claude Code | `~/.claude/settings.json` |
+| Claude Code | `~/.claude/settings.json` on Windows (%USERPROFILE%\.claude\settings.json) |
 | Claude Desktop (macOS) | `~/Library/Application Support/Claude/claude_desktop_config.json` |
 | Claude Desktop (Windows) | `%APPDATA%\Claude\claude_desktop_config.json` |
 | OpenCode | `~/.config/opencode/config.json` |
