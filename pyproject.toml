@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "synthelion"
+version = "1.0.2"
+description = "Universal token compressor for AI agents — MCP, OpenAI, LangChain, CLI. 50+ languages, zero ML models."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Passaro Francesco Paolo", email = "passaroweb@gmail.com" }]
+maintainers = [{ name = "digitalsolutions", email = "passaroweb@gmail.com" }]
+requires-python = ">=3.11"
+keywords = [
+    "llm", "token", "compression", "prompt", "nlp",
+    "mcp", "claude", "claude-code", "opencode",
+    "openai", "langchain", "agent", "ai-agent",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "brotli>=1.1",
+    "regex>=2024.1",
+    "mcp>=1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/francescopaolopassaro/synthelion"
+Repository = "https://github.com/francescopaolopassaro/synthelion"
+"Bug Tracker" = "https://github.com/francescopaolopassaro/synthelion/issues"
+"Original C# project" = "https://github.com/francescopaolopassaro/caveman"
+
+[project.optional-dependencies]
+openai = ["openai>=1.0"]
+langchain = ["langchain-core>=0.1"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
+
+[project.scripts]
+synthelion = "synthelion.cli:main"
+synthelion-mcp = "synthelion.plugins.mcp_server:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["synthelion*"]
+
+[tool.setuptools.package-data]
+synthelion = ["worddata/*.br"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
