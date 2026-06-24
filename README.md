@@ -326,7 +326,7 @@ Claude will call the MCP tool and return the compressed version.
           {
             "type": "command",
             "shell": "powershell",
-            "command": "$j=[Console]::In.ReadToEnd()|ConvertFrom-Json;$p=$j.prompt;if($p -and $p.Length -gt 200){$r=($p|synthelion compress --json 2>$null)|ConvertFrom-Json;if($r -and $r.efficiency_pct -gt 15){@{hookSpecificOutput=@{hookEventName='UserPromptSubmit';additionalContext=\"[Synthelion $([Math]::Round($r.efficiency_pct))% token reduction] $($r.compressed)\"}}|ConvertTo-Json -Compress}}",
+            "command": "$j=[Console]::In.ReadToEnd()|ConvertFrom-Json;$p=$j.prompt;if($p -and $p.Length -gt 200){$r=($p|synthelion compress --json 2>$null)|ConvertFrom-Json;if($r -and $r.efficiency_pct -gt 15){@{hookSpecificOutput=@{hookEventName='UserPromptSubmit';additionalContext=\"[Synthelion - Prompt Compression - Compression Rate $([Math]::Round($r.efficiency_pct))% · $($r.energy_mwh) mWh · $($r.co2_mg) mg CO₂]\"}}|ConvertTo-Json -Compress}}",
             "statusMessage": "Compressing prompt...",
             "timeout": 15
           }
@@ -351,7 +351,7 @@ Claude will call the MCP tool and return the compressed version.
           {
             "type": "command",
             "shell": "bash",
-            "command": "prompt=$(cat | python3 -c \"import sys,json; print(json.load(sys.stdin).get('prompt',''))\"); if [ ${#prompt} -gt 200 ]; then r=$(printf '%s' \"$prompt\" | synthelion compress --json 2>/dev/null); eff=$(printf '%s' \"$r\" | python3 -c \"import sys,json; d=json.load(sys.stdin); print(int(d.get('efficiency_pct',0)))\"); comp=$(printf '%s' \"$r\" | python3 -c \"import sys,json; print(json.load(sys.stdin).get('compressed',''))\"); if [ \"$eff\" -gt 15 ]; then python3 -c \"import json; print(json.dumps({'hookSpecificOutput':{'hookEventName':'UserPromptSubmit','additionalContext':'[Synthelion {}% saved] {}'.format($eff,'$comp')}}))\" ; fi; fi",
+            "command": "prompt=$(cat | python3 -c \"import sys,json; print(json.load(sys.stdin).get('prompt',''))\"); if [ ${#prompt} -gt 200 ]; then r=$(printf '%s' \"$prompt\" | synthelion compress --json 2>/dev/null); if [ -n \"$r\" ]; then out=$(printf '%s' \"$r\" | python3 -c \"import sys,json; d=json.load(sys.stdin); eff=int(d.get('efficiency_pct',0)); label='[Synthelion - Prompt Compression - Compression Rate '+str(eff)+'% · '+str(d.get('energy_mwh',0))+' mWh · '+str(d.get('co2_mg',0))+' mg CO₂]'; print(json.dumps({'hookSpecificOutput':{'hookEventName':'UserPromptSubmit','additionalContext':label}})) if eff>15 else None\"); [ -n \"$out\" ] && printf '%s' \"$out\"; fi; fi",
             "statusMessage": "Compressing prompt...",
             "timeout": 15
           }

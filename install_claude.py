@@ -132,7 +132,7 @@ def _hook_command_windows(cli: str) -> str:
         f"{{$r=($p|\"{cli_q}\" compress --json 2>$null)|ConvertFrom-Json;"
         f"if($r -and $r.efficiency_pct -gt {HOOK_MIN_EFF})"
         f"{{@{{hookSpecificOutput=@{{hookEventName='UserPromptSubmit';"
-        f"additionalContext=\"[Synthelion $([Math]::Round($r.efficiency_pct))% token reduction] $($r.compressed)\"}}}}|ConvertTo-Json -Compress}}}}"
+        f"additionalContext=\"[Synthelion - Prompt Compression - Compression Rate $([Math]::Round($r.efficiency_pct))% · $($r.energy_mwh) mWh · $($r.co2_mg) mg CO₂]\"}}}}|ConvertTo-Json -Compress}}}}"
     )
 
 
@@ -141,12 +141,12 @@ def _hook_command_unix(cli: str) -> str:
         f"prompt=$(cat | python3 -c \"import sys,json; print(json.load(sys.stdin).get('prompt',''))\"); "
         f"if [ ${{#prompt}} -gt {HOOK_MIN_LEN} ]; then "
         f"r=$(printf '%s' \"$prompt\" | \"{cli}\" compress --json 2>/dev/null); "
-        f"eff=$(printf '%s' \"$r\" | python3 -c \"import sys,json; d=json.load(sys.stdin); print(int(d.get('efficiency_pct',0)))\"); "
-        f"comp=$(printf '%s' \"$r\" | python3 -c \"import sys,json; print(json.load(sys.stdin).get('compressed',''))\"); "
-        f"if [ \"$eff\" -gt {HOOK_MIN_EFF} ]; then "
-        f"python3 -c \"import json; print(json.dumps({{'hookSpecificOutput':{{'hookEventName':'UserPromptSubmit',"
-        f"'additionalContext':'[Synthelion {{}}% saved] {{}}'.format($eff,'$comp')}}}}))\"; "
-        f"fi; fi"
+        f"if [ -n \"$r\" ]; then "
+        f"out=$(printf '%s' \"$r\" | python3 -c \""
+        f"import sys,json; d=json.load(sys.stdin); eff=int(d.get('efficiency_pct',0)); "
+        f"label='[Synthelion - Prompt Compression - Compression Rate '+str(eff)+'% · '+str(d.get('energy_mwh',0))+' mWh · '+str(d.get('co2_mg',0))+' mg CO₂]'; "
+        f"print(json.dumps({{'hookSpecificOutput':{{'hookEventName':'UserPromptSubmit','additionalContext':label}}}})) if eff>{HOOK_MIN_EFF} else None\"); "
+        f"[ -n \"$out\" ] && printf '%s' \"$out\"; fi; fi"
     )
 
 

@@ -88,7 +88,7 @@ function Build-HookCommand($cliBin) {
     # Escape backslashes for use inside a PowerShell double-quoted string
     $cliEsc = $cli -replace "\\", "\\\\"
     return @"
-`$j=[Console]::In.ReadToEnd()|ConvertFrom-Json;`$p=`$j.prompt;if(`$p -and `$p.Length -gt 200){`$r=(`$p|"$cliEsc" compress --json 2>`$null)|ConvertFrom-Json;if(`$r -and `$r.efficiency_pct -gt 15){@{hookSpecificOutput=@{hookEventName='UserPromptSubmit';additionalContext="[Synthelion `$([Math]::Round(`$r.efficiency_pct))% token reduction] `$(`$r.compressed)"}}|ConvertTo-Json -Compress}}
+`$j=[Console]::In.ReadToEnd()|ConvertFrom-Json;`$p=`$j.prompt;if(`$p -and `$p.Length -gt 200){`$r=(`$p|"$cliEsc" compress --json 2>`$null)|ConvertFrom-Json;if(`$r -and `$r.efficiency_pct -gt 15){@{hookSpecificOutput=@{hookEventName='UserPromptSubmit';additionalContext="[Synthelion - Prompt Compression - Compression Rate `$([Math]::Round(`$r.efficiency_pct))% · `$(`$r.energy_mwh) mWh · `$(`$r.co2_mg) mg CO₂]"}}|ConvertTo-Json -Compress}}
 "@
 }
 

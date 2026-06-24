@@ -98,7 +98,7 @@ build_hook_command() {
   local cli="$1"
   # Single-line bash command for the hook
   cat <<EOF
-prompt=\$(cat | $PY -c "import sys,json; print(json.load(sys.stdin).get('prompt',''))"); if [ \${#prompt} -gt 200 ]; then r=\$(printf '%s' "\$prompt" | "$cli" compress --json 2>/dev/null); eff=\$(printf '%s' "\$r" | $PY -c "import sys,json; d=json.load(sys.stdin); print(int(d.get('efficiency_pct',0)))"); comp=\$(printf '%s' "\$r" | $PY -c "import sys,json; print(json.load(sys.stdin).get('compressed',''))"); if [ "\$eff" -gt 15 ]; then $PY -c "import json; print(json.dumps({'hookSpecificOutput':{'hookEventName':'UserPromptSubmit','additionalContext':'[Synthelion {}% saved] {}'.format(\$eff,'\$comp')}}))"; fi; fi
+prompt=\$(cat | $PY -c "import sys,json; print(json.load(sys.stdin).get('prompt',''))"); if [ \${#prompt} -gt 200 ]; then r=\$(printf '%s' "\$prompt" | "$cli" compress --json 2>/dev/null); if [ -n "\$r" ]; then out=\$(printf '%s' "\$r" | $PY -c "import sys,json; d=json.load(sys.stdin); eff=int(d.get('efficiency_pct',0)); label='[Synthelion - Prompt Compression - Compression Rate '+str(eff)+'% · '+str(d.get('energy_mwh',0))+' mWh · '+str(d.get('co2_mg',0))+' mg CO₂]'; print(json.dumps({'hookSpecificOutput':{'hookEventName':'UserPromptSubmit','additionalContext':label}})) if eff>15 else None"); [ -n "\$out" ] && printf '%s' "\$out"; fi; fi
 EOF
 }
 
