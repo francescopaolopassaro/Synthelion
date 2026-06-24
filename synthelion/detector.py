@@ -8,27 +8,38 @@ from synthelion.word_provider import FunctionWordProvider
 
 _WORD_RE = re.compile(r"[^\W\d_]+(?:'[^\W\d_]+)?", re.UNICODE)
 
-# When a curated language scores >= this fraction of the best YAML-derived score,
-# prefer the curated language. Prevents Italian/Catalan/Portuguese confusion on
-# short texts where "per", "un" appear in multiple worddata files.
+# (threshold removed — the exclusive-marker pass now uses a uniqueness check:
+# a language wins if it has MORE exclusive-marker hits than any other language)
+
+# A curated language is preferred over a YAML-only result when its score is
+# at least this fraction of the best YAML score.
 _CURATED_PREFERENCE_THRESHOLD = 0.75
 
 
 class LanguageDetector:
     """Detects text language by stop-word frequency scoring.
 
-    Ported from C# CavemanLanguageDetector. Backed by the embedded worddata index
-    so detection never loads the large per-language blobs.
+    Ported from C# CavemanLanguageDetector. Uses a two-pass strategy:
+      1. Raw function-word hit count per language.
+      2. Exclusive-marker boost: if a language has exclusive markers in the text
+         (words that exist in *no* other curated language), it wins over languages
+         that only matched shared/ambiguous words.
 
-    Curated languages (eng, ita, fra, deu, spa, por, nld) are preferred over
-    YAML-derived ones when scores are close, avoiding false positives from
-    overlapping Romance-language vocabulary.
+    This eliminates false positives caused by words like 'per', 'a', 'in', 'via'
+    that appear in both English and Italian/Dutch function-word lists.
     """
 
     def __init__(self, word_provider: FunctionWordProvider | None = None) -> None:
         self._provider = word_provider or FunctionWordProvider()
-        self._supported = self._provider.get_all_supported_iso3()
+        # For detection scoring use the full YAML-derived index (not curated FW).
+        # Curated FW (.fw.yaml.br) is a small, precise compression set; the full
+        # YAML index has 5-10x more words and gives better detection recall.
+        self._detection_supported = set(self._provider._load_index().keys())
         self._curated_iso3s = self._provider.get_curated_iso3s()
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
     def detect(self, text: str) -> str:
         """Return the most likely ISO 639-3 code, falling back to 'eng'."""
@@ -38,30 +49,53 @@ class LanguageDetector:
         if not tokens:
             return "eng"
 
-        scores: dict[str, int] = {}
-        for iso3 in self._supported:
-            fw = self._provider.get_function_words(iso3)
+        raw_scores: dict[str, int] = {}
+        idx = self._provider._load_index()
+        for iso3, (_, _, fw) in idx.items():
             if not fw:
                 continue
             hits = sum(1 for t in tokens if t in fw)
             if hits > 0:
-                scores[iso3] = hits
+                raw_scores[iso3] = hits
 
-        if not scores:
+        if not raw_scores:
             return "eng"
 
-        best_iso3 = max(scores, key=lambda k: scores[k])
-        best_score = scores[best_iso3]
+        # --- Pass 2: exclusive-marker boost ---
+        # For each curated language, count how many exclusive markers appear.
+        # An exclusive marker is a word that exists in this language's worddata
+        # but in none of the other curated languages.
+        excl_scores: dict[str, int] = {}
+        for iso3 in self._curated_iso3s:
+            excl = self._provider.get_exclusive_markers(iso3)
+            if not excl:
+                continue
+            hits = sum(1 for t in tokens if t in excl)
+            if hits > 0:
+                excl_scores[iso3] = hits
+
+        # If one language has STRICTLY MORE exclusive-marker hits than all others,
+        # prefer it — even 1 hit is enough if no other language has any.
+        if excl_scores:
+            best_excl_lang = max(excl_scores, key=lambda k: excl_scores[k])
+            second_excl = max(
+                (v for k, v in excl_scores.items() if k != best_excl_lang), default=0
+            )
+            if excl_scores[best_excl_lang] > second_excl:
+                return best_excl_lang
+
+        # --- Pass 1 winner ---
+        best_iso3 = max(raw_scores, key=lambda k: raw_scores[k])
+        best_score = raw_scores[best_iso3]
         ratio = best_score / len(tokens)
 
         if ratio < 0.02:
             return "eng"
 
-        # If the top result is not from the curated set, check whether a curated
-        # language scores close enough to prefer it (avoids ita→cat confusion).
+        # If the top result is not from the curated set, prefer a close curated one.
         if best_iso3 not in self._curated_iso3s:
             best_curated = max(
-                ((iso3, s) for iso3, s in scores.items() if iso3 in self._curated_iso3s),
+                ((iso3, s) for iso3, s in raw_scores.items() if iso3 in self._curated_iso3s),
                 key=lambda x: x[1],
                 default=None,
             )
@@ -70,14 +104,14 @@ class LanguageDetector:
                 best_score = best_curated[1]
 
         second_best = max(
-            (v for k, v in scores.items() if k != best_iso3), default=0
+            (v for k, v in raw_scores.items() if k != best_iso3), default=0
         )
         if best_score > second_best or (best_score == second_best and best_score >= 2):
             return best_iso3
 
-        # Tiebreak: if both languages are tied and one is curated, prefer it
+        # Tiebreak: prefer a curated language.
         tied_curated = [
-            iso3 for iso3, s in scores.items()
+            iso3 for iso3, s in raw_scores.items()
             if s == best_score and iso3 in self._curated_iso3s
         ]
         if tied_curated:
@@ -86,21 +120,38 @@ class LanguageDetector:
         return "eng"
 
     def detect_with_scores(self, text: str) -> dict[str, float]:
-        """Return per-language match ratios (ISO 639-3 → ratio of tokens matched)."""
+        """Return per-language scores (ISO 639-3 → normalised hit ratio).
+
+        Scores are the raw function-word hit ratio; exclusive-marker bonus is
+        applied as a synthetic +0.5 boost so callers can see which language
+        the exclusive-marker pass favoured.
+        """
         if not text or not text.strip():
             return {"eng": 1.0}
         tokens = _WORD_RE.findall(text.lower())
         if not tokens:
             return {"eng": 1.0}
 
-        scores: dict[str, float] = {}
         total = len(tokens)
-        for iso3 in self._supported:
-            fw = self._provider.get_function_words(iso3)
+        scores: dict[str, float] = {}
+        idx = self._provider._load_index()
+        for iso3, (_, _, fw) in idx.items():
             if not fw:
                 continue
             hits = sum(1 for t in tokens if t in fw)
             if hits > 0:
                 scores[iso3] = hits / total
 
-        return scores if scores else {"eng": 1.0}
+        if not scores:
+            return {"eng": 1.0}
+
+        # Apply exclusive-marker boost to curated languages (for external callers).
+        for iso3 in self._curated_iso3s:
+            excl = self._provider.get_exclusive_markers(iso3)
+            if not excl:
+                continue
+            excl_hits = sum(1 for t in tokens if t in excl)
+            if excl_hits >= 1:
+                scores[iso3] = scores.get(iso3, 0.0) + (excl_hits / total) * 0.5
+
+        return scores
