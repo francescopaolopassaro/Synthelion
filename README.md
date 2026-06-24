@@ -144,6 +144,7 @@ Any agent that supports the [Model Context Protocol](https://modelcontextprotoco
   }
 }
 ```
+best way --> claude mcp add synthelion -- synthelion-mcp
 
 **3.** Restart the agent. Done.
 
