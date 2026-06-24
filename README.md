@@ -351,7 +351,7 @@ Claude will call the MCP tool and return the compressed version.
           {
             "type": "command",
             "shell": "bash",
-            "command": "prompt=$(cat | python3 -c \"import sys,json; print(json.load(sys.stdin).get('prompt',''))\"); if [ ${#prompt} -gt 200 ]; then r=$(echo \"$prompt\" | synthelion compress --json 2>/dev/null); eff=$(echo \"$r\" | python3 -c \"import sys,json; d=json.load(sys.stdin); print(int(d.get('efficiency_pct',0)))\"); comp=$(echo \"$r\" | python3 -c \"import sys,json; print(json.load(sys.stdin).get('compressed',''))\"); if [ \"$eff\" -gt 15 ]; then python3 -c \"import json; print(json.dumps({'hookSpecificOutput':{'hookEventName':'UserPromptSubmit','additionalContext':'[Synthelion {}% saved] {}'.format($eff,'$comp')}}))\" ; fi; fi",
+            "command": "prompt=$(cat | python3 -c \"import sys,json; print(json.load(sys.stdin).get('prompt',''))\"); if [ ${#prompt} -gt 200 ]; then r=$(printf '%s' \"$prompt\" | synthelion compress --json 2>/dev/null); eff=$(printf '%s' \"$r\" | python3 -c \"import sys,json; d=json.load(sys.stdin); print(int(d.get('efficiency_pct',0)))\"); comp=$(printf '%s' \"$r\" | python3 -c \"import sys,json; print(json.load(sys.stdin).get('compressed',''))\"); if [ \"$eff\" -gt 15 ]; then python3 -c \"import json; print(json.dumps({'hookSpecificOutput':{'hookEventName':'UserPromptSubmit','additionalContext':'[Synthelion {}% saved] {}'.format($eff,'$comp')}}))\" ; fi; fi",
             "statusMessage": "Compressing prompt...",
             "timeout": 15
           }
