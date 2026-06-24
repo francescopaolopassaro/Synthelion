@@ -2,9 +2,13 @@
 # © 2026 Passaro Francesco Paolo — Digitalsolutions.it
 from __future__ import annotations
 
+import logging
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Callable
+
+_log = logging.getLogger(__name__)
 
 from synthelion.detector import LanguageDetector
 from synthelion.models import CompressionLevel, CompressionResult
@@ -196,14 +200,24 @@ class CompressionService:
             lang = iso3 or self._detector.detect(text)
             return self.apply_compression(text, lang, level, custom_filter)
         except Exception as exc:
+            _log.warning("compress() failed: %s", exc, exc_info=True)
             return CompressionResult(compressed_text=text, error_message=str(exc))
 
     def compress_batch(
         self,
         texts: list[str],
         level: CompressionLevel = CompressionLevel.SEMANTIC,
+        max_workers: int = 4,
     ) -> list[CompressionResult]:
-        return [self.compress(t, level) for t in texts]
+        """Compress a list of texts, using threads for batches larger than 8."""
+        if len(texts) <= 8:
+            return [self.compress(t, level) for t in texts]
+        results: list[CompressionResult | None] = [None] * len(texts)
+        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            futures = {ex.submit(self.compress, t, level): i for i, t in enumerate(texts)}
+            for fut in as_completed(futures):
+                results[futures[fut]] = fut.result()
+        return results  # type: ignore[return-value]
 
     def apply_compression(
         self,

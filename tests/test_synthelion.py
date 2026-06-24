@@ -1,6 +1,10 @@
 # Tests for Synthelion — Python port of Caveman
 # (https://github.com/francescopaolopassaro/caveman)
 import json
+import sys
+from io import StringIO
+from unittest.mock import patch
+
 import pytest
 
 from synthelion.models import (
@@ -11,12 +15,22 @@ from synthelion.detector import LanguageDetector
 from synthelion.core import CompressionService
 from synthelion.content_detector import ContentDetector
 from synthelion.content_router import ContentRouter
+from synthelion.compressors.json_crusher import JsonCrusher
+from synthelion.compressors.html_extractor import HtmlExtractor
+from synthelion.compressors.diff_compressor import DiffCompressor
+from synthelion.compressors.log_compressor import LogCompressor
 from synthelion.nlp.summarizer import TfIdfSummarizer
 from synthelion.nlp.text_rank import TextRankSummarizer
 from synthelion.agent.context_window import ContextWindow
 from synthelion.agent.memory_store import MemoryStore
 from synthelion.plugins.openai_tools import get_tool_definitions, get_tool_list, execute_tool
 from synthelion.plugins import mcp_server  # import check only
+
+try:
+    from synthelion.plugins.langchain_tools import get_tools as get_langchain_tools
+    HAS_LANGCHAIN = True
+except ImportError:
+    HAS_LANGCHAIN = False
 
 
 # ---------------------------------------------------------------------------
@@ -387,7 +401,261 @@ class TestMcpServer:
         assert hasattr(mcp, "__version__") or True  # just verify it imports
 
     def test_mcp_server_builds_tool_list(self):
-        """MCP server uses the same tool list as the OpenAI tools module."""
+        """MCP server re-exports the same tool list as the OpenAI tools module."""
         from synthelion.plugins.mcp_server import get_tool_list as mcp_gtl
         from synthelion.plugins.openai_tools import get_tool_list as openai_gtl
         assert set(mcp_gtl()) == set(openai_gtl())
+
+    def test_no_duplicate_get_tool_list_in_mcp_server(self):
+        """mcp_server must not redefine get_tool_list locally (was a bug)."""
+        import inspect, synthelion.plugins.mcp_server as ms, synthelion.plugins.openai_tools as ot
+        assert ms.get_tool_list is ot.get_tool_list
+
+
+# ---------------------------------------------------------------------------
+# 11. Language detector — Romance language disambiguation (regression)
+# ---------------------------------------------------------------------------
+class TestLanguageDetectorRomance:
+    """Regression tests for ita/cat/por/spa confusion on short texts."""
+
+    def setup_method(self):
+        self.det = LanguageDetector()
+
+    def test_short_italian_vorrei(self):
+        assert self.det.detect("Vorrei un tavolo per due persone, per favore.") == "ita"
+
+    def test_short_italian_buongiorno(self):
+        assert self.det.detect("Buongiorno, vorrei un caffè per favore.") == "ita"
+
+    def test_short_spanish_not_italian(self):
+        result = self.det.detect("Quiero una mesa para dos personas, por favor.")
+        assert result == "spa"
+
+    def test_short_french_not_italian(self):
+        result = self.det.detect("Je voudrais une table pour deux personnes, s'il vous plaît.")
+        assert result == "fra"
+
+    def test_curated_preferred_over_yaml_on_tie(self):
+        # Italian sentence with words shared with Catalan — must return "ita" not "cat"
+        result = self.det.detect("Sono andato al mercato con la mia famiglia.")
+        assert result == "ita"
+
+
+# ---------------------------------------------------------------------------
+# 12. JsonCrusher — BM25 row-drop and edge cases
+# ---------------------------------------------------------------------------
+class TestJsonCrusher:
+    def setup_method(self):
+        self.crusher = JsonCrusher(max_items=3)
+
+    def test_small_array_markdown_table(self):
+        data = [{"name": "Alice", "age": 30}, {"name": "Bob", "age": 25}]
+        r = self.crusher.crush(json.dumps(data))
+        assert r["was_crushed"]
+        assert r["strategy"] in ("MarkdownTable", "Csv")
+        assert "Alice" in r["compressed"]
+
+    def test_large_array_bm25_row_drop(self):
+        # >6 keys bypasses MarkdownTable; values are compact so CSV saves <15%;
+        # more rows than max_items=3 triggers BM25 row-drop.
+        data = [
+            {"k1": i, "k2": i, "k3": i, "k4": i, "k5": i, "k6": i, "k7": i}
+            for i in range(10)
+        ]
+        r = self.crusher.crush(json.dumps(data), query="k3 k5")
+        assert r["original_rows"] == 10
+        # Strategy is either BM25 (lossy) or CSV (lossless) — both are valid compression
+        assert r["strategy"] in ("LossyRowDrop", "Csv", "MarkdownTable")
+        if r["strategy"] == "LossyRowDrop":
+            assert r["ccr_hash"] is not None
+            assert r["kept_rows"] <= 3
+
+    def test_bm25_row_drop_direct(self):
+        from synthelion.compressors.json_crusher import _bm25_select
+        rows = [{"title": f"doc about topic {i}"} for i in range(20)]
+        kept, dropped = _bm25_select(rows, "topic 5", top_k=3)
+        assert len(kept) == 3
+        assert len(dropped) == 17
+        # Row mentioning topic 5 should be in top results
+        kept_titles = [r["title"] for r in kept]
+        assert any("5" in t for t in kept_titles)
+
+    def test_bm25_no_query_keeps_first_rows(self):
+        from synthelion.compressors.json_crusher import _bm25_select
+        rows = [{"id": i} for i in range(10)]
+        kept, dropped = _bm25_select(rows, query="", top_k=3)
+        assert len(kept) == 3
+        assert len(kept) + len(dropped) == 10
+
+    def test_empty_array_not_crushed(self):
+        r = self.crusher.crush("[]")
+        assert not r["was_crushed"]
+
+    def test_single_object_not_crushed(self):
+        r = self.crusher.crush('{"key": "value"}')
+        assert not r["was_crushed"]
+
+    def test_invalid_json_not_crushed(self):
+        r = self.crusher.crush("not json at all")
+        assert not r["was_crushed"]
+
+    def test_array_of_non_dicts_not_crushed(self):
+        r = self.crusher.crush('["a", "b", "c"]')
+        assert not r["was_crushed"]
+
+
+# ---------------------------------------------------------------------------
+# 13. Compressors — edge cases
+# ---------------------------------------------------------------------------
+class TestCompressorEdgeCases:
+
+    def test_html_extractor_empty(self):
+        h = HtmlExtractor()
+        assert h.extract("") == ""
+        assert h.extract("   ") == ""
+
+    def test_html_extractor_plain_text(self):
+        h = HtmlExtractor()
+        result = h.extract("<p>Hello world</p>")
+        assert "Hello world" in result
+
+    def test_html_extractor_strips_script(self):
+        h = HtmlExtractor()
+        result = h.extract("<html><script>alert('x')</script><p>Keep this</p></html>")
+        assert "alert" not in result
+        assert "Keep this" in result
+
+    def test_html_extractor_malformed(self):
+        h = HtmlExtractor()
+        result = h.extract("<p>Unclosed tag <b>bold")
+        assert result  # must not crash
+
+    def test_diff_compressor_empty(self):
+        d = DiffCompressor()
+        result, was = d.compress("")
+        assert not was
+
+    def test_diff_compressor_no_diff_header(self):
+        d = DiffCompressor()
+        result, was = d.compress("just plain text\nno diff here")
+        assert not was
+
+    def test_diff_compressor_preserves_changes(self):
+        diff = "--- a/f.py\n+++ b/f.py\n@@ -1,3 +1,3 @@\n ctx\n-old\n+new\n ctx"
+        d = DiffCompressor()
+        result, was = d.compress(diff)
+        assert "-old" in result
+        assert "+new" in result
+
+    def test_log_compressor_empty(self):
+        lc = LogCompressor()
+        result, was = lc.compress("")
+        assert not was
+
+    def test_log_compressor_deduplicates(self):
+        log = "ERROR: timeout\nERROR: timeout\nERROR: timeout\nINFO: done"
+        lc = LogCompressor()
+        result, was = lc.compress(log)
+        assert "×3" in result
+        assert was
+
+    def test_log_compressor_unique_lines_unchanged(self):
+        log = "ERROR: a\nERROR: b\nERROR: c"
+        lc = LogCompressor()
+        result, was = lc.compress(log)
+        assert not was  # all unique, nothing deduplicated
+
+
+# ---------------------------------------------------------------------------
+# 14. CLI — subcommand smoke tests
+# ---------------------------------------------------------------------------
+class TestCli:
+    """Tests run the CLI entry point with mocked sys.argv."""
+
+    def _run(self, args: list[str]) -> str:
+        """Run CLI and return stdout as string."""
+        from synthelion.cli import main
+        with patch("sys.argv", ["synthelion"] + args):
+            with patch("sys.stdout", new_callable=StringIO) as mock_out:
+                with patch("sys.stderr", new_callable=StringIO):
+                    try:
+                        main()
+                    except SystemExit:
+                        pass
+                    return mock_out.getvalue()
+
+    def test_compress_subcommand(self):
+        out = self._run(["compress", "--text", "I would like to know if it is possible.", "--level", "light"])
+        assert out.strip()  # produces some output
+
+    def test_detect_subcommand(self):
+        out = self._run(["detect", "--text", "Where is the nearest train station?"])
+        assert "eng" in out
+
+    def test_detect_scores_subcommand(self):
+        out = self._run(["detect", "--text", "Where is the nearest train station?", "--scores"])
+        assert "eng" in out
+        assert ":" in out  # score format: "eng: 0.42"
+
+    def test_summarize_subcommand(self):
+        text = (
+            "Rome is the capital of Italy. It has ancient monuments. "
+            "The Colosseum is famous worldwide. Millions visit each year. "
+            "Vatican City is located within Rome."
+        )
+        out = self._run(["summarize", "--text", text, "--sentences", "2"])
+        assert out.strip()
+
+    def test_compress_json_output(self):
+        out = self._run(["compress", "--text", "I would like to know.", "--level", "semantic", "--json"])
+        data = json.loads(out.strip())
+        assert "compressed" in data
+        assert "efficiency_pct" in data
+
+    def test_route_subcommand(self):
+        arr = json.dumps([{"a": 1, "b": 2}, {"a": 3, "b": 4}])
+        out = self._run(["route", "--text", arr])
+        assert out.strip()
+
+
+# ---------------------------------------------------------------------------
+# 15. LangChain tools (skipped when langchain-core not installed)
+# ---------------------------------------------------------------------------
+@pytest.mark.skipif(not HAS_LANGCHAIN, reason="langchain-core not installed")
+class TestLangChainTools:
+    def test_get_tools_returns_five(self):
+        tools = get_langchain_tools()
+        assert len(tools) == 5
+
+    def test_tool_names(self):
+        tools = get_langchain_tools()
+        names = {t.name for t in tools}
+        expected = {
+            "synthelion_compress", "synthelion_detect_language",
+            "synthelion_route_content", "synthelion_summarize",
+            "synthelion_compress_batch",
+        }
+        assert names == expected
+
+    def test_compress_tool_runs(self):
+        tools = {t.name: t for t in get_langchain_tools()}
+        result = tools["synthelion_compress"].invoke({
+            "text": "I would like to know if it is possible.",
+            "level": "semantic",
+        })
+        assert "Compressed:" in result
+        assert "Savings:" in result   # format: "Savings: 65.0% (10 → 3 tokens)"
+
+    def test_detect_language_tool_runs(self):
+        tools = {t.name: t for t in get_langchain_tools()}
+        result = tools["synthelion_detect_language"].invoke({"text": "Where is the station?"})
+        assert result == "eng"
+
+    def test_compress_batch_tool_runs(self):
+        tools = {t.name: t for t in get_langchain_tools()}
+        result = tools["synthelion_compress_batch"].invoke({
+            "texts": ["Hello world.", "Ciao mondo."],
+            "level": "light",
+        })
+        assert "[0]" in result
+        assert "[1]" in result

@@ -21,7 +21,8 @@ from synthelion.models import (
     RoutedCompressionResult,
 )
 
-_CACHE_TTL = 1800  # 30 minutes
+_CACHE_TTL = 1800   # 30 minutes
+_CACHE_MAX = 512    # max entries — evict oldest 25% when full
 
 
 def _approx_tokens(text: str) -> int:
@@ -90,6 +91,11 @@ class ContentRouter:
 
         with self._cache_lock:
             self._cache[cache_key] = (result, time.time())
+            if len(self._cache) > _CACHE_MAX:
+                # Evict oldest 25% of entries
+                sorted_keys = sorted(self._cache, key=lambda k: self._cache[k][1])
+                for k in sorted_keys[: _CACHE_MAX // 4]:
+                    del self._cache[k]
 
         return result
 
