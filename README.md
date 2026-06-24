@@ -109,11 +109,56 @@ print(f"CO₂ avoided:  {result.estimated_co2_saved_mg:.3f} mg")
 
 ---
 
-## Install
+## Quick install — one command
+
+> The fastest way: download one script and run it. It installs Synthelion, detects your Python path, configures Claude Code MCP, and sets up the auto-compression hook automatically.
+
+### Windows (PowerShell)
+
+```powershell
+# Download and run
+Invoke-WebRequest https://raw.githubusercontent.com/francescopaolopassaro/synthelion/main/install_claude.ps1 -OutFile install_claude.ps1
+powershell -ExecutionPolicy Bypass -File install_claude.ps1
+```
+
+Or, if you already cloned the repo:
+```powershell
+powershell -ExecutionPolicy Bypass -File install_claude.ps1
+```
+
+### Linux / macOS (bash)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/francescopaolopassaro/synthelion/main/install_claude.sh | bash
+# or, after cloning the repo:
+chmod +x install_claude.sh && ./install_claude.sh
+```
+
+### All platforms (Python — works everywhere)
+
+```bash
+python install_claude.py
+```
+
+### Installer options
+
+| Flag | Description |
+|---|---|
+| `--upgrade` | Update Synthelion to the latest version |
+| `--no-hook` | Skip the auto-compression hook |
+| `--no-pip` | Skip pip install (Synthelion already installed) |
+| `--uninstall` | Remove Synthelion and all Claude Code config |
+
+Examples:
+```bash
+python install_claude.py --upgrade          # update
+python install_claude.py --uninstall        # remove everything
+python install_claude.py --no-pip --no-hook # only update settings.json
+```
 
 ---
 
-### Windows
+## Install (manual)
 
 **Requirements:** Python 3.11+ — download from [python.org](https://www.python.org/downloads/) and tick "Add to PATH" during setup.
 
