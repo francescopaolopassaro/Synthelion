@@ -9,6 +9,11 @@ import sys
 
 
 def main() -> None:
+    # Force UTF-8 output without BOM — needed on Windows where the default
+    # console encoding (cp1252) would mangle non-ASCII compressed text.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+
     parser = argparse.ArgumentParser(
         prog="synthelion",
         description="Synthelion — Python port of Caveman. Token compressor for LLMs.",
