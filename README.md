@@ -111,29 +111,109 @@ print(f"CO₂ avoided:  {result.estimated_co2_saved_mg:.3f} mg")
 
 ## Install
 
-```bash
+---
+
+### Windows
+
+**Requirements:** Python 3.11+ — download from [python.org](https://www.python.org/downloads/) and tick "Add to PATH" during setup.
+
+```powershell
+# 1. Install Synthelion
 pip install synthelion
+
+# 2. Verify the CLI works
+synthelion compress --text "Hello world, how are you today?" --json
+
+# 3. Verify the MCP server starts (Ctrl+C to stop)
+synthelion-mcp
+```
+
+If `synthelion` is not recognised after install, close and reopen the terminal (PATH refresh needed).
+
+---
+
+### Linux
+
+```bash
+# 1. Install Synthelion
+pip install synthelion
+# or, in a virtualenv:
+python3 -m venv ~/.venvs/synthelion
+source ~/.venvs/synthelion/bin/activate
+pip install synthelion
+
+# 2. Verify
+synthelion compress --text "Hello world, how are you today?" --json
+
+# 3. If synthelion-mcp is not in PATH (virtualenv scenario), add it:
+# Add the venv's bin directory to ~/.bashrc or use the absolute path in MCP config
+echo 'export PATH="$HOME/.venvs/synthelion/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
 ```
 
 ---
 
-## Integrations
+### macOS
 
-### MCP — Claude Code, Claude Desktop, OpenCode, Cursor, Windsurf, Continue…
+```bash
+# 1. Install with pip (system Python or Homebrew Python)
+pip3 install synthelion
+# or with uv (recommended — no PATH issues):
+pip install uv
+uvx synthelion-mcp   # runs the MCP server without a permanent install
 
-Any agent that supports the [Model Context Protocol](https://modelcontextprotocol.io) can use Synthelion as a tool server.
+# 2. Verify
+synthelion compress --text "Hello world, how are you today?" --json
+```
 
-**1.** Open your agent's MCP settings file:
+---
 
-| Agent | Settings file |
-|---|---|
-| Claude Code | `~/.claude/settings.json` |
-| Claude Desktop (macOS) | `~/Library/Application Support/Claude/claude_desktop_config.json` |
-| Claude Desktop (Windows) | `%APPDATA%\Claude\claude_desktop_config.json` |
-| OpenCode | `~/.config/opencode/config.json` |
-| Cursor / Windsurf | MCP settings in the app |
+### Zero-install with uvx (all platforms)
 
-**2.** Add this block:
+[uv](https://docs.astral.sh/uv/) installs and runs Synthelion in an isolated environment — no `pip install` needed:
+
+```bash
+pip install uv       # one-time
+uvx synthelion-mcp   # starts the MCP server directly
+```
+
+---
+
+## Update
+
+### Windows
+
+```powershell
+pip install --upgrade synthelion
+
+# Verify new version
+synthelion --version
+```
+
+### Linux / macOS
+
+```bash
+pip install --upgrade synthelion
+# or, if installed in a virtualenv:
+source ~/.venvs/synthelion/bin/activate
+pip install --upgrade synthelion
+```
+
+### With uv / uvx
+
+uvx always fetches the latest version automatically — nothing to do.
+
+---
+
+## Set up on Claude Code
+
+Claude Code uses the MCP protocol to talk to Synthelion.
+
+### Step 1 — Install Synthelion (see above)
+
+### Step 2 — Add to `~/.claude/settings.json`
+
+Open the file (`%USERPROFILE%\.claude\settings.json` on Windows, `~/.claude/settings.json` on Linux/macOS) and add:
 
 ```json
 {
@@ -145,9 +225,19 @@ Any agent that supports the [Model Context Protocol](https://modelcontextprotoco
 }
 ```
 
-**3.** Restart the agent. Done.
+If `synthelion-mcp` is not in PATH (virtualenv, macOS Homebrew Python), use the absolute path:
 
-**Zero-install with uvx** (no `pip install` needed if you have [uv](https://docs.astral.sh/uv/)):
+```json
+{
+  "mcpServers": {
+    "synthelion": {
+      "command": "/home/user/.venvs/synthelion/bin/synthelion-mcp"
+    }
+  }
+}
+```
+
+Or use uvx — it always works without PATH issues:
 
 ```json
 {
@@ -160,11 +250,136 @@ Any agent that supports the [Model Context Protocol](https://modelcontextprotoco
 }
 ```
 
-Once connected, just ask naturally:
-> *"Compress this text to save tokens"*  
-> *"Summarize this article in 3 sentences"*  
-> *"Detect the language of this message"*  
-> *"Compress this JSON / HTML / diff / log"*
+### Step 3 — Restart Claude Code
+
+Close and reopen the Claude Code window (or run `claude` again in the terminal). Synthelion is now available as an MCP tool.
+
+### Step 4 — Verify
+
+Type in Claude Code:
+> *"Use Synthelion to compress this: I would like to know if it is possible to receive information about cheap restaurants in Rome."*
+
+Claude will call the MCP tool and return the compressed version.
+
+---
+
+## Automatic prompt compression — Claude Code hook
+
+> **How it works:** every prompt longer than 200 characters is automatically compressed by Synthelion and the compressed version is injected as context for Claude. Claude receives both the original and the compressed form and focuses on the compressed one. This is the maximum automation currently possible within Claude Code's hook system (hooks cannot replace the original prompt text).
+
+### Windows (`~/.claude/settings.json`)
+
+```json
+{
+  "mcpServers": {
+    "synthelion": { "command": "synthelion-mcp" }
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "powershell",
+            "command": "$j=[Console]::In.ReadToEnd()|ConvertFrom-Json;$p=$j.prompt;if($p -and $p.Length -gt 200){$r=($p|synthelion compress --json 2>$null)|ConvertFrom-Json;if($r -and $r.efficiency_pct -gt 15){@{hookSpecificOutput=@{hookEventName='UserPromptSubmit';additionalContext=\"[Synthelion $([Math]::Round($r.efficiency_pct))% token reduction] $($r.compressed)\"}}|ConvertTo-Json -Compress}}",
+            "statusMessage": "Compressing prompt...",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### Linux / macOS (`~/.claude/settings.json`)
+
+```json
+{
+  "mcpServers": {
+    "synthelion": { "command": "synthelion-mcp" }
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "prompt=$(cat | python3 -c \"import sys,json; print(json.load(sys.stdin).get('prompt',''))\"); if [ ${#prompt} -gt 200 ]; then r=$(echo \"$prompt\" | synthelion compress --json 2>/dev/null); eff=$(echo \"$r\" | python3 -c \"import sys,json; d=json.load(sys.stdin); print(int(d.get('efficiency_pct',0)))\"); comp=$(echo \"$r\" | python3 -c \"import sys,json; print(json.load(sys.stdin).get('compressed',''))\"); if [ \"$eff\" -gt 15 ]; then python3 -c \"import json; print(json.dumps({'hookSpecificOutput':{'hookEventName':'UserPromptSubmit','additionalContext':'[Synthelion {}% saved] {}'.format($eff,'$comp')}}))\" ; fi; fi",
+            "statusMessage": "Compressing prompt...",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### How to disable the hook
+
+Remove the `"hooks"` block from `~/.claude/settings.json`, or open `/hooks` in Claude Code to toggle it.
+
+---
+
+## Using Synthelion with all agents — automatic compression
+
+Synthelion can compress inputs automatically for **any agent** that supports the MCP protocol (Claude Code, Claude Desktop, OpenCode, Cursor, Windsurf, Continue…).
+
+### Configure all MCP-compatible agents
+
+Add Synthelion to each agent's config file:
+
+| Agent | Config file |
+|---|---|
+| Claude Code | `~/.claude/settings.json` |
+| Claude Desktop (macOS) | `~/Library/Application Support/Claude/claude_desktop_config.json` |
+| Claude Desktop (Windows) | `%APPDATA%\Claude\claude_desktop_config.json` |
+| OpenCode | `~/.config/opencode/config.json` |
+| Cursor / Windsurf | MCP settings in the app UI |
+| Continue | `.continue/config.json` |
+
+All use the same JSON block:
+```json
+{
+  "mcpServers": {
+    "synthelion": {
+      "command": "synthelion-mcp"
+    }
+  }
+}
+```
+
+### Instruct agents to compress automatically
+
+Add this to your agent's system prompt or CLAUDE.md:
+
+```
+When processing long texts, files, or documents (>200 tokens), always use
+the Synthelion MCP tool to compress the content before including it in your
+reasoning. Call: mcp__synthelion__route_content or mcp__synthelion__compress.
+Report the token reduction achieved.
+```
+
+### Use the CLI in shell pipelines
+
+```bash
+# Compress a file before sending to any LLM API
+cat long_context.txt | synthelion compress --level semantic > compressed.txt
+
+# Pipe directly into any tool
+synthelion route --file document.html | llm-cli --model gpt-4o
+
+# Batch compress a directory
+for f in docs/*.md; do
+  synthelion compress --text "$(cat $f)" --json >> compressed_batch.jsonl
+done
+```
+
+---
+
+## Integrations
 
 ---
 
@@ -475,9 +690,10 @@ Language is detected automatically from the text. Pass an explicit ISO 639-3 cod
 
 **`synthelion-mcp: command not found`**
 
-Use the module form instead:
+The CLI entry point is not in your PATH. Fixes (choose one):
 
 ```json
+// Option A — use the Python module form
 {
   "mcpServers": {
     "synthelion": {
@@ -488,7 +704,53 @@ Use the module form instead:
 }
 ```
 
-Or use `uvx` — it always works without PATH issues.
+```json
+// Option B — use uvx (always works, no PATH needed)
+{
+  "mcpServers": {
+    "synthelion": {
+      "command": "uvx",
+      "args": ["synthelion-mcp"]
+    }
+  }
+}
+```
+
+```json
+// Option C — absolute path to the installed binary
+// Windows: find it with: where synthelion-mcp
+// Linux/macOS: which synthelion-mcp
+{
+  "mcpServers": {
+    "synthelion": {
+      "command": "C:\\Users\\you\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\synthelion-mcp.exe"
+    }
+  }
+}
+```
+
+**Hook not firing (Windows)**
+
+Run `where synthelion` in PowerShell to verify the CLI is in PATH. If not, add the Scripts folder to PATH:
+```powershell
+$env:PATH += ";$env:APPDATA\Python\Python312\Scripts"
+```
+
+**Hook not firing (Linux/macOS)**
+
+Verify with `which synthelion`. If using a virtualenv, activate it before starting Claude Code or use the absolute path in the hook command.
+
+**Detection errors (wrong language detected)**
+
+Pass the language explicitly:
+```bash
+synthelion compress --text "..." --language ita
+```
+
+Or in Python:
+```python
+result = svc.compress(text, iso3="ita")
+```
 
 ---
 

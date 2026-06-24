@@ -10,216 +10,11 @@ import brotli
 
 from synthelion.models import WordDataFile
 
-# ---------------------------------------------------------------------------
-# Curated inline function-word lists (ported from C# FunctionWordProvider)
-# ---------------------------------------------------------------------------
-_CURATED: dict[str, frozenset[str]] = {
-    "eng": frozenset({
-        "a", "an", "the", "this", "that", "these", "those",
-        "i", "you", "he", "she", "it", "we", "they",
-        "me", "him", "her", "us", "them",
-        "my", "your", "his", "its", "our", "their",
-        "mine", "yours", "hers", "ours", "theirs",
-        "myself", "yourself", "himself", "herself", "itself", "ourselves", "themselves",
-        "who", "whom", "whose", "which", "what",
-        "in", "on", "at", "to", "for", "of", "with", "by", "from",
-        "into", "onto", "upon", "within", "without",
-        "during", "before", "after",
-        "above", "below", "between", "among", "amongst",
-        "across", "against", "around", "behind", "beneath",
-        "beside", "besides", "beyond", "inside",
-        "near", "off", "outside", "over", "past",
-        "through", "toward", "towards", "under", "underneath",
-        "via", "per",
-        "and", "or", "but", "if", "because", "although", "though",
-        "while", "whereas", "unless", "since", "so", "yet",
-        "nor", "both", "whether", "either", "neither",
-        "be", "am", "is", "are", "was", "were", "been", "being",
-        "have", "has", "had", "having",
-        "do", "does", "did", "doing", "done",
-        "will", "would", "shall", "should",
-        "can", "could", "may", "might", "must",
-        "need", "dare", "ought",
-        "not", "no", "nor", "never",
-        "as", "than",
-        "very", "too", "quite", "rather",
-        "here", "there", "where",
-        "when", "why", "how",
-        "then", "now",
-        "just", "only", "even",
-        "also", "still", "already",
-        "indeed", "however", "therefore",
-        "otherwise", "nevertheless",
-        "maybe", "perhaps",
-        "please", "yes",
-        "oh", "ah",
-        "any", "some", "every", "each", "all", "few", "many", "much", "several",
-        "nothing", "something", "anything", "everything",
-        "someone", "anyone", "everyone", "none",
-        "such", "same", "else", "other", "another",
-        "more", "most", "less", "least",
-        "up", "down", "out", "well",
-    }),
-    "ita": frozenset({
-        "il", "lo", "la", "i", "gli", "le",
-        "un", "uno", "una",
-        "questo", "questa", "questi", "queste", "quel", "quella", "quelli", "quelle",
-        "io", "tu", "lui", "lei", "noi", "voi", "loro",
-        "mi", "ti", "si", "ci", "vi", "ne",
-        "mio", "tuo", "suo", "nostro", "vostro",
-        "mia", "tua", "sua", "nostra", "vostra",
-        "miei", "tuoi", "suoi", "nostri", "vostri",
-        "mie", "tue", "sue", "nostre", "vostre",
-        "che", "cui", "chi",
-        "in", "a", "da", "di", "con", "su", "per", "tra", "fra",
-        "del", "dello", "della", "dei", "degli", "delle",
-        "al", "allo", "alla", "ai", "agli", "alle",
-        "dal", "dallo", "dalla", "dai", "dagli", "dalle",
-        "nel", "nello", "nella", "nei", "negli", "nelle",
-        "sul", "sullo", "sulla", "sui", "sugli", "sulle",
-        "e", "ed", "o", "od", "ma",
-        "se", "come", "mentre", "quando", "dove",
-        "non", "neppure", "nemmeno",
-        "sono", "sei", "siamo", "siete", "sia", "siano",
-        "ho", "hai", "ha", "abbiamo", "avete", "hanno",
-        "sto", "stai", "sta", "stiamo", "state", "stanno",
-        "posso", "puoi", "puo", "possiamo", "potete", "possono",
-        "voglio", "vuoi", "vuole", "vogliamo", "volete", "vogliono",
-        "devo", "devi", "deve", "dobbiamo", "dovete", "devono",
-        "qui", "qua", "li",
-        "gia", "piu", "meno", "molto", "poco", "troppo",
-        "anche", "pure", "ancora", "sempre", "mai",
-        "poi", "dopo", "prima", "ora", "adesso",
-        "allora", "dunque", "quindi", "inoltre", "perche",
-        "fa", "fanno", "fare", "essere", "avere", "stare", "potere", "volere", "dovere",
-        # Distinctive Italian forms rarely shared with other Romance languages
-        "vorrei", "avrei", "sarei", "potrei", "dovrei", "farei", "darei",
-        "volevo", "avevo", "ero", "stavo",
-        "siete", "abbiate", "siate",
-        "degli", "sugli", "negli",
-        "perché", "però", "oppure", "nemmeno", "neppure", "neanche",
-        "forse", "magari", "ecco", "certo", "sì",
-        "grazie", "prego", "salve", "arrivederci",
-    }),
-    "fra": frozenset({
-        "le", "la", "les", "l",
-        "un", "une", "des", "du", "de", "d",
-        "ce", "cet", "cette", "ces",
-        "mon", "ton", "son", "ma", "ta", "sa",
-        "mes", "tes", "ses", "nos", "vos", "leurs", "notre", "votre",
-        "chaque", "quelques", "tout", "toute", "tous", "toutes",
-        "je", "tu", "il", "elle", "on", "nous", "vous", "ils", "elles",
-        "me", "te", "se", "lui", "leur", "moi", "toi", "soi", "eux",
-        "qui", "que", "quoi", "dont", "ou",
-        "a", "dans", "par", "pour", "en", "vers", "avec",
-        "sans", "sous", "sur", "chez", "entre", "pendant", "depuis",
-        "et", "ou", "mais", "donc", "car", "ni",
-        "que", "lorsque", "quand", "puisque", "si",
-        "suis", "es", "est", "sommes", "etes", "sont",
-        "ai", "as", "avons", "avez", "ont",
-        "ete", "etre", "avoir",
-        "ne", "pas", "plus",
-        "tres", "aussi", "bien", "deja", "encore", "toujours", "jamais",
-        "alors", "puis", "ainsi", "enfin",
-        "trop", "assez", "moins", "beaucoup", "peu",
-        "oui", "non", "ce", "c", "ca", "y",
-    }),
-    "deu": frozenset({
-        "der", "die", "das", "den", "dem", "des",
-        "ein", "eine", "einer", "eines", "einem", "einen",
-        "mein", "dein", "sein", "ihr", "unser", "euer",
-        "meine", "deine", "seine", "ihre", "unsere", "eure",
-        "dieser", "diese", "dieses", "diesen", "diesem",
-        "ich", "du", "er", "sie", "es", "wir", "ihr",
-        "mich", "dich", "sich", "uns", "euch", "mir", "dir", "ihm", "man",
-        "in", "auf", "mit", "von", "zu", "aus", "bei", "nach",
-        "um", "durch", "fur", "gegen", "ohne",
-        "uber", "unter", "vor", "hinter", "neben", "zwischen", "an", "bis", "seit",
-        "und", "oder", "aber", "denn", "weil",
-        "dass", "wenn", "als", "ob",
-        "wahrend", "nachdem", "bevor", "seitdem",
-        "bin", "bist", "ist", "sind", "seid", "war", "waren",
-        "habe", "hast", "hat", "haben", "habt",
-        "kann", "kannst", "konnen", "konnt",
-        "muss", "musst", "mussen",
-        "soll", "sollst", "sollen", "sollt",
-        "will", "willst", "wollen", "wollt",
-        "darf", "darfst", "durfen", "durft",
-        "mag", "magst", "mogen",
-        "nicht", "kein", "keine", "keinen", "nichts", "nie", "niemals",
-        "sehr", "viel", "wenig", "zu", "ganz", "etwas", "mehr", "weniger",
-        "schon", "noch", "immer", "ja", "nein", "auch", "nur",
-    }),
-    "spa": frozenset({
-        "el", "la", "los", "las", "un", "una", "unos", "unas",
-        "este", "esta", "estos", "estas", "ese", "esa", "esos", "esas",
-        "aquel", "aquella", "aquellos", "aquellas",
-        "mi", "tu", "su", "nuestro", "vuestro", "mis", "tus", "sus", "nuestros", "vuestros",
-        "yo", "el", "ella", "usted", "nosotros", "vosotros", "ellos", "ellas", "ustedes",
-        "me", "te", "se", "nos", "os", "lo", "le", "les",
-        "a", "ante", "bajo", "con", "contra", "de", "desde",
-        "durante", "en", "entre", "hacia", "hasta",
-        "mediante", "para", "por", "segun", "sin", "sobre", "tras",
-        "y", "e", "o", "u", "pero", "sino",
-        "aunque", "porque", "pues", "como", "que", "si", "cuando", "mientras",
-        "soy", "eres", "es", "somos", "sois", "son",
-        "he", "has", "ha", "hemos", "habeis", "han",
-        "estoy", "estas", "esta", "estamos", "estais", "estan",
-        "tengo", "tienes", "tiene", "tenemos", "teneis", "tienen",
-        "puedo", "puedes", "puede", "podemos", "podeis", "pueden",
-        "quiero", "quieres", "quiere", "queremos", "quereis", "quieren",
-        "debo", "debes", "debe", "debemos", "debeis", "deben",
-        "no", "nada", "nadie", "ningun", "ninguna", "nunca", "jamas",
-        "muy", "mucho", "poca", "poco", "bastante", "demasiado",
-        "mas", "menos", "casi", "solo", "solamente",
-        "tambien", "siempre", "ya", "aun", "todavia",
-        "aqui", "ahi", "alli", "bien", "mal",
-    }),
-    "por": frozenset({
-        "o", "a", "os", "as", "um", "uma", "uns", "umas",
-        "este", "esta", "estes", "estas", "esse", "essa", "esses", "essas",
-        "aquele", "aquela", "aqueles", "aquelas",
-        "meu", "minha", "teu", "tua", "seu", "sua",
-        "nosso", "nossa", "vosso", "vossa",
-        "meus", "minhas", "teus", "tuas", "seus", "suas",
-        "eu", "tu", "ele", "ela", "nos", "vos", "eles", "elas",
-        "voce", "voces", "me", "te", "se", "lhe", "lhes",
-        "a", "ante", "apos", "ate", "com", "contra", "de",
-        "desde", "em", "entre", "para", "perante", "por",
-        "sem", "sob", "sobre", "tras",
-        "e", "mas", "ou", "porque", "pois", "como", "que", "se",
-        "quando", "enquanto", "embora", "contudo", "entretanto", "portanto", "porem", "todavia",
-        "sou", "somos", "sao", "estou", "esta", "estamos", "estao",
-        "tenho", "tem", "temos", "hei", "ha", "havemos", "hao",
-        "posso", "pode", "podemos", "podem",
-        "quero", "quer", "queremos", "querem",
-        "devo", "deve", "devemos", "devem",
-        "nao", "nada", "ninguem", "nenhum", "nenhuma", "nunca", "jamais",
-        "muito", "pouco", "bastante", "demais", "mais", "menos",
-        "quase", "so", "somente", "tambem", "sempre", "ja", "ainda", "agora",
-    }),
-    "nld": frozenset({
-        "de", "het", "een", "deze", "dit", "die", "dat",
-        "mijn", "jouw", "zijn", "haar", "onze", "ons", "hun", "uw",
-        "ik", "jij", "je", "u", "hij", "zij", "ze", "wij", "we", "jullie",
-        "mij", "me", "jou", "hem", "hen",
-        "in", "op", "met", "van", "naar", "uit", "bij", "door",
-        "voor", "over", "onder", "tegen", "tussen",
-        "tijdens", "na", "langs", "om", "zonder", "binnen", "buiten", "via", "per",
-        "en", "of", "maar", "want", "dus", "omdat",
-        "als", "wanneer", "terwijl", "hoewel", "indien", "tenzij", "nadat", "voordat",
-        "ben", "bent", "is", "zijn", "was", "waren",
-        "heb", "hebt", "heeft", "hebben", "had", "hadden",
-        "kan", "kunt", "kunnen", "moet", "moeten",
-        "mag", "mogen", "wil", "wilt", "willen",
-        "zal", "zult", "zullen", "zou", "zouden",
-        "word", "wordt", "werd", "werden", "geworden",
-        "niet", "geen", "niets", "niemand", "nooit",
-        "heel", "veel", "weinig", "erg", "nog", "al", "reeds",
-        "pas", "slechts", "maar", "net", "even", "bijna", "haast",
-        "ja", "nee", "ook",
-    }),
-}
+# Languages with hand-curated .excl.yaml.br and .generic.yaml.br supplementary files.
+# All function words now live in the YAML worddata files — no inline lists.
+_CURATED_ISO3S: frozenset[str] = frozenset({
+    "eng", "ita", "fra", "deu", "spa", "por", "nld",
+})
 
 
 class FunctionWordProvider:
@@ -227,18 +22,24 @@ class FunctionWordProvider:
 
     Ported from C# FunctionWordProvider. Language data files are brotli-compressed
     YAML blobs shipped with the package (synthelion/worddata/*.yaml.br + _index.br).
+
+    Supplementary files generated by scripts/generate_worddata.py:
+      {iso3}.excl.yaml.br   — exclusive markers for disambiguation
+      {iso3}.generic.yaml.br — generic words for aggressive compression
     """
 
     @classmethod
     def get_curated_iso3s(cls) -> frozenset[str]:
-        """Return ISO 639-3 codes of languages with hand-curated function-word lists."""
-        return frozenset(_CURATED.keys())
+        """Return ISO 639-3 codes that have supplementary .excl and .generic files."""
+        return _CURATED_ISO3S
 
     _index_lock = threading.Lock()
-    _index: dict[str, tuple[str, str, frozenset[str]]] | None = None  # iso3 → (iso1, name, fw)
+    _index: dict[str, tuple[str, str, frozenset[str]]] | None = None
     _fw_cache: dict[str, frozenset[str]] = {}
     _lemma_cache: dict[str, dict[str, str]] = {}
     _word_data_cache: dict[str, WordDataFile | None] = {}
+    _excl_cache: dict[str, tuple[frozenset[str], frozenset[str]]] = {}
+    _generic_cache: dict[str, frozenset[str]] = {}
 
     @classmethod
     def _worddata_path(cls) -> importlib.resources.abc.Traversable:
@@ -269,26 +70,140 @@ class FunctionWordProvider:
             cls._index = idx
         return cls._index
 
+    # ------------------------------------------------------------------
+    # Function words
+    # Curated languages load from {iso3}.fw.yaml.br (precise grammatical
+    # function words — articles, pronouns, prepositions, conjunctions,
+    # auxiliaries).  All other languages load from _index.br.
+    # ------------------------------------------------------------------
+
     def get_function_words(self, iso3: str) -> frozenset[str]:
         iso3 = iso3.lower()
-        if iso3 in _CURATED:
-            return _CURATED[iso3]
         cached = FunctionWordProvider._fw_cache.get(iso3)
         if cached is not None:
             return cached
-        idx = self._load_index()
-        entry = idx.get(iso3)
-        result = entry[2] if entry else frozenset()
+
+        # Curated languages: load from .fw.yaml.br (hand-curated grammatical FW)
+        if iso3 in _CURATED_ISO3S:
+            words: list[str] = []
+            try:
+                data = self._worddata_path().joinpath(f"{iso3}.fw.yaml.br").read_bytes()
+                raw = brotli.decompress(data).decode("utf-8")
+                in_section = False
+                for line in raw.splitlines():
+                    stripped = line.rstrip()
+                    if not stripped:
+                        continue
+                    if not stripped[0].isspace():
+                        in_section = stripped.rstrip(":") == "function_words"
+                        continue
+                    if in_section:
+                        t = stripped.strip()
+                        if t.startswith("- "):
+                            w = t[2:].strip()
+                            if w:
+                                words.append(w)
+            except Exception:
+                pass
+            result = frozenset(words)
+        else:
+            idx = self._load_index()
+            entry = idx.get(iso3)
+            result = entry[2] if entry else frozenset()
+
         FunctionWordProvider._fw_cache[iso3] = result
         return result
 
     def get_all_supported_iso3(self) -> set[str]:
-        supported = set(_CURATED.keys())
-        supported.update(self._load_index().keys())
+        supported = set(self._load_index().keys())
+        supported.update(_CURATED_ISO3S)
         return supported
 
     def is_function_word(self, word: str, iso3: str) -> bool:
         return word.strip().lower() in self.get_function_words(iso3)
+
+    # ------------------------------------------------------------------
+    # Supplementary: exclusive markers & ambiguous words
+    # ------------------------------------------------------------------
+
+    def _load_excl(self, iso3: str) -> tuple[frozenset[str], frozenset[str]]:
+        """Load {iso3}.excl.yaml.br → (exclusive_markers, ambiguous_with)."""
+        iso3 = iso3.lower()
+        cached = FunctionWordProvider._excl_cache.get(iso3)
+        if cached is not None:
+            return cached
+        excl: list[str] = []
+        amb: list[str] = []
+        try:
+            data = self._worddata_path().joinpath(f"{iso3}.excl.yaml.br").read_bytes()
+            raw = brotli.decompress(data).decode("utf-8")
+            section = None
+            for line in raw.splitlines():
+                stripped = line.rstrip()
+                if not stripped:
+                    continue
+                if not stripped[0].isspace():
+                    key = stripped.rstrip(":")
+                    section = key if key in ("exclusive_markers", "ambiguous_with") else None
+                    continue
+                t = stripped.strip()
+                if t.startswith("- "):
+                    w = t[2:].strip()
+                    if section == "exclusive_markers":
+                        excl.append(w)
+                    elif section == "ambiguous_with":
+                        amb.append(w)
+        except Exception:
+            pass
+        result = (frozenset(excl), frozenset(amb))
+        FunctionWordProvider._excl_cache[iso3] = result
+        return result
+
+    def get_exclusive_markers(self, iso3: str) -> frozenset[str]:
+        """Words unique to this language — used by detector for disambiguation."""
+        return self._load_excl(iso3)[0]
+
+    def get_ambiguous_words(self, iso3: str) -> frozenset[str]:
+        """Words shared with other curated languages — down-weighted in detection."""
+        return self._load_excl(iso3)[1]
+
+    # ------------------------------------------------------------------
+    # Supplementary: generic compression words (aggressive mode)
+    # ------------------------------------------------------------------
+
+    def get_generic_words(self, iso3: str) -> frozenset[str]:
+        """Load {iso3}.generic.yaml.br — generic words removed in aggressive mode."""
+        iso3 = iso3.lower()
+        cached = FunctionWordProvider._generic_cache.get(iso3)
+        if cached is not None:
+            return cached
+        words: list[str] = []
+        try:
+            data = self._worddata_path().joinpath(f"{iso3}.generic.yaml.br").read_bytes()
+            raw = brotli.decompress(data).decode("utf-8")
+            in_section = False
+            for line in raw.splitlines():
+                stripped = line.rstrip()
+                if not stripped:
+                    continue
+                if not stripped[0].isspace():
+                    in_section = stripped.rstrip(":") == "generic_words"
+                    continue
+                if in_section:
+                    t = stripped.strip()
+                    if t.startswith("- "):
+                        w = t[2:].strip()
+                        if w:
+                            words.append(w)
+        except Exception:
+            pass
+        result = frozenset(words)
+        FunctionWordProvider._generic_cache[iso3] = result
+        return result
+
+    # ------------------------------------------------------------------
+    # Full word data (lemmas, verbs, proper nouns)
+    # ------------------------------------------------------------------
 
     def load_word_data(self, iso3: str) -> WordDataFile | None:
         iso3 = iso3.lower()
