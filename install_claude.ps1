@@ -55,6 +55,10 @@ function Find-McpBinary {
     # 1. Scripts folder next to python.exe
     $pythonDir = Split-Path (Get-Command python -ErrorAction SilentlyContinue).Source
     if ($pythonDir) {
+        # Check same dir as python.exe (virtualenv: python.exe lives in Scripts\)
+        $candidate = Join-Path $pythonDir "synthelion-mcp.exe"
+        if (Test-Path $candidate) { return $candidate }
+        # Check Scripts\ subfolder (system install: python.exe lives in root)
         $candidate = Join-Path $pythonDir "Scripts\synthelion-mcp.exe"
         if (Test-Path $candidate) { return $candidate }
     }
