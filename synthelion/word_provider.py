@@ -92,6 +92,14 @@ _CURATED: dict[str, frozenset[str]] = {
         "poi", "dopo", "prima", "ora", "adesso",
         "allora", "dunque", "quindi", "inoltre", "perche",
         "fa", "fanno", "fare", "essere", "avere", "stare", "potere", "volere", "dovere",
+        # Distinctive Italian forms rarely shared with other Romance languages
+        "vorrei", "avrei", "sarei", "potrei", "dovrei", "farei", "darei",
+        "volevo", "avevo", "ero", "stavo",
+        "siete", "abbiate", "siate",
+        "degli", "sugli", "negli",
+        "perché", "però", "oppure", "nemmeno", "neppure", "neanche",
+        "forse", "magari", "ecco", "certo", "sì",
+        "grazie", "prego", "salve", "arrivederci",
     }),
     "fra": frozenset({
         "le", "la", "les", "l",
@@ -220,6 +228,11 @@ class FunctionWordProvider:
     Ported from C# FunctionWordProvider. Language data files are brotli-compressed
     YAML blobs shipped with the package (synthelion/worddata/*.yaml.br + _index.br).
     """
+
+    @classmethod
+    def get_curated_iso3s(cls) -> frozenset[str]:
+        """Return ISO 639-3 codes of languages with hand-curated function-word lists."""
+        return frozenset(_CURATED.keys())
 
     _index_lock = threading.Lock()
     _index: dict[str, tuple[str, str, frozenset[str]]] | None = None  # iso3 → (iso1, name, fw)

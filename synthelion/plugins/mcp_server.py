@@ -2,7 +2,7 @@
 # © 2026 Passaro Francesco Paolo — Digitalsolutions.it
 """MCP server exposing Synthelion compression tools for Claude Code, OpenCode, and other MCP clients.
 
-Requires: pip install "synthelion[mcp]"
+mcp is included as a core dependency — no extra install step needed.
 
 Run as standalone server:
     synthelion-mcp
@@ -21,13 +21,7 @@ from __future__ import annotations
 import asyncio
 import json as _json
 
-from synthelion.plugins.openai_tools import execute_tool, get_tool_definitions, get_tool_list
-
-
-def get_tool_list() -> list[str]:  # noqa: F811
-    """Return names of all exposed MCP tools."""
-    from synthelion.plugins.openai_tools import get_tool_list as _gtl
-    return _gtl()
+from synthelion.plugins.openai_tools import execute_tool, get_tool_definitions, get_tool_list  # noqa: F401
 
 
 def main() -> None:

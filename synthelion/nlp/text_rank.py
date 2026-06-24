@@ -13,6 +13,7 @@ from synthelion.word_provider import FunctionWordProvider
 _DAMPING = 0.85
 _MAX_ITER = 100
 _TOL = 1e-4
+_MAX_SENTENCES = 200  # cap to avoid O(n²) blowup on very long documents
 
 # Chat-aware thresholds (same as C# ChatSummarizeOptions defaults)
 _MIN_DISCOURSE_WORDS = 60
@@ -88,6 +89,10 @@ class TextRankSummarizer:
 
         if len(sentences) <= k:
             return text
+
+        # Cap sentence count to avoid O(n²) blowup; keep first _MAX_SENTENCES sentences
+        if len(sentences) > _MAX_SENTENCES:
+            sentences = sentences[:_MAX_SENTENCES]
 
         tok = [_tokenize(s, fw) for s in sentences]
         n = len(sentences)
