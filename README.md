@@ -1,5 +1,5 @@
 # Synthelion — Universal Token Compressor and Prompt Manager for AI Agents
-
+![Synthelion Logo](Synthelion.png)
 Synthelion compresses prompts before they reach any AI model — cutting token usage by up to 70%, reducing API costs, and speeding up responses. It works with **any agent or framework**: Claude Code, OpenAI, LangChain, OpenCode, Cursor, and more.
 
 Supports 50+ languages out of the box. No AI model required. No configuration.
