@@ -8,17 +8,27 @@ from synthelion.word_provider import FunctionWordProvider
 
 _WORD_RE = re.compile(r"[^\W\d_]+(?:'[^\W\d_]+)?", re.UNICODE)
 
+# When a curated language scores >= this fraction of the best YAML-derived score,
+# prefer the curated language. Prevents Italian/Catalan/Portuguese confusion on
+# short texts where "per", "un" appear in multiple worddata files.
+_CURATED_PREFERENCE_THRESHOLD = 0.75
+
 
 class LanguageDetector:
     """Detects text language by stop-word frequency scoring.
 
     Ported from C# CavemanLanguageDetector. Backed by the embedded worddata index
     so detection never loads the large per-language blobs.
+
+    Curated languages (eng, ita, fra, deu, spa, por, nld) are preferred over
+    YAML-derived ones when scores are close, avoiding false positives from
+    overlapping Romance-language vocabulary.
     """
 
     def __init__(self, word_provider: FunctionWordProvider | None = None) -> None:
         self._provider = word_provider or FunctionWordProvider()
         self._supported = self._provider.get_all_supported_iso3()
+        self._curated_iso3s = self._provider.get_curated_iso3s()
 
     def detect(self, text: str) -> str:
         """Return the most likely ISO 639-3 code, falling back to 'eng'."""
@@ -47,11 +57,31 @@ class LanguageDetector:
         if ratio < 0.02:
             return "eng"
 
+        # If the top result is not from the curated set, check whether a curated
+        # language scores close enough to prefer it (avoids ita→cat confusion).
+        if best_iso3 not in self._curated_iso3s:
+            best_curated = max(
+                ((iso3, s) for iso3, s in scores.items() if iso3 in self._curated_iso3s),
+                key=lambda x: x[1],
+                default=None,
+            )
+            if best_curated and best_curated[1] >= best_score * _CURATED_PREFERENCE_THRESHOLD:
+                best_iso3 = best_curated[0]
+                best_score = best_curated[1]
+
         second_best = max(
             (v for k, v in scores.items() if k != best_iso3), default=0
         )
         if best_score > second_best or (best_score == second_best and best_score >= 2):
             return best_iso3
+
+        # Tiebreak: if both languages are tied and one is curated, prefer it
+        tied_curated = [
+            iso3 for iso3, s in scores.items()
+            if s == best_score and iso3 in self._curated_iso3s
+        ]
+        if tied_curated:
+            return tied_curated[0]
 
         return "eng"
 

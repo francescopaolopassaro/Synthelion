@@ -19,8 +19,22 @@ from synthelion.core import CompressionFilter, CompressionService
 from synthelion.content_detector import ContentDetector
 from synthelion.content_router import ContentRouter
 
-__version__ = "1.0.0"
+__version__ = "1.0.6"
 __author__ = "Passaro Francesco Paolo"
+
+
+def count_tokens(text: str, mode: str = "approx") -> int:
+    """Estimate token count of *text*.
+
+    mode="approx"  → GPT-style estimate: len(text) // 4  (fast, ±15%)
+    mode="words"   → whitespace word count (language-dependent)
+    """
+    if not text:
+        return 0
+    if mode == "words":
+        return len(text.split())
+    return len(text) // 4
+
 
 __all__ = [
     "CompressionLevel",
@@ -35,4 +49,5 @@ __all__ = [
     "CompressionService",
     "ContentDetector",
     "ContentRouter",
+    "count_tokens",
 ]

@@ -78,7 +78,7 @@ def _cmd_compress(args) -> None:
     text = _read_input(args)
     svc = CompressionService()
     r = svc.compress(text, level_map[args.level], iso3=args.language)
-    if getattr(args, "json", False):
+    if args.json:
         print(json.dumps({"compressed": r.compressed_text, "efficiency_pct": round(r.efficiency_pct, 2)}))
     else:
         print(r.compressed_text)
@@ -108,7 +108,7 @@ def _cmd_route(args) -> None:
     text = _read_input(args)
     router = ContentRouter.from_profile(profile_map[args.profile])
     r = router.route(text)
-    if getattr(args, "json", False):
+    if args.json:
         print(json.dumps({
             "compressed": r.compressed, "type": r.detected_type.value,
             "strategy": r.strategy_used, "savings_pct": round(r.savings_pct, 2),
