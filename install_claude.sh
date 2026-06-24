@@ -110,54 +110,69 @@ configure_claude() {
   h2 "Configuring Claude Code…"
   info "Settings: $SETTINGS"
 
-  local current; current=$(load_settings)
+  # Use a temp file to pass JSON between shell and Python without quoting issues
+  local tmp; tmp=$(mktemp)
+  load_settings > "$tmp"
 
-  # Build MCP config using Python for safe JSON manipulation
-  current=$($PY - <<PYEOF
+  # Configure MCP server — Python reads/writes the temp file directly
+  $PY - "$tmp" "$mcp_bin" "$PY" <<'PYEOF'
 import json, sys
-data = json.loads('''$current''')
+path, mcp_bin, py_exe = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(path) as f:
+    data = json.load(f)
 data.setdefault('mcpServers', {})
-
-mcp_bin = '''$mcp_bin'''
 if mcp_bin:
     data['mcpServers']['synthelion'] = {'command': mcp_bin}
 else:
     data['mcpServers']['synthelion'] = {
-        'command': '$PY',
-        'args': ['-m', 'synthelion.plugins.mcp_server']
+        'command': py_exe,
+        'args': ['-m', 'synthelion.plugins.mcp_server'],
     }
-
-print(json.dumps(data, indent=2, ensure_ascii=False))
+with open(path, 'w') as f:
+    json.dump(data, f, indent=2, ensure_ascii=False)
+    f.write('\n')
 PYEOF
-)
   ok "MCP server configured"
 
   if [ "$add_hook" = "true" ]; then
     local cli; cli=$(find_cli_binary)
     local hook_cmd; hook_cmd=$(build_hook_command "$cli" | tr -d '\n')
 
-    current=$($PY - <<PYEOF
-import json
-data = json.loads(r"""$current""")
+    # Write hook command to a second temp file to avoid quoting issues
+    local tmp_hook; tmp_hook=$(mktemp)
+    printf '%s' "$hook_cmd" > "$tmp_hook"
+
+    $PY - "$tmp" "$tmp_hook" <<'PYEOF'
+import json, sys
+path, hook_cmd_file = sys.argv[1], sys.argv[2]
+with open(hook_cmd_file) as f:
+    hook_cmd = f.read()
+with open(path) as f:
+    data = json.load(f)
 hook_entry = {
-    "type": "command",
-    "shell": "bash",
-    "command": """$hook_cmd""",
-    "statusMessage": "Compressing prompt...",
-    "timeout": 15,
+    'type': 'command',
+    'shell': 'bash',
+    'command': hook_cmd,
+    'statusMessage': 'Compressing prompt...',
+    'timeout': 15,
 }
-hooks = data.setdefault("hooks", {})
-existing = [g for g in hooks.get("UserPromptSubmit", [])
-            if not any("synthelion" in h.get("command","") for h in g.get("hooks",[]))]
-existing.append({"hooks": [hook_entry]})
-hooks["UserPromptSubmit"] = existing
-print(json.dumps(data, indent=2, ensure_ascii=False))
+hooks = data.setdefault('hooks', {})
+existing = [g for g in hooks.get('UserPromptSubmit', [])
+            if not any('synthelion' in h.get('command', '') for h in g.get('hooks', []))]
+existing.append({'hooks': [hook_entry]})
+hooks['UserPromptSubmit'] = existing
+with open(path, 'w') as f:
+    json.dump(data, f, indent=2, ensure_ascii=False)
+    f.write('\n')
 PYEOF
-)
+    rm -f "$tmp_hook"
     ok "UserPromptSubmit hook configured"
   fi
 
-  save_settings "$current"
+  mkdir -p "$(dirname "$SETTINGS")"
+  cp "$tmp" "$SETTINGS"
+  rm -f "$tmp"
+  ok "Saved → $SETTINGS"
 }
 
 # ── remove configuration ──────────────────────────────────────────────────────
@@ -168,35 +183,40 @@ remove_claude_config() {
     return
   fi
 
-  local current; current=$(load_settings)
-  current=$($PY - <<PYEOF
-import json
-data = json.loads(r"""$current""")
+  local tmp; tmp=$(mktemp)
+  cp "$SETTINGS" "$tmp"
+
+  $PY - "$tmp" <<'PYEOF'
+import json, sys
+path = sys.argv[1]
+with open(path) as f:
+    data = json.load(f)
 # Remove MCP
-mcp = data.get("mcpServers", {})
-if "synthelion" in mcp:
-    del mcp["synthelion"]
-    print("  ✓ MCP server removed", flush=True)
-
+mcp = data.get('mcpServers', {})
+if 'synthelion' in mcp:
+    del mcp['synthelion']
+    print('  ✓ MCP server removed', flush=True)
 # Remove hook
-hooks = data.get("hooks", {})
-before = len(hooks.get("UserPromptSubmit", []))
-hooks["UserPromptSubmit"] = [
-    g for g in hooks.get("UserPromptSubmit", [])
-    if not any("synthelion" in h.get("command","") for h in g.get("hooks",[]))
+hooks = data.get('hooks', {})
+before = len(hooks.get('UserPromptSubmit', []))
+hooks['UserPromptSubmit'] = [
+    g for g in hooks.get('UserPromptSubmit', [])
+    if not any('synthelion' in h.get('command', '') for h in g.get('hooks', []))
 ]
-if before != len(hooks["UserPromptSubmit"]):
-    print("  ✓ Hook removed", flush=True)
-if not hooks.get("UserPromptSubmit"):
-    hooks.pop("UserPromptSubmit", None)
+if before != len(hooks['UserPromptSubmit']):
+    print('  ✓ Hook removed', flush=True)
+if not hooks.get('UserPromptSubmit'):
+    hooks.pop('UserPromptSubmit', None)
 if not hooks:
-    data.pop("hooks", None)
-
-import sys
-print(json.dumps(data, indent=2, ensure_ascii=False))
+    data.pop('hooks', None)
+with open(path, 'w') as f:
+    json.dump(data, f, indent=2, ensure_ascii=False)
+    f.write('\n')
 PYEOF
-)
-  save_settings "$current"
+
+  cp "$tmp" "$SETTINGS"
+  rm -f "$tmp"
+  ok "Saved → $SETTINGS"
 }
 
 # ── smoke test ────────────────────────────────────────────────────────────────
