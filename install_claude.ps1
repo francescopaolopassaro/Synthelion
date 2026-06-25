@@ -1,4 +1,4 @@
-# Synthelion — Python port of Caveman (https://github.com/francescopaolopassaro/caveman)
+﻿# Synthelion — Python port of Caveman (https://github.com/francescopaolopassaro/caveman)
 # © 2026 Passaro Francesco Paolo — Digitalsolutions.it
 #
 # Synthelion installer for Claude Code — Windows PowerShell
@@ -85,10 +85,8 @@ function Find-CliSynthelion {
 # ── build hook command ────────────────────────────────────────────────────────
 function Build-HookCommand($cliBin) {
     $cli = if ($cliBin) { $cliBin } else { "synthelion" }
-    # Escape backslashes for use inside a PowerShell double-quoted string
-    $cliEsc = $cli -replace "\\", "\\\\"
     return @"
-`$j=[Console]::In.ReadToEnd()|ConvertFrom-Json;`$p=`$j.prompt;if(`$p -and `$p.Length -gt 200){`$r=(`$p|"$cliEsc" compress --json 2>`$null)|ConvertFrom-Json;if(`$r -and `$r.efficiency_pct -gt 15){@{hookSpecificOutput=@{hookEventName='UserPromptSubmit';additionalContext="[Synthelion - Prompt Compression - Compression Rate `$([Math]::Round(`$r.efficiency_pct))% · `$(`$r.energy_mwh) mWh · `$(`$r.co2_mg) mg CO₂]"}}|ConvertTo-Json -Compress}}
+`$j=[Console]::In.ReadToEnd()|ConvertFrom-Json;`$p=`$j.prompt;if(`$p -and `$p.Length -gt 200){`$r=(`$p| & "$cli" compress --json 2>`$null)|ConvertFrom-Json;if(`$r -and `$r.efficiency_pct -gt 15){@{hookSpecificOutput=@{hookEventName='UserPromptSubmit';additionalContext="``[Synthelion - Prompt Compression - Compression Rate `$([Math]::Round(`$r.efficiency_pct))% - `$(`$r.energy_mwh) mWh - `$(`$r.co2_mg) mg CO2``]"}}|ConvertTo-Json -Compress}}
 "@
 }
 
