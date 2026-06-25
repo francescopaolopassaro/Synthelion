@@ -187,13 +187,16 @@ function Remove-ClaudeConfig {
 # ── smoke test ────────────────────────────────────────────────────────────────
 function Invoke-SmokeTest {
     H2 "Running smoke test…"
-    $result = python -c "
+    $tmpPy = [System.IO.Path]::GetTempFileName() -replace '\.tmp$', '.py'
+    Set-Content -Path $tmpPy -Encoding UTF8 -Value @'
 from synthelion import CompressionService, CompressionLevel
 svc = CompressionService()
-r = svc.compress('I would like to know if it is possible to receive information.', CompressionLevel.SEMANTIC)
+r = svc.compress("I would like to know if it is possible to receive information.", CompressionLevel.SEMANTIC)
 assert r.compressed_text
-print(f'{r.original_tokens}to{r.compressed_tokens} tokens ({r.efficiency_pct:.0f}% saved): {r.compressed_text}')
-" 2>&1
+print(f"{r.original_tokens}to{r.compressed_tokens} tokens ({r.efficiency_pct:.0f}% saved): {r.compressed_text}")
+'@
+    $result = python $tmpPy 2>&1
+    Remove-Item $tmpPy -Force -ErrorAction SilentlyContinue
     if ($LASTEXITCODE -ne 0) {
         Err "Smoke test failed: $result"
         exit 1
@@ -220,7 +223,7 @@ if ($Uninstall) {
 
 # Check Python version
 H2 "Checking Python version…"
-$pyVerNum = python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"
+$pyVerNum = python -c "import sys; v=sys.version_info; print(str(v.major)+'.'+str(v.minor))"
 if ([version]$pyVerNum -lt [version]"3.11") {
     Err "Python $pyVerNum found — Synthelion needs 3.11+."
     Err "Download from https://www.python.org/downloads/"
