@@ -142,6 +142,23 @@ python install_claude.py
 
 ### Installer options
 
+**Windows PowerShell (`install_claude.ps1`)**
+
+| Flag | Description |
+|---|---|
+| `-Upgrade` | Update Synthelion to the latest version |
+| `-NoHook` | Skip the auto-compression hook |
+| `-NoPip` | Skip pip install (Synthelion already installed) |
+| `-Uninstall` | Remove Synthelion and all Claude Code config |
+
+```powershell
+powershell -ExecutionPolicy Bypass -File install_claude.ps1 -Upgrade     # update
+powershell -ExecutionPolicy Bypass -File install_claude.ps1 -Uninstall   # remove everything
+powershell -ExecutionPolicy Bypass -File install_claude.ps1 -NoPip -NoHook  # only update settings.json
+```
+
+**Linux / macOS (`install_claude.sh`) and Python (`install_claude.py`)**
+
 | Flag | Description |
 |---|---|
 | `--upgrade` | Update Synthelion to the latest version |
@@ -149,7 +166,6 @@ python install_claude.py
 | `--no-pip` | Skip pip install (Synthelion already installed) |
 | `--uninstall` | Remove Synthelion and all Claude Code config |
 
-Examples:
 ```bash
 python install_claude.py --upgrade          # update
 python install_claude.py --uninstall        # remove everything
@@ -326,7 +342,7 @@ Claude will call the MCP tool and return the compressed version.
           {
             "type": "command",
             "shell": "powershell",
-            "command": "$j=[Console]::In.ReadToEnd()|ConvertFrom-Json;$p=$j.prompt;if($p -and $p.Length -gt 200){$r=($p|synthelion compress --json 2>$null)|ConvertFrom-Json;if($r -and $r.efficiency_pct -gt 15){@{hookSpecificOutput=@{hookEventName='UserPromptSubmit';additionalContext=\"[Synthelion - Prompt Compression - Compression Rate $([Math]::Round($r.efficiency_pct))% · $($r.energy_mwh) mWh · $($r.co2_mg) mg CO₂]\"}}|ConvertTo-Json -Compress}}",
+            "command": "$j=[Console]::In.ReadToEnd()|ConvertFrom-Json;$p=$j.prompt;if($p -and $p.Length -gt 200){$r=($p| & synthelion compress --json 2>$null)|ConvertFrom-Json;if($r -and $r.efficiency_pct -gt 15){@{hookSpecificOutput=@{hookEventName='UserPromptSubmit';additionalContext=\"`[Synthelion - Prompt Compression - Compression Rate $([Math]::Round($r.efficiency_pct))% - $($r.energy_mwh) mWh - $($r.co2_mg) mg CO2`]\"}}|ConvertTo-Json -Compress}}",
             "statusMessage": "Compressing prompt...",
             "timeout": 15
           }

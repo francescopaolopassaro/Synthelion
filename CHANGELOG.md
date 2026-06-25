@@ -4,6 +4,22 @@ All notable changes to Synthelion are documented here.
 
 ---
 
+## [1.0.7] — 2026-06-25
+
+### Fixed
+- **`install_claude.ps1` — here-string parsing**: script now saved with CRLF line endings; Windows PowerShell requires CRLF for here-string delimiters (`@'...'@`)
+- **`install_claude.ps1` — smoke test**: Python code no longer passed via `-c "..."` (f-string `:.0f` format and `%` operator caused PS parser errors); uses a temp `.py` file instead
+- **`install_claude.ps1` — Python version check**: replaced f-string `f'{sys.version_info.major}.{minor}'` with string concatenation to avoid PowerShell `{...}` interpolation issues
+- **`install_claude.ps1` — hook path escaping**: removed unnecessary double-backslash escaping (`-replace "\\","\\\\"`); Windows paths in PS double-quoted strings do not require extra escaping
+- **`install_claude.ps1` — hook call operator**: added `&` call operator before the quoted executable path (`$p| & "synthelion.exe"`) — without it PowerShell treats the quoted path as a string expression rather than a command
+- **`install_claude.ps1` — hook bracket escaping**: escaped `[` and `]` in `additionalContext` with backtick (`` `[ `` / `` `] ``) to prevent PowerShell from parsing them as type literals
+- **`cli.py` — `compress --json` output**: `energy_mwh` and `co2_mg` fields are now included in the JSON output (were present in code but missing from the serialized result in 1.0.6)
+
+### Changed
+- **`install_claude.ps1`** installer options use PowerShell switch syntax (`-Upgrade`, `-NoHook`, `-NoPip`, `-Uninstall`) — documented separately from the bash/Python installer flags in README
+
+---
+
 ## [1.0.6] — 2026-06-24
 
 ### Fixed
