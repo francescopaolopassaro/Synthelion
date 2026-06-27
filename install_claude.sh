@@ -25,13 +25,14 @@ h1()   { echo -e "\n${BOLD}${CYAN}$*${RESET}"; }
 h2()   { echo -e "\n${BOLD}$*${RESET}"; }
 
 # ── argument parsing ─────────────────────────────────────────────────────────
-UPGRADE=false; NO_HOOK=false; UNINSTALL=false; NO_PIP=false
+UPGRADE=false; NO_HOOK=false; UNINSTALL=false; NO_PIP=false; CHROMADB=false
 for arg in "$@"; do
   case "$arg" in
     --upgrade)   UPGRADE=true ;;
     --no-hook)   NO_HOOK=true ;;
     --uninstall) UNINSTALL=true ;;
     --no-pip)    NO_PIP=true ;;
+    --chromadb)  CHROMADB=true ;;
     *) echo "Unknown option: $arg"; exit 1 ;;
   esac
 done
@@ -96,9 +97,9 @@ find_cli_binary() {
 # ── build hook command (bash) ─────────────────────────────────────────────────
 build_hook_command() {
   local cli="$1"
-  # Single-line bash command for the hook
+  # Injects the compressed text into additionalContext so Claude can use it directly.
   cat <<EOF
-prompt=\$(cat | $PY -c "import sys,json; print(json.load(sys.stdin).get('prompt',''))"); if [ \${#prompt} -gt 200 ]; then r=\$(printf '%s' "\$prompt" | "$cli" compress --json 2>/dev/null); if [ -n "\$r" ]; then out=\$(printf '%s' "\$r" | $PY -c "import sys,json; d=json.load(sys.stdin); eff=int(d.get('efficiency_pct',0)); label='[Synthelion - Prompt Compression - Compression Rate '+str(eff)+'% · '+str(d.get('energy_mwh',0))+' mWh · '+str(d.get('co2_mg',0))+' mg CO₂]'; print(json.dumps({'hookSpecificOutput':{'hookEventName':'UserPromptSubmit','additionalContext':label}})) if eff>15 else None"); [ -n "\$out" ] && printf '%s' "\$out"; fi; fi
+prompt=\$(cat | $PY -c "import sys,json; print(json.load(sys.stdin).get('prompt',''))"); if [ \${#prompt} -gt 200 ]; then r=\$(printf '%s' "\$prompt" | "$cli" compress --json 2>/dev/null); if [ -n "\$r" ]; then out=\$(printf '%s' "\$r" | $PY -c "import sys,json; d=json.load(sys.stdin); eff=int(d.get('efficiency_pct',0)); ctx='[Synthelion '+str(eff)+'% saved] '+d.get('compressed_text',''); print(json.dumps({'hookSpecificOutput':{'hookEventName':'UserPromptSubmit','additionalContext':ctx}})) if eff>15 else None"); [ -n "\$out" ] && printf '%s' "\$out"; fi; fi
 EOF
 }
 
@@ -267,12 +268,14 @@ ok "Python $PY_VER"
 # pip install
 if [ "$NO_PIP" = "false" ]; then
   h2 "Installing Synthelion…"
+  PKG="synthelion"
+  [ "$CHROMADB" = "true" ] && PKG="synthelion[chromadb]"
   if [ "$UPGRADE" = "true" ]; then
-    $PY -m pip install --upgrade synthelion
+    $PY -m pip install --upgrade "$PKG"
   else
-    $PY -m pip install synthelion
+    $PY -m pip install "$PKG"
   fi
-  ok "pip install synthelion succeeded"
+  ok "pip install $PKG succeeded"
 fi
 
 MCP_BIN=$(find_mcp_binary)
@@ -294,6 +297,16 @@ echo "  Next steps:"
 echo "  1. Restart Claude Code (or open /hooks to reload)"
 echo "  2. Ask Claude: 'Use Synthelion to compress this text'"
 echo "  3. Prompts > 200 chars are auto-compressed"
+echo "  4. MCP tools available: compress, route_content, summarize,"
+echo "     session_record, session_recall, synthelion_status"
+echo ""
+echo "  Savings tracker:"
+echo "    synthelion status         # show all-time token savings"
+echo "    synthelion gain --days 7  # last 7 days"
+echo "    synthelion bench          # benchmark on sample corpus"
+echo ""
+echo "  Optional: enable ChromaDB semantic session memory:"
+echo "    ./install_claude.sh --chromadb"
 echo ""
 echo "  To update:"
 echo "    ./install_claude.sh --upgrade"
