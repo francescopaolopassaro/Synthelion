@@ -27,6 +27,14 @@ import urllib.request
 
 from synthelion.plugins.openai_tools import execute_tool, get_tool_definitions, get_tool_list  # noqa: F401
 
+# Tools that only read / compress — do not modify external state.
+_READ_ONLY_TOOLS = frozenset({
+    "compress", "detect_language", "route_content", "summarize", "compress_batch",
+    "compress_for_context", "compress_conversation", "deduplicate",
+    "compress_file",
+    "session_recall", "synthelion_status",
+})
+
 
 # ── auto-update state ─────────────────────────────────────────────────────────
 
@@ -94,10 +102,17 @@ def main() -> None:
         tools = []
         for td in _tool_defs:
             fn = td["function"]
+            annotation = None
+            try:
+                if fn["name"] in _READ_ONLY_TOOLS:
+                    annotation = types.ToolAnnotations(readOnlyHint=True)
+            except Exception:
+                pass
             tools.append(types.Tool(
                 name=fn["name"],
                 description=fn["description"],
                 inputSchema=fn["parameters"],
+                annotations=annotation,
             ))
         return tools
 

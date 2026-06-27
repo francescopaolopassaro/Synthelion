@@ -15,7 +15,8 @@ param(
     [switch]$Upgrade,
     [switch]$NoHook,
     [switch]$Uninstall,
-    [switch]$NoPip
+    [switch]$NoPip,
+    [switch]$Chromadb
 )
 
 $ErrorActionPreference = "Stop"
@@ -85,8 +86,10 @@ function Find-CliSynthelion {
 # ── build hook command ────────────────────────────────────────────────────────
 function Build-HookCommand($cliBin) {
     $cli = if ($cliBin) { $cliBin } else { "synthelion" }
+    # Injects the compressed text (not just a label) so Claude can use it directly.
+    # $ctx is built by concatenation — avoids PS type-literal parsing of [...] in strings.
     return @"
-`$j=[Console]::In.ReadToEnd()|ConvertFrom-Json;`$p=`$j.prompt;if(`$p -and `$p.Length -gt 200){`$r=(`$p| & "$cli" compress --json 2>`$null)|ConvertFrom-Json;if(`$r -and `$r.efficiency_pct -gt 15){@{hookSpecificOutput=@{hookEventName='UserPromptSubmit';additionalContext="``[Synthelion - Prompt Compression - Compression Rate `$([Math]::Round(`$r.efficiency_pct))% - `$(`$r.energy_mwh) mWh - `$(`$r.co2_mg) mg CO2``]"}}|ConvertTo-Json -Compress}}
+`$j=[Console]::In.ReadToEnd()|ConvertFrom-Json;`$p=`$j.prompt;if(`$p -and `$p.Length -gt 200){`$r=(`$p| & "$cli" compress --json 2>`$null)|ConvertFrom-Json;if(`$r -and `$r.efficiency_pct -gt 15){`$pct=[Math]::Round(`$r.efficiency_pct);`$ctx='[Synthelion '+`$pct+'% saved] '+`$r.compressed;@{hookSpecificOutput=@{hookEventName='UserPromptSubmit';additionalContext=`$ctx}}|ConvertTo-Json -Compress}}
 "@
 }
 
@@ -232,13 +235,14 @@ Ok "Python $pyVerNum"
 # pip install
 if (-not $NoPip) {
     H2 "Installing Synthelion…"
+    $pkg = if ($Chromadb) { "synthelion[chromadb]" } else { "synthelion" }
     if ($Upgrade) {
-        python -m pip install --upgrade synthelion
+        python -m pip install --upgrade $pkg
     } else {
-        python -m pip install synthelion
+        python -m pip install $pkg
     }
     if ($LASTEXITCODE -ne 0) { Err "pip install failed"; exit 1 }
-    Ok "pip install synthelion succeeded"
+    Ok "pip install $pkg succeeded"
 }
 
 $mcpBin = Find-McpBinary
@@ -254,6 +258,16 @@ Write-Host "  Next steps:"
 Write-Host "  1. Restart Claude Code (or open /hooks to reload)"
 Write-Host "  2. Ask Claude: 'Use Synthelion to compress this text'"
 Write-Host "  3. Prompts > 200 chars are auto-compressed"
+Write-Host "  4. MCP tools available: compress, route_content, summarize,"
+Write-Host "     session_record, session_recall, synthelion_status"
+Write-Host ""
+Write-Host "  Savings tracker:"
+Write-Host "    synthelion status         # show all-time token savings"
+Write-Host "    synthelion gain --days 7  # last 7 days"
+Write-Host "    synthelion bench          # benchmark on sample corpus"
+Write-Host ""
+Write-Host "  Optional: enable ChromaDB semantic session memory:"
+Write-Host "    powershell -ExecutionPolicy Bypass -File install_claude.ps1 -Chromadb"
 Write-Host ""
 Write-Host "  To update:"
 Write-Host "    powershell -ExecutionPolicy Bypass -File install_claude.ps1 -Upgrade"
