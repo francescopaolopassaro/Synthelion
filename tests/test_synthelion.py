@@ -352,11 +352,15 @@ class TestMemoryStore:
 # 9. OpenAI Tools
 # ---------------------------------------------------------------------------
 class TestOpenAiTools:
-    def test_get_tool_definitions_returns_five_tools(self):
+    def test_get_tool_definitions_contains_core_tools(self):
         tools = get_tool_definitions()
-        assert len(tools) == 5
         names = {t["function"]["name"] for t in tools}
-        assert names == {"compress", "detect_language", "route_content", "summarize", "compress_batch"}
+        core = {"compress", "detect_language", "route_content", "summarize", "compress_batch"}
+        assert core.issubset(names)
+        session = {"session_record", "session_recall", "session_start", "session_end", "synthelion_status"}
+        assert session.issubset(names)
+        agent = {"compress_for_context", "compress_conversation", "deduplicate"}
+        assert agent.issubset(names)
 
     def test_get_tool_list(self):
         names = get_tool_list()
@@ -379,6 +383,86 @@ class TestOpenAiTools:
     def test_execute_unknown_tool(self):
         r = execute_tool("unknown_tool", {})
         assert "error" in r
+
+    def test_execute_compress_for_context_no_budget(self):
+        text = "I would like to know if it is possible to receive information about cheap restaurants in Rome today."
+        r = execute_tool("compress_for_context", {"content": text})
+        assert "compressed" in r
+        assert "tokens_before" in r
+        assert "tokens_after" in r
+        assert r["fits_budget"] is True
+        assert "synthelion_metrics" in r
+
+    def test_execute_compress_for_context_with_budget(self):
+        text = " ".join(["This is a long text about something important."] * 20)
+        r = execute_tool("compress_for_context", {"content": text, "max_tokens": 10})
+        assert "compressed" in r
+        assert "fits_budget" in r
+        # metrics always present
+        assert "synthelion_metrics" in r
+
+    def test_execute_compress_conversation(self):
+        messages = [
+            {"role": "user", "content": "Hello, I would like to know about Python programming."},
+            {"role": "assistant", "content": "Python is a high-level programming language."},
+            {"role": "user", "content": "What are the best libraries?"},
+            {"role": "assistant", "content": "NumPy, Pandas, and Requests are very popular."},
+            {"role": "user", "content": "Tell me about NumPy specifically."},
+        ]
+        r = execute_tool("compress_conversation", {"messages": messages, "keep_last_n": 2})
+        assert "messages" in r
+        assert isinstance(r["messages"], list)
+        assert len(r["messages"]) >= 2
+        assert r["messages_before"] == 5
+        assert "synthelion_metrics" in r
+
+    def test_execute_compress_conversation_empty(self):
+        r = execute_tool("compress_conversation", {"messages": []})
+        assert r["messages"] == []
+        assert r["tokens_before"] == 0
+
+    def test_execute_deduplicate_removes_near_dupes(self):
+        texts = [
+            "The quick brown fox jumps over the lazy dog",
+            "The quick brown fox jumps over the lazy dog",  # exact dup
+            "Python is a great programming language for data science",
+        ]
+        r = execute_tool("deduplicate", {"texts": texts, "threshold": 0.95})
+        assert r["removed_count"] >= 1
+        assert r["deduplicated_count"] < r["original_count"]
+        assert "synthelion_metrics" in r
+
+    def test_execute_deduplicate_unique_keeps_all(self):
+        texts = [
+            "Python programming language for data science",
+            "Rome is the capital of Italy with ancient monuments",
+            "Git is a version control system for software development",
+        ]
+        r = execute_tool("deduplicate", {"texts": texts, "threshold": 0.8})
+        assert r["removed_count"] == 0
+        assert r["deduplicated_count"] == 3
+
+    def test_metrics_includes_cost_estimate(self):
+        r = execute_tool("compress", {"text": "I would like to know if it is possible.", "level": "semantic"})
+        assert "synthelion_metrics" in r
+        assert "~$" in r["synthelion_metrics"]
+
+    def test_execute_compress_file_ok(self, tmp_path):
+        p = tmp_path / "sample.txt"
+        p.write_text("I would like to know if it is possible to receive information about restaurants in Rome today.")
+        r = execute_tool("compress_file", {"path": str(p)})
+        assert "compressed" in r
+        assert "detected_type" in r
+        assert r["file_size_chars"] > 0
+        assert "synthelion_metrics" in r
+
+    def test_execute_compress_file_missing(self, tmp_path):
+        r = execute_tool("compress_file", {"path": str(tmp_path / "missing.txt")})
+        assert "error" in r
+
+    def test_execute_compress_file_in_tool_definitions(self):
+        names = {t["function"]["name"] for t in get_tool_definitions()}
+        assert "compress_file" in names
 
 
 # ---------------------------------------------------------------------------
@@ -617,25 +701,61 @@ class TestCli:
         out = self._run(["route", "--text", arr])
         assert out.strip()
 
+    def test_doctor_subcommand(self):
+        out = self._run(["doctor"])
+        assert "Synthelion" in out or "ok" in out or "✓" in out
+
+    def test_doctor_json_subcommand(self):
+        out = self._run(["doctor", "--json"])
+        data = json.loads(out.strip())
+        assert isinstance(data, list)
+        checks = {c["check"] for c in data}
+        assert "synthelion" in checks or "mcp package" in checks
+
+    def test_status_subcommand(self):
+        out = self._run(["status"])
+        assert "Synthelion" in out
+
+    def test_gain_subcommand(self):
+        out = self._run(["gain", "--days", "7"])
+        assert "Synthelion gain" in out
+
+    def test_upgrade_dry_run(self):
+        out = self._run(["upgrade", "--dry-run"])
+        assert "pip install" in out
+
+    def test_export_csv_no_crash(self):
+        # May produce no output if ledger is empty — just verify no crash
+        try:
+            self._run(["export", "--format", "csv"])
+        except SystemExit:
+            pass  # no records → print message and exit gracefully
+
+    def test_export_jsonl_to_file(self, tmp_path):
+        out_file = tmp_path / "export.jsonl"
+        self._run(["export", "--format", "jsonl", "-o", str(out_file)])
+        # Either the file exists (records written) or it doesn't (empty ledger) — no crash
+
 
 # ---------------------------------------------------------------------------
 # 15. LangChain tools (skipped when langchain-core not installed)
 # ---------------------------------------------------------------------------
 @pytest.mark.skipif(not HAS_LANGCHAIN, reason="langchain-core not installed")
 class TestLangChainTools:
-    def test_get_tools_returns_five(self):
-        tools = get_langchain_tools()
-        assert len(tools) == 5
-
-    def test_tool_names(self):
+    def test_get_tools_contains_core(self):
         tools = get_langchain_tools()
         names = {t.name for t in tools}
-        expected = {
+        core = {
             "synthelion_compress", "synthelion_detect_language",
             "synthelion_route_content", "synthelion_summarize",
             "synthelion_compress_batch",
         }
-        assert names == expected
+        assert core.issubset(names)
+        session = {
+            "synthelion_session_record", "synthelion_session_recall",
+            "synthelion_status",
+        }
+        assert session.issubset(names)
 
     def test_compress_tool_runs(self):
         tools = {t.name: t for t in get_langchain_tools()}
@@ -659,3 +779,38 @@ class TestLangChainTools:
         })
         assert "[0]" in result
         assert "[1]" in result
+
+    def test_compress_for_context_tool_runs(self):
+        tools = {t.name: t for t in get_langchain_tools()}
+        result = tools["synthelion_compress_for_context"].invoke({
+            "content": "I would like to know if it is possible to receive information about cheap restaurants in Rome."
+        })
+        assert "Strategy:" in result
+
+    def test_compress_conversation_tool_runs(self):
+        tools = {t.name: t for t in get_langchain_tools()}
+        msgs = [
+            {"role": "user", "content": "Hello there, how are you doing today?"},
+            {"role": "assistant", "content": "I am fine, thank you very much!"},
+        ]
+        result = tools["synthelion_compress_conversation"].invoke({"messages": msgs})
+        assert "Messages:" in result
+
+    def test_deduplicate_tool_runs(self):
+        tools = {t.name: t for t in get_langchain_tools()}
+        result = tools["synthelion_deduplicate"].invoke({
+            "texts": ["Hello world test phrase.", "Hello world test phrase.", "Something completely different."]
+        })
+        assert "Kept" in result
+
+    def test_compress_file_tool_runs(self, tmp_path):
+        p = tmp_path / "test.txt"
+        p.write_text("I would like to know if it is possible to receive information about restaurants in Rome.")
+        tools = {t.name: t for t in get_langchain_tools()}
+        result = tools["synthelion_compress_file"].invoke({"path": str(p)})
+        assert "Type:" in result
+
+    def test_compress_file_missing_path(self, tmp_path):
+        tools = {t.name: t for t in get_langchain_tools()}
+        result = tools["synthelion_compress_file"].invoke({"path": str(tmp_path / "nonexistent.txt")})
+        assert "Error:" in result

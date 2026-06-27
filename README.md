@@ -272,7 +272,16 @@ Claude Code uses the MCP protocol to talk to Synthelion.
 
 ### Step 1 — Install Synthelion (see above)
 
-### Step 2 — Add to `~/.claude/settings.json`
+### Step 2 — Register with one command (new in 1.0.7)
+
+```bash
+synthelion install           # writes to ~/.claude.json (global)
+synthelion install --local   # writes to .claude/settings.json (project-only)
+```
+
+Or manually:
+
+### Step 2 (manual) — Add to `~/.claude/settings.json`
 
 Open the file (`%USERPROFILE%\.claude\settings.json` on Windows, `~/.claude/settings.json` on Linux/macOS) and add:
 
@@ -326,9 +335,16 @@ Claude will call the MCP tool and return the compressed version.
 
 ## Automatic prompt compression — Claude Code hook
 
-> **How it works:** every prompt longer than 200 characters is automatically compressed by Synthelion and the compressed version is injected as context for Claude. Claude receives both the original and the compressed form and focuses on the compressed one. This is the maximum automation currently possible within Claude Code's hook system (hooks cannot replace the original prompt text).
+> **How it works:** every prompt longer than 200 characters is automatically compressed by Synthelion and the compressed version is injected as `additionalContext` for Claude. Claude receives both the original prompt and the compressed form and can use the compressed version to save reasoning tokens.
 
-### Windows (`~/.claude/settings.json`)
+### Automatic setup (recommended)
+
+```bash
+synthelion install          # writes hook + MCP to ~/.claude.json
+synthelion install --local  # project-local .claude/settings.json
+```
+
+### Manual — Windows (`~/.claude/settings.json`)
 
 ```json
 {
@@ -342,7 +358,7 @@ Claude will call the MCP tool and return the compressed version.
           {
             "type": "command",
             "shell": "powershell",
-            "command": "$j=[Console]::In.ReadToEnd()|ConvertFrom-Json;$p=$j.prompt;if($p -and $p.Length -gt 200){$r=($p| & synthelion compress --json 2>$null)|ConvertFrom-Json;if($r -and $r.efficiency_pct -gt 15){@{hookSpecificOutput=@{hookEventName='UserPromptSubmit';additionalContext=\"`[Synthelion - Prompt Compression - Compression Rate $([Math]::Round($r.efficiency_pct))% - $($r.energy_mwh) mWh - $($r.co2_mg) mg CO2`]\"}}|ConvertTo-Json -Compress}}",
+            "command": "$j=[Console]::In.ReadToEnd()|ConvertFrom-Json;$p=$j.prompt;if($p -and $p.Length -gt 200){$r=($p| & synthelion compress --json 2>$null)|ConvertFrom-Json;if($r -and $r.efficiency_pct -gt 15){$pct=[Math]::Round($r.efficiency_pct);$ctx='[Synthelion '+$pct+'% saved] '+$r.compressed;@{hookSpecificOutput=@{hookEventName='UserPromptSubmit';additionalContext=$ctx}}|ConvertTo-Json -Compress}}",
             "statusMessage": "Compressing prompt...",
             "timeout": 15
           }
@@ -353,7 +369,7 @@ Claude will call the MCP tool and return the compressed version.
 }
 ```
 
-### Linux / macOS (`~/.claude/settings.json`)
+### Manual — Linux / macOS (`~/.claude/settings.json`)
 
 ```json
 {
@@ -367,7 +383,7 @@ Claude will call the MCP tool and return the compressed version.
           {
             "type": "command",
             "shell": "bash",
-            "command": "prompt=$(cat | python3 -c \"import sys,json; print(json.load(sys.stdin).get('prompt',''))\"); if [ ${#prompt} -gt 200 ]; then r=$(printf '%s' \"$prompt\" | synthelion compress --json 2>/dev/null); if [ -n \"$r\" ]; then out=$(printf '%s' \"$r\" | python3 -c \"import sys,json; d=json.load(sys.stdin); eff=int(d.get('efficiency_pct',0)); label='[Synthelion - Prompt Compression - Compression Rate '+str(eff)+'% · '+str(d.get('energy_mwh',0))+' mWh · '+str(d.get('co2_mg',0))+' mg CO₂]'; print(json.dumps({'hookSpecificOutput':{'hookEventName':'UserPromptSubmit','additionalContext':label}})) if eff>15 else None\"); [ -n \"$out\" ] && printf '%s' \"$out\"; fi; fi",
+            "command": "prompt=$(cat | python3 -c \"import sys,json; print(json.load(sys.stdin).get('prompt',''))\"); if [ ${#prompt} -gt 200 ]; then r=$(printf '%s' \"$prompt\" | synthelion compress --json 2>/dev/null); if [ -n \"$r\" ]; then out=$(printf '%s' \"$r\" | python3 -c \"import sys,json; d=json.load(sys.stdin); eff=int(d.get('efficiency_pct',0)); ctx='[Synthelion '+str(eff)+'% saved] '+d.get('compressed_text',''); print(json.dumps({'hookSpecificOutput':{'hookEventName':'UserPromptSubmit','additionalContext':ctx}})) if eff>15 else None\"); [ -n \"$out\" ] && printf '%s' \"$out\"; fi; fi",
             "statusMessage": "Compressing prompt...",
             "timeout": 15
           }
@@ -417,10 +433,14 @@ All use the same JSON block:
 Add this to your agent's system prompt or CLAUDE.md:
 
 ```
-When processing long texts, files, or documents (>200 tokens), always use
-the Synthelion MCP tool to compress the content before including it in your
-reasoning. Call: mcp__synthelion__route_content or mcp__synthelion__compress.
-Report the token reduction achieved.
+When processing long texts, files, or documents (>200 tokens), use Synthelion:
+- mcp__synthelion__compress_for_context  — fit any content in your token budget
+- mcp__synthelion__compress_conversation — compress older turns before sending history
+- mcp__synthelion__deduplicate           — remove overlapping retrieved chunks
+- mcp__synthelion__route_content         — auto-detect content type and compress
+- mcp__synthelion__session_record        — save decisions for cross-session recall
+- mcp__synthelion__session_recall        — retrieve past decisions by query
+Report the token reduction achieved (synthelion_metrics field).
 ```
 
 ### Use the CLI in shell pipelines
@@ -480,13 +500,82 @@ from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 
 llm = ChatOpenAI(model="gpt-4o")
-tools = get_tools()
+tools = get_tools()   # 11 StructuredTools, including all new context tools
 
 agent = create_react_agent(llm, tools)
 result = agent.invoke({"messages": [{"role": "user", "content": "Compress this prompt: ..."}]})
 ```
 
 Works with any LangChain-compatible LLM (OpenAI, Anthropic, Groq, Ollama, …).
+
+#### SynthelionMemory — drop-in compressing memory
+
+```python
+from langchain.chains import ConversationChain
+from synthelion.plugins.langchain_tools import SynthelionMemory
+
+# Compresses history turns and injects relevant past decisions via RAG
+memory = SynthelionMemory(max_context_tokens=4000, recall_limit=5)
+chain = ConversationChain(llm=llm, memory=memory)
+
+chain.predict(input="Tell me about Rome.")
+chain.predict(input="What are the best restaurants there?")
+# Older turns are automatically compressed; RAG recalls relevant notes from past sessions
+```
+
+---
+
+### Claude & OpenAI Adapters — auto-compression with one import
+
+```bash
+pip install "synthelion[claude]"    # for ClaudeAdapter
+pip install "synthelion[openai]"    # for OpenAIAdapter
+```
+
+```python
+from synthelion.integrations.claude_adapter import ClaudeAdapter
+
+# Replaces anthropic.Anthropic — same interface, auto-compresses every message
+client = ClaudeAdapter()
+reply = client.chat("claude-sonnet-4-6", [
+    {"role": "user", "content": "Explain how the Renaissance shaped modern science in detail..."}
+])
+print(reply)                  # model answer
+print(client.total_saved)     # tokens saved so far
+```
+
+```python
+from synthelion.integrations.openai_adapter import OpenAIAdapter
+
+client = OpenAIAdapter()
+reply = client.chat("gpt-4o", [
+    {"role": "user", "content": "Explain how the Renaissance shaped modern science in detail..."}
+])
+```
+
+---
+
+### RagAgent — stateful agent with memory, RAG, and cost tracking
+
+```python
+from synthelion.agent.rag_agent import RagAgent
+
+agent = RagAgent(max_context_tokens=8000, recall_limit=5)
+
+# Each add_turn compresses the message, recalls past decisions, and updates the rolling window
+agent.add_turn("user", "I decided to use PostgreSQL for the user database.")
+agent.add_turn("assistant", "Good choice. PostgreSQL handles JSONB fields well for config data.")
+
+agent.add_turn("user", "What did we decide about the database?")
+# The agent automatically recalls past decisions about PostgreSQL
+recalled = agent.recall("database")
+for d in recalled:
+    print(d["text"])    # "I decided to use PostgreSQL for the user database."
+
+# Get compressed message list ready for any LLM API
+messages = agent.get_context_messages()
+print(agent.total_saved, "tokens saved")
+```
 
 ---
 
@@ -537,9 +626,51 @@ Pipe-friendly — reads from stdin if no `--text` or `--file` is given:
 cat big_prompt.txt | synthelion compress --level aggressive
 ```
 
+#### Diagnostics & setup
+
+```bash
+# Health check — verifies MCP package, ledger, session DB, PATH, Claude config
+synthelion doctor
+synthelion doctor --json      # machine-readable output
+
+# Register the MCP server automatically (global Claude Code config)
+synthelion install
+synthelion install --agent gemini           # Gemini CLI
+synthelion install --agent claude --local   # project-local .claude/settings.json
+```
+
+#### Analytics & savings tracking
+
+```bash
+# Show total tokens saved, cost estimate, and tool breakdown
+synthelion status
+
+# Show savings history (last 7 days)
+synthelion gain --days 7
+synthelion gain --all --json   # full history, machine-readable
+
+# Benchmark on a built-in corpus (prose, JSON, diff, code, logs, HTML)
+synthelion bench
+synthelion bench --json
+
+# Export ledger to CSV or JSONL for analysis in Excel / Grafana / pandas
+synthelion export                          # CSV to stdout
+synthelion export --format jsonl -o savings.jsonl
+synthelion export --days 30 -o last_month.csv
+```
+
+#### Self-upgrade
+
+```bash
+synthelion upgrade            # pip install --upgrade synthelion
+synthelion upgrade --dry-run  # show what would run, don't run it
+```
+
 ---
 
 ## Tools
+
+13 MCP tools — all marked `readOnlyHint: true` so Claude Code and other MCP clients can call them safely in parallel.
 
 | Tool | What it does |
 |---|---|
@@ -548,6 +679,14 @@ cat big_prompt.txt | synthelion compress --level aggressive
 | **route_content** | Auto-detects JSON, HTML, diff, log, code or prose and applies the best algorithm. |
 | **summarize** | Extractive summarization — keeps the most important sentences (TF-IDF or TextRank). |
 | **compress_batch** | Compresses a list of texts in one call. |
+| **compress_for_context** | Compresses content to fit a token budget. Chains routing → NLP → TextRank until budget met. |
+| **compress_conversation** | Compresses a messages list. Keeps last N verbatim, summarizes/collapses older turns. |
+| **deduplicate** | Removes near-duplicate texts using cosine bag-of-words similarity. Configurable threshold. |
+| **session_record** | Persists a decision or context note across sessions (ChromaDB or lexical fallback). |
+| **session_recall** | Retrieves past decisions by semantic or keyword similarity. |
+| **session_start / session_end** | Track session boundaries and emit summaries. |
+| **compress_file** | Read a file by path and return only the compressed content. Avoids loading raw files into context. |
+| **synthelion_status** | Returns aggregate token savings and estimated cost as structured JSON. |
 
 ---
 
@@ -727,6 +866,110 @@ print(hits[0]["summary"])   # User lives Rome works tech.
 
 ---
 
+### AI-agent context tools
+
+#### compress_file — read and compress a file by path
+
+```python
+# Instead of: content = open("big_log.txt").read()  → 8000 tokens sent to LLM
+# Do this:
+r = execute_tool("compress_file", {"path": "big_log.txt", "profile": "agent"})
+print(r["compressed"])          # deduplicated log, ~1200 tokens
+print(r["synthelion_metrics"])  # "before=8000 after=1200 saved=6800 (85.0%) ~$0.02040"
+print(r["detected_type"])       # "log"
+
+# With a token budget
+r2 = execute_tool("compress_file", {
+    "path": "src/big_module.py",
+    "max_tokens": 500,
+    "profile": "agent",
+})
+print(r2["fits_budget"])        # True if ≤ 500 tokens
+```
+
+#### compress_for_context — fit content into a token budget
+
+```python
+from synthelion.plugins.openai_tools import execute_tool
+
+long_article = """Artificial intelligence is a branch of computer science that aims to create
+intelligent machines... [1000+ token document]"""
+
+# Compress without a budget — route + NLP, agent profile
+r = execute_tool("compress_for_context", {"content": long_article, "profile": "agent"})
+print(r["compressed"])           # compressed text
+print(r["synthelion_metrics"])   # "before=213 after=82 saved=131 (61.5%) ~$0.00039"
+print(r["detected_type"])        # "prose"
+print(r["strategy"])             # "NlpCompression"
+
+# Compress to fit in a 200-token context window
+r2 = execute_tool("compress_for_context", {
+    "content": long_article,
+    "max_tokens": 200,
+    "prefer": "auto",    # "compress" | "summarize" | "auto"
+})
+print(r2["fits_budget"])         # True or False
+print(r2["budget_exceeded_by"])  # 0 if fits, else delta
+```
+
+#### compress_conversation — shrink a message history
+
+```python
+conversation = [
+    {"role": "user",      "content": "Tell me about machine learning in detail."},
+    {"role": "assistant", "content": "Machine learning is a subset of AI that enables..."},
+    {"role": "user",      "content": "Can you explain supervised vs unsupervised learning?"},
+    {"role": "assistant", "content": "Supervised learning uses labeled data, like spam detection..."},
+    {"role": "user",      "content": "What Python libraries should I use?"},   # ← kept verbatim
+]
+
+r = execute_tool("compress_conversation", {
+    "messages": conversation,
+    "keep_last_n": 2,    # last 2 messages verbatim
+    "max_tokens": 150,   # collapse older turns if still over budget
+})
+print(r["messages_before"], "→", r["messages_after"])
+print(r["strategy"])     # "nlp_compress" or "summarize_collapse"
+for m in r["messages"]:
+    print(f"[{m['role']}] {m['content'][:80]}")
+```
+
+#### deduplicate — remove overlapping retrieved chunks
+
+```python
+# Classic RAG problem: multiple retrieval sources return similar chunks
+chunks = [
+    "Python is a high-level programming language used for web development and data science.",
+    "Python programming language high-level web development data science applications.",  # near-dup
+    "Rome is the capital city of Italy and a center of civilization for thousands of years.",
+    "JavaScript is primarily used for web front-end development in browsers.",
+    "Rome, Italy capital, civilization center, history monuments.",   # near-dup of Rome
+]
+
+r = execute_tool("deduplicate", {"texts": chunks, "threshold": 0.75})
+print(f"Kept {r['deduplicated_count']}/{r['original_count']} chunks")
+# Kept 3/5 chunks
+for t in r["texts"]:
+    print("-", t[:70])
+```
+
+#### Analytics — track cumulative savings
+
+```python
+from synthelion.analytics.ledger import get_ledger
+
+ledger = get_ledger()
+summary = ledger.summary()
+print(f"Total calls:  {summary['total_calls']}")
+print(f"Tokens saved: {summary['tokens_saved']:,}")
+print(f"Cost saved:   ${summary['cost_usd_saved']:.4f}")
+print(f"Note:         {summary['pricing_note']}")
+# Cost saved:   $0.0234
+# Note:         Estimated at Sonnet 4.6 input price ($3.00/MTok)
+```
+
+---
+
 ## Compression levels
 
 | Level | What it removes | Typical savings |
@@ -812,6 +1055,39 @@ Or in Python:
 ```python
 result = svc.compress(text, iso3="ita")
 ```
+
+**Something not working? Run the health check first:**
+
+```bash
+synthelion doctor
+```
+
+Output:
+```
+[✓] mcp package installed (mcp 1.9.4)
+[✓] synthelion 1.0.7
+[✓] savings ledger: ~/.synthelion/savings.json (42 entries)
+[!] session DB: chromadb not installed — lexical fallback active
+[✓] synthelion-mcp in PATH
+[✓] Claude MCP config: ~/.claude.json → synthelion registered
+```
+
+Install chromadb for semantic (vector) session recall:
+```bash
+pip install "synthelion[chromadb]"
+```
+
+---
+
+## Optional extras
+
+| Extra | Installs | Enables |
+|---|---|---|
+| `synthelion[langchain]` | `langchain-core` | `get_tools()`, `SynthelionMemory` |
+| `synthelion[openai]` | `openai` | `OpenAIAdapter` |
+| `synthelion[claude]` | `anthropic` | `ClaudeAdapter` |
+| `synthelion[chromadb]` | `chromadb` | Vector session recall in `session_record` / `session_recall` |
+| `synthelion[all]` | everything above | Full stack |
 
 ---
 
