@@ -4,7 +4,7 @@ All notable changes to Synthelion are documented here.
 
 ---
 
-## [1.0.7] — 2026-06-25 → 2026-06-27
+## [1.0.8] — 2026-06-27
 
 ### Added
 
