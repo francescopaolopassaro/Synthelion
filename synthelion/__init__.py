@@ -19,7 +19,7 @@ from synthelion.core import CompressionFilter, CompressionService
 from synthelion.content_detector import ContentDetector
 from synthelion.content_router import ContentRouter
 
-__version__ = "1.0.8"
+__version__ = "1.1.0"
 __author__ = "Passaro Francesco Paolo"
 
 

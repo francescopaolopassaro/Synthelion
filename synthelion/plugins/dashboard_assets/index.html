@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en" data-bs-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Synthelion Dashboard</title>
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<link rel="icon" type="image/png" sizes="96x96" href="/assets/img/favicon-96x96.png">
+<link rel="apple-touch-icon" href="/assets/img/apple-touch-icon.png">
+<link rel="stylesheet" href="/assets/vendor/bootstrap/bootstrap.min.css">
+<link rel="stylesheet" href="/assets/dashboard.css">
+</head>
+<body>
+<nav class="navbar navbar-expand navbar-dark bg-dark border-bottom border-secondary-subtle mb-4">
+  <div class="container-fluid">
+    <span class="navbar-brand d-flex align-items-center" style="height: 40px;">
+      <img src="/assets/img/apple-touch-icon.png" alt="Synthelion" height="90" class="rounded">
+      <span class="ms-2 fw-semibold">Synthelion Dashboard</span>
+    </span>
+    <span class="text-secondary small" id="last-updated">—</span>
+  </div>
+</nav>
+
+<div class="container-fluid px-4 pb-5">
+
+  <div class="d-flex flex-wrap align-items-center gap-2 mb-4">
+    <div class="btn-group" role="group" aria-label="Range">
+      <button type="button" class="btn btn-outline-secondary range-btn" data-days="1">24h</button>
+      <button type="button" class="btn btn-outline-secondary range-btn" data-days="7">7d</button>
+      <button type="button" class="btn btn-outline-secondary range-btn active" data-days="30">30d</button>
+      <button type="button" class="btn btn-outline-secondary range-btn" data-days="">All time</button>
+    </div>
+    <button type="button" class="btn btn-outline-primary ms-auto" id="refresh-btn">Refresh</button>
+  </div>
+
+  <div class="row g-3 mb-4" id="kpi-row">
+    <div class="col-6 col-md-3">
+      <div class="card kpi-card h-100">
+        <div class="card-body">
+          <div class="text-secondary small text-uppercase">Calls</div>
+          <div class="fs-3 fw-semibold" id="kpi-calls">–</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card kpi-card h-100">
+        <div class="card-body">
+          <div class="text-secondary small text-uppercase">Tokens saved</div>
+          <div class="fs-3 fw-semibold" id="kpi-saved">–</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card kpi-card h-100">
+        <div class="card-body">
+          <div class="text-secondary small text-uppercase">Avg efficiency</div>
+          <div class="fs-3 fw-semibold" id="kpi-eff">–</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card kpi-card h-100">
+        <div class="card-body">
+          <div class="text-secondary small text-uppercase">Est. cost saved</div>
+          <div class="fs-3 fw-semibold" id="kpi-cost">–</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-3 mb-4">
+    <div class="col-6 col-md-3">
+      <div class="card kpi-card h-100">
+        <div class="card-body">
+          <div class="text-secondary small text-uppercase">Sessions</div>
+          <div class="fs-3 fw-semibold" id="kpi-sessions">–</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card kpi-card h-100">
+        <div class="card-body">
+          <div class="text-secondary small text-uppercase">Avg calls / session</div>
+          <div class="fs-3 fw-semibold" id="kpi-avg-calls">–</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card kpi-card h-100">
+        <div class="card-body">
+          <div class="text-secondary small text-uppercase">Tools used</div>
+          <div class="fs-3 fw-semibold" id="kpi-tools">–</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card kpi-card h-100">
+        <div class="card-body">
+          <div class="text-secondary small text-uppercase">Best single call</div>
+          <div class="fs-3 fw-semibold" id="kpi-best-call">–</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-3 mb-4">
+    <div class="col-6 col-md-4">
+      <div class="card kpi-card h-100">
+        <div class="card-body">
+          <div class="text-secondary small text-uppercase">Avg latency</div>
+          <div class="fs-3 fw-semibold" id="kpi-latency-avg">–</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-md-4">
+      <div class="card kpi-card h-100">
+        <div class="card-body">
+          <div class="text-secondary small text-uppercase">p95 latency</div>
+          <div class="fs-3 fw-semibold" id="kpi-latency-p95">–</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-md-4">
+      <div class="card kpi-card h-100">
+        <div class="card-body">
+          <div class="text-secondary small text-uppercase">Max latency</div>
+          <div class="fs-3 fw-semibold" id="kpi-latency-max">–</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-3 mb-4">
+    <div class="col-12 col-lg-8">
+      <div class="card h-100">
+        <div class="card-header">Tokens saved over time</div>
+        <div class="card-body">
+          <div class="chart-box">
+            <canvas id="chart-timeline"></canvas>
+          </div>
+          <div class="text-secondary small mt-2" id="timeline-empty" style="display:none">No data in the selected range.</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-lg-4">
+      <div class="card h-100">
+        <div class="card-header">By tool</div>
+        <div class="card-body">
+          <div class="chart-box">
+            <canvas id="chart-tools"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-3 mb-4">
+    <div class="col-12 col-lg-6">
+      <div class="card h-100">
+        <div class="card-header">By content type</div>
+        <div class="card-body p-0">
+          <table class="table table-sm table-hover mb-0">
+            <thead><tr><th>Type</th><th class="text-end">Tokens saved</th></tr></thead>
+            <tbody id="table-content-type"><tr><td colspan="2" class="text-secondary">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-lg-6">
+      <div class="card h-100">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <span>Recent decisions (session memory)</span>
+          <span class="badge text-bg-secondary" id="decisions-backend">–</span>
+        </div>
+        <div class="card-body p-0" style="max-height: 320px; overflow-y: auto;">
+          <ul class="list-group list-group-flush" id="decisions-list">
+            <li class="list-group-item text-secondary">Loading…</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-3 mb-4">
+    <div class="col-12">
+      <div class="card h-100">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <span>Sessions</span>
+          <span class="text-secondary small">one row per synthelion-mcp / CLI process</span>
+        </div>
+        <div class="card-body p-0" style="max-height: 360px; overflow-y: auto;">
+          <table class="table table-sm table-hover mb-0">
+            <thead>
+              <tr>
+                <th>Session</th>
+                <th>PID</th>
+                <th class="text-end">Calls</th>
+                <th class="text-end">Tokens saved</th>
+                <th>Tools used</th>
+                <th>First activity</th>
+                <th>Last activity</th>
+              </tr>
+            </thead>
+            <tbody id="table-sessions"><tr><td colspan="7" class="text-secondary">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-3 mb-4">
+    <div class="col-12">
+      <div class="card h-100">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <span>Recent requests</span>
+          <span class="text-secondary small" id="requests-count">–</span>
+        </div>
+        <div class="card-body p-0" style="max-height: 420px; overflow-y: auto;">
+          <table class="table table-sm table-hover mb-0">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Tool</th>
+                <th>Type</th>
+                <th class="text-end">Before</th>
+                <th class="text-end">After</th>
+                <th class="text-end">Saved</th>
+                <th class="text-end">Efficiency</th>
+                <th class="text-end">Latency</th>
+                <th>Session</th>
+              </tr>
+            </thead>
+            <tbody id="table-requests"><tr><td colspan="9" class="text-secondary">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p class="text-secondary small text-center">
+    Local, read-only dashboard — reads from ~/.synthelion/. No external calls, no writes.
+  </p>
+
+</div>
+
+<script src="/assets/vendor/bootstrap/bootstrap.bundle.min.js"></script>
+<script src="/assets/vendor/chartjs/chart.umd.min.js"></script>
+<script src="/assets/dashboard.js"></script>
+</body>
+</html>

@@ -10,6 +10,15 @@ ChromaDB is an *optional* dependency — install with:
 
 If chromadb is not installed the module falls back to lexical search (cosine
 bag-of-words), keeping the same public API.
+
+Concurrency model (fallback backend): built for many concurrent MCP server
+processes — one per agent session, as happens behind an AI provider serving
+lots of parallel requests. Each decision is appended to a JSONL file with a
+single atomic os.write() (O_APPEND) — no read-modify-write, no cross-process
+lock. Reads (recall/list) always re-scan the file from disk instead of
+trusting an in-memory cache, so a session immediately sees decisions written
+by other concurrent sessions. ChromaDB itself already handles concurrent
+writers internally when that backend is active.
 """
 from __future__ import annotations
 
@@ -19,13 +28,35 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from synthelion.analytics._atomic_append import append_line
 
 _DEFAULT_DIR = Path.home() / ".synthelion" / "sessions"
 _COLLECTION_NAME = "synthelion_decisions"
+_FALLBACK_FILE = "decisions_fallback.jsonl"
+_LEGACY_FALLBACK_FILE = "decisions_fallback.json"
 
 
 def _now_ts() -> float:
     return time.time()
+
+
+def _append_json_line(path: Path, obj: dict) -> None:
+    append_line(path, (json.dumps(obj, ensure_ascii=False) + "\n").encode("utf-8"))
+
+
+def _migrate_legacy(path: Path) -> None:
+    legacy = path.with_name(_LEGACY_FALLBACK_FILE)
+    if path.exists() or not legacy.exists():
+        return
+    try:
+        records = json.loads(legacy.read_text(encoding="utf-8"))
+        if isinstance(records, list):
+            with open(path, "a", encoding="utf-8") as fh:
+                for r in records:
+                    fh.write(json.dumps(r, ensure_ascii=False) + "\n")
+        legacy.rename(legacy.with_suffix(".json.migrated"))
+    except (OSError, json.JSONDecodeError):
+        pass
 
 
 class SessionDB:
@@ -45,11 +76,11 @@ class SessionDB:
         self._dir = directory or _DEFAULT_DIR
         self._dir.mkdir(parents=True, exist_ok=True)
         self._collection: Any = None
-        self._fallback_records: list[dict] = []
-        self._fallback_file = self._dir / "decisions_fallback.json"
+        self._fallback_file = self._dir / _FALLBACK_FILE
         self._use_chroma = False
         self._session_id = str(uuid.uuid4())
         self._session_start_ts: float = _now_ts()
+        self._session_decision_count = 0
         self._init_store()
 
     # ── init ─────────────────────────────────────────────────────────────────
@@ -65,7 +96,7 @@ class SessionDB:
             self._use_chroma = True
         except Exception:
             self._use_chroma = False
-            self._fallback_records = self._load_fallback()
+            _migrate_legacy(self._fallback_file)
 
     # ── public API ───────────────────────────────────────────────────────────
 
@@ -86,14 +117,18 @@ class SessionDB:
             "session_id": self._session_id,
         }
         if self._use_chroma and self._collection is not None:
-            self._collection.add(
-                documents=[text],
-                metadatas=[metadata],
-                ids=[decision_id],
-            )
+            try:
+                self._collection.add(
+                    documents=[text],
+                    metadatas=[metadata],
+                    ids=[decision_id],
+                )
+            except Exception:
+                # Degrade gracefully rather than crash the calling tool.
+                return decision_id
         else:
-            self._fallback_records.append({"id": decision_id, "text": text, **metadata})
-            self._save_fallback()
+            _append_json_line(self._fallback_file, {"id": decision_id, "text": text, **metadata})
+        self._session_decision_count += 1
         return decision_id
 
     def session_recall(
@@ -112,25 +147,28 @@ class SessionDB:
     def list_decisions(self, limit: int = 50) -> list[dict]:
         """Return the most recent *limit* decisions."""
         if self._use_chroma and self._collection is not None:
-            result = self._collection.get(limit=limit, include=["documents", "metadatas"])
-            return self._format_chroma_result(result)
-        recent = sorted(self._fallback_records, key=lambda r: r.get("ts", 0), reverse=True)
+            try:
+                result = self._collection.get(limit=limit, include=["documents", "metadatas"])
+                return self._format_chroma_result(result)
+            except Exception:
+                return []
+        recent = sorted(self._load_fallback(), key=lambda r: r.get("ts", 0), reverse=True)
         return recent[:limit]
 
     def session_start(self) -> dict:
         """Mark the start of a new session and return session info."""
         self._session_id = str(uuid.uuid4())
         self._session_start_ts = _now_ts()
+        self._session_decision_count = 0
         return {"session_id": self._session_id, "started_at": self._session_start_ts}
 
     def session_end(self) -> dict:
         """Mark the end of a session and return a brief summary."""
         elapsed = _now_ts() - self._session_start_ts
-        count = self._count_session_decisions()
         return {
             "session_id": self._session_id,
             "elapsed_seconds": round(elapsed, 1),
-            "decisions_recorded": count,
+            "decisions_recorded": self._session_decision_count,
         }
 
     def backend(self) -> str:
@@ -165,7 +203,7 @@ class SessionDB:
         from collections import Counter
         import re
 
-        records = self._fallback_records
+        records = self._load_fallback()
         if since is not None:
             records = [r for r in records if r.get("ts", 0) >= since]
 
@@ -188,15 +226,6 @@ class SessionDB:
         scored = [(r, _cosine(qbag, _bag(r.get("text", "")))) for r in records]
         scored.sort(key=lambda x: x[1], reverse=True)
         return [r for r, s in scored[:limit] if s > 0]
-
-    def _count_session_decisions(self) -> int:
-        if self._use_chroma and self._collection is not None:
-            try:
-                result = self._collection.get(where={"session_id": self._session_id})
-                return len(result.get("ids", []))
-            except Exception:
-                return 0
-        return sum(1 for r in self._fallback_records if r.get("session_id") == self._session_id)
 
     @staticmethod
     def _format_chroma_result(result: dict) -> list[dict]:
@@ -234,20 +263,25 @@ class SessionDB:
     def _load_fallback(self) -> list[dict]:
         if not self._fallback_file.exists():
             return []
+        records: list[dict] = []
         try:
-            data = json.loads(self._fallback_file.read_text(encoding="utf-8"))
-            return data if isinstance(data, list) else []
-        except (json.JSONDecodeError, OSError):
+            with open(self._fallback_file, encoding="utf-8") as fh:
+                for line in fh:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        records.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
+        except OSError:
             return []
-
-    def _save_fallback(self) -> None:
-        self._fallback_file.write_text(
-            json.dumps(self._fallback_records, ensure_ascii=False),
-            encoding="utf-8",
-        )
+        return records
 
 
-# Module-level singleton
+# Module-level singleton. The lock only guards this process's first-init race
+# (e.g. two threads from the same asyncio.to_thread pool) — it never touches
+# other processes or files, so it does not limit cross-session concurrency.
 _db: SessionDB | None = None
 _db_lock = __import__("threading").Lock()
 

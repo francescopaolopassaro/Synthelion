@@ -1,0 +1,47 @@
+body {
+  background-color: #0f1115;
+}
+
+.kpi-card {
+  background-color: #1a1d24;
+  border-color: #2a2e37;
+}
+
+.card {
+  background-color: #14161c;
+  border-color: #2a2e37;
+}
+
+.card-header {
+  background-color: #1a1d24;
+  border-color: #2a2e37;
+}
+
+.table {
+  --bs-table-color: #dcdfe4;
+  --bs-table-bg: transparent;
+}
+
+#decisions-list .list-group-item {
+  background-color: transparent;
+  border-color: #2a2e37;
+}
+
+.range-btn.active {
+  pointer-events: none;
+}
+
+/* Fixed-height, non-growing chart container. Chart.js needs a sized parent
+   with position:relative — without it, a canvas re-rendered on every data
+   refresh compounds its own previous size and grows on each redraw. */
+.chart-box {
+  position: relative;
+  height: 260px;
+  width: 100%;
+}
+
+@media (prefers-color-scheme: light) {
+  body:not([data-bs-theme="dark"]) {
+    background-color: #f5f6f8;
+  }
+}

@@ -20,10 +20,13 @@ from __future__ import annotations
 
 import asyncio
 import json as _json
+import os
 import subprocess
 import sys
 import threading
+import time
 import urllib.request
+from pathlib import Path
 
 from synthelion.plugins.openai_tools import execute_tool, get_tool_definitions, get_tool_list  # noqa: F401
 
@@ -37,8 +40,24 @@ _READ_ONLY_TOOLS = frozenset({
 
 
 # ── auto-update state ─────────────────────────────────────────────────────────
+#
+# Many synthelion-mcp processes can be running at once (one per agent session,
+# as happens behind an AI provider). All of them independently notice a new
+# PyPI release at roughly the same time. Running `pip install --upgrade`
+# concurrently from several processes can corrupt the installed package, so
+# only one process is allowed to actually perform the upgrade.
+#
+# Rather than a blocking lock (which would make every other session wait on
+# an unrelated process's pip install), we use a non-blocking atomic claim:
+# os.O_CREAT | os.O_EXCL is a single OS syscall that either creates the file
+# or fails immediately if it already exists — there is no waiting involved.
+# Losing processes just skip the upgrade and move on. A stale claim (crashed
+# updater) expires after _CLAIM_TTL seconds so the system self-heals.
 
 _update: dict = {"status": "idle", "new_version": None}  # idle | checking | updating | updated | failed
+
+_CLAIM_FILE = Path.home() / ".synthelion" / "update.lock"
+_CLAIM_TTL = 300  # seconds — stale claims are ignored after this
 
 
 def _version_tuple(v: str) -> tuple[int, ...]:
@@ -48,8 +67,44 @@ def _version_tuple(v: str) -> tuple[int, ...]:
         return (0,)
 
 
+def _try_claim_update() -> bool:
+    """Non-blocking: True if this process may perform the upgrade, False otherwise."""
+    try:
+        _CLAIM_FILE.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(str(_CLAIM_FILE), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        os.write(fd, str(time.time()).encode())
+        os.close(fd)
+        return True
+    except FileExistsError:
+        try:
+            age = time.time() - _CLAIM_FILE.stat().st_mtime
+        except OSError:
+            return False
+        if age <= _CLAIM_TTL:
+            return False
+        # Stale claim from a crashed/killed updater — clear it and retry once.
+        try:
+            _CLAIM_FILE.unlink()
+        except OSError:
+            return False
+        return _try_claim_update()
+    except OSError:
+        return False
+
+
+def _release_update_claim() -> None:
+    try:
+        _CLAIM_FILE.unlink()
+    except OSError:
+        pass
+
+
 def _check_and_update() -> None:
-    """Background thread: fetch latest version from PyPI and auto-install if newer."""
+    """Background thread: fetch latest version from PyPI and auto-install if newer.
+
+    The PyPI check itself is safe for every session to run concurrently — it's
+    the actual `pip install` that needs to be exclusive to one process.
+    """
     _update["status"] = "checking"
     try:
         import synthelion as _syn
@@ -61,7 +116,16 @@ def _check_and_update() -> None:
             info = _json.loads(resp.read())
         latest = info["info"]["version"]
 
-        if _version_tuple(latest) > _version_tuple(current):
+        if _version_tuple(latest) <= _version_tuple(current):
+            _update["status"] = "up_to_date"
+            return
+
+        if not _try_claim_update():
+            # Another session is already upgrading (or just did) — don't duplicate work.
+            _update["status"] = "up_to_date"
+            return
+
+        try:
             _update["status"] = "updating"
             _update["new_version"] = latest
             subprocess.run(
@@ -70,8 +134,8 @@ def _check_and_update() -> None:
                 timeout=120,
             )
             _update["status"] = "updated"
-        else:
-            _update["status"] = "up_to_date"
+        finally:
+            _release_update_claim()
     except Exception:
         _update["status"] = "failed"
 
@@ -141,7 +205,10 @@ def main() -> None:
             _update["status"] = "notified"  # show the message only once
 
         try:
-            result = execute_tool(name, arguments)
+            # Run the (CPU-bound, synchronous) tool off the event loop thread so
+            # concurrent tool calls — from this session or others reusing the
+            # process — don't serialize behind one slow compression/summarization.
+            result = await asyncio.to_thread(execute_tool, name, arguments)
             text = _json.dumps(result, ensure_ascii=False, indent=2)
         except Exception as exc:
             text = _json.dumps({"error": str(exc)})

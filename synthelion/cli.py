@@ -51,13 +51,18 @@ def main() -> None:
     # serve-mcp
     sub.add_parser("serve-mcp", help="Start MCP server on stdio")
 
+    # serve-dashboard
+    p_dash = sub.add_parser("serve-dashboard", help="Start local read-only web dashboard")
+    p_dash.add_argument("--host", default="127.0.0.1", help="Bind address (default: 127.0.0.1, local only)")
+    p_dash.add_argument("--port", type=int, default=8787, help="Port (default: 8787)")
+
     # doctor — check installation health
     p_doctor = sub.add_parser("doctor", help="Check Synthelion installation health")
     p_doctor.add_argument("--json", action="store_true", help="Output as JSON")
 
     # install — register MCP server in agent configs
     p_install = sub.add_parser("install", help="Register Synthelion MCP server in an AI agent config")
-    p_install.add_argument("--agent", choices=["claude", "gemini"], default="claude", help="Agent to configure (default: claude)")
+    p_install.add_argument("--agent", choices=["claude", "gemini", "opencode"], default="claude", help="Agent to configure (default: claude)")
     p_install.add_argument("--local", action="store_true", help="Install in project-local config instead of global")
 
     # status — aggregate savings from the ledger
@@ -99,6 +104,9 @@ def main() -> None:
     elif args.cmd == "serve-mcp":
         from synthelion.plugins.mcp_server import main as mcp_main
         mcp_main()
+    elif args.cmd == "serve-dashboard":
+        from synthelion.plugins.dashboard import run_dashboard
+        run_dashboard(host=args.host, port=args.port)
     elif args.cmd == "status":
         _cmd_status(args)
     elif args.cmd == "gain":
@@ -127,13 +135,31 @@ def _read_input(args) -> str:
     raise SystemExit(1)
 
 
+def _record_ledger(tool: str, before: int, after: int, content_type: str = "", language: str = "", duration_ms: float = 0.0) -> None:
+    """Log a CLI compression event to the same ledger the MCP server and dashboard read.
+
+    Every user-facing command that actually compresses something (compress,
+    route, summarize) goes through here, so `synthelion status` and the web
+    dashboard reflect CLI/hook usage, not just MCP tool calls.
+    """
+    try:
+        from synthelion.analytics.ledger import get_ledger
+        get_ledger().record(tool, before, after, content_type=content_type, language=language, duration_ms=duration_ms)
+    except Exception:
+        pass
+
+
 def _cmd_compress(args) -> None:
+    import time
     from synthelion.core import CompressionService
     from synthelion.models import CompressionLevel
     level_map = {"light": CompressionLevel.LIGHT, "semantic": CompressionLevel.SEMANTIC, "aggressive": CompressionLevel.AGGRESSIVE}
     text = _read_input(args)
     svc = CompressionService()
+    start = time.perf_counter()
     r = svc.compress(text, level_map[args.level], iso3=args.language)
+    duration_ms = (time.perf_counter() - start) * 1000
+    _record_ledger("cli_compress", r.original_tokens, r.compressed_tokens, language=args.language or "", duration_ms=duration_ms)
     if args.json:
         print(json.dumps({
             "compressed": r.compressed_text,
@@ -160,6 +186,7 @@ def _cmd_detect(args) -> None:
 
 
 def _cmd_route(args) -> None:
+    import time
     from synthelion.content_router import ContentRouter
     from synthelion.models import CompressionProfile
     profile_map = {
@@ -168,7 +195,10 @@ def _cmd_route(args) -> None:
     }
     text = _read_input(args)
     router = ContentRouter.from_profile(profile_map[args.profile])
+    start = time.perf_counter()
     r = router.route(text)
+    duration_ms = (time.perf_counter() - start) * 1000
+    _record_ledger("cli_route", r.tokens_before, r.tokens_after, content_type=r.detected_type.value, duration_ms=duration_ms)
     if args.json:
         print(json.dumps({
             "compressed": r.compressed, "type": r.detected_type.value,
@@ -180,11 +210,16 @@ def _cmd_route(args) -> None:
 
 
 def _cmd_summarize(args) -> None:
+    import time
     from synthelion.nlp.summarizer import TfIdfSummarizer
     from synthelion.nlp.text_rank import TextRankSummarizer
     text = _read_input(args)
     summ = TfIdfSummarizer() if args.algo == "tfidf" else TextRankSummarizer()
-    print(summ.summarize(text, sentence_count=args.sentences, ratio=args.ratio))
+    start = time.perf_counter()
+    summary = summ.summarize(text, sentence_count=args.sentences, ratio=args.ratio)
+    duration_ms = (time.perf_counter() - start) * 1000
+    _record_ledger("cli_summarize", len(text.split()), len(summary.split()), content_type="summary", duration_ms=duration_ms)
+    print(summary)
 
 
 def _cmd_status(args) -> None:
@@ -493,8 +528,36 @@ def _cmd_install(args) -> None:
         print(f"✓ Synthelion MCP registered in {config_path}")
         print("  Restart Gemini CLI to activate.")
 
+    elif agent == "opencode":
+        # OpenCode config schema differs from Claude/Gemini: MCP servers live
+        # under "mcp", each entry needs an explicit "type" and "command" as an
+        # array (not a single string + args list). Config files are merged by
+        # OpenCode itself, so we only need to merge our own key in here.
+        if local:
+            config_path = Path("opencode.json")
+        else:
+            config_path = Path.home() / ".config" / "opencode" / "opencode.json"
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if config_path.exists():
+            try:
+                cfg = _json.loads(config_path.read_text(encoding="utf-8"))
+            except Exception:
+                cfg = {}
+        else:
+            cfg = {"$schema": "https://opencode.ai/config.json"}
+
+        cfg.setdefault("mcp", {})["synthelion"] = {
+            "type": "local",
+            "command": [mcp_cmd],
+            "enabled": True,
+        }
+        config_path.write_text(_json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
+        print(f"✓ Synthelion MCP registered in {config_path}")
+        print("  Restart OpenCode (or run `opencode mcp list`) to activate.")
+
     else:
-        print(f"ERROR: unsupported agent '{agent}'. Supported: claude, gemini", file=sys.stderr)
+        print(f"ERROR: unsupported agent '{agent}'. Supported: claude, gemini, opencode", file=sys.stderr)
         raise SystemExit(1)
 
 

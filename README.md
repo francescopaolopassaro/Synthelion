@@ -413,11 +413,11 @@ Add Synthelion to each agent's config file:
 | Claude Code | `~/.claude/settings.json` |
 | Claude Desktop (macOS) | `~/Library/Application Support/Claude/claude_desktop_config.json` |
 | Claude Desktop (Windows) | `%APPDATA%\Claude\claude_desktop_config.json` |
-| OpenCode | `~/.config/opencode/config.json` |
+| OpenCode | `~/.config/opencode/opencode.json` (global) or `opencode.json` (project) |
 | Cursor / Windsurf | MCP settings in the app UI |
 | Continue | `.continue/config.json` |
 
-All use the same JSON block:
+Claude / Claude Desktop / Cursor / Windsurf / Continue all use the same JSON block:
 ```json
 {
   "mcpServers": {
@@ -427,6 +427,26 @@ All use the same JSON block:
   }
 }
 ```
+
+**OpenCode** uses its own MCP schema (`mcp` key, explicit `type`, `command` as an array):
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "synthelion": {
+      "type": "local",
+      "command": ["synthelion-mcp"],
+      "enabled": true
+    }
+  }
+}
+```
+Or register it automatically:
+```bash
+synthelion install --agent opencode           # global: ~/.config/opencode/opencode.json
+synthelion install --agent opencode --local    # project: ./opencode.json
+```
+Once registered, all 13 Synthelion tools (`compress`, `route_content`, `compress_for_context`, `deduplicate`, …) show up as callable tools in OpenCode — ask it to *"use the synthelion tool to compress this text"* or let it call them automatically per your agent instructions (see below).
 
 ### Instruct agents to compress automatically
 
@@ -618,6 +638,9 @@ synthelion summarize --text "..." --sentences 3
 
 # Start MCP server manually
 synthelion serve-mcp
+
+# Start the local read-only web dashboard
+synthelion serve-dashboard
 ```
 
 Pipe-friendly — reads from stdin if no `--text` or `--file` is given:
@@ -635,8 +658,10 @@ synthelion doctor --json      # machine-readable output
 
 # Register the MCP server automatically (global Claude Code config)
 synthelion install
-synthelion install --agent gemini           # Gemini CLI
-synthelion install --agent claude --local   # project-local .claude/settings.json
+synthelion install --agent gemini            # Gemini CLI
+synthelion install --agent opencode          # OpenCode (global: ~/.config/opencode/opencode.json)
+synthelion install --agent opencode --local  # OpenCode (project: ./opencode.json)
+synthelion install --agent claude --local    # project-local .claude/settings.json
 ```
 
 #### Analytics & savings tracking
@@ -665,6 +690,49 @@ synthelion export --days 30 -o last_month.csv
 synthelion upgrade            # pip install --upgrade synthelion
 synthelion upgrade --dry-run  # show what would run, don't run it
 ```
+
+---
+
+## Web dashboard
+
+A local, **read-only** web dashboard over everything Synthelion has compressed — no external calls, no CDN, works offline. Built for a multi-session setup: every `synthelion-mcp` process (one per agent session) and every CLI/hook invocation writes to the same lock-free ledger, and the dashboard aggregates them live.
+
+```bash
+synthelion serve-dashboard                    # http://127.0.0.1:8787
+synthelion serve-dashboard --port 9000        # custom port
+synthelion serve-dashboard --host 0.0.0.0     # explicit opt-in to expose it on the network
+```
+
+![Synthelion dashboard — overview](docs/dashboard-overview.jpg)
+
+KPIs at a glance: calls, tokens saved, avg efficiency, estimated cost saved, active sessions, avg calls per session, tools used, best single call, and latency (avg / p95 / max). Charts for tokens saved over time and by tool.
+
+![Synthelion dashboard — sessions and requests](docs/dashboard-sessions.jpg)
+
+Scroll down for a breakdown by content type, recent session-memory decisions, a **Sessions** table (one row per `synthelion-mcp`/CLI process — PID, calls, tools used, first/last activity), and a **Recent requests** feed (every individual call with before/after tokens, efficiency, and latency).
+
+**Auto-start with Claude Code** — add a `SessionStart` hook so the dashboard is already running whenever you open a session:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "powershell",
+            "command": "try{$c=Get-NetTCPConnection -LocalPort 8787 -State Listen -ErrorAction SilentlyContinue;if(-not $c){Start-Process -FilePath \"synthelion\" -ArgumentList 'serve-dashboard' -WindowStyle Hidden}}catch{}",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The check is non-blocking and idempotent — if the dashboard is already listening on the port, the hook does nothing.
 
 ---
 
@@ -1065,8 +1133,8 @@ synthelion doctor
 Output:
 ```
 [✓] mcp package installed (mcp 1.9.4)
-[✓] synthelion 1.0.7
-[✓] savings ledger: ~/.synthelion/savings.json (42 entries)
+[✓] synthelion 1.1.0
+[✓] savings ledger: ~/.synthelion/savings.jsonl (42 entries)
 [!] session DB: chromadb not installed — lexical fallback active
 [✓] synthelion-mcp in PATH
 [✓] Claude MCP config: ~/.claude.json → synthelion registered

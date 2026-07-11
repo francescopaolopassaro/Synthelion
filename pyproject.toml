@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "synthelion"
-version = "1.0.8"
+version = "1.1.0"
 description = "Universal token compressor for AI agents — MCP, OpenAI, LangChain, CLI. 50+ languages, zero ML models."
 readme = "README.md"
 license = "MIT"
@@ -55,7 +55,16 @@ where = ["."]
 include = ["synthelion*"]
 
 [tool.setuptools.package-data]
-synthelion = ["worddata/*.br", "py.typed"]
+synthelion = [
+    "worddata/*.br",
+    "py.typed",
+    "plugins/dashboard_assets/*.html",
+    "plugins/dashboard_assets/*.css",
+    "plugins/dashboard_assets/*.js",
+    "plugins/dashboard_assets/vendor/bootstrap/*",
+    "plugins/dashboard_assets/vendor/chartjs/*",
+    "plugins/dashboard_assets/img/*",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
