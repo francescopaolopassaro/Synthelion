@@ -256,7 +256,9 @@ class TestSessionDB:
             db1 = SessionDB(directory=tmp_path)
             db1.record_decision("Persistent decision")
             db2 = SessionDB(directory=tmp_path)
-        assert len(db2._fallback_records) == 1
+        # db2 never saw db1's write at init time — reads must come fresh from disk
+        # every call (append-only JSONL, no in-memory cache to go stale).
+        assert len(db2.list_decisions()) == 1
 
     def test_get_session_db_singleton(self):
         from synthelion.analytics import session_db as sdb_mod
@@ -278,10 +280,11 @@ class TestSessionDB:
 
     def test_corrupted_fallback_file(self, tmp_path):
         from synthelion.analytics.session_db import SessionDB
+        # Legacy (pre-JSONL) format file with unparseable content.
         (tmp_path / "decisions_fallback.json").write_text("NOT JSON", encoding="utf-8")
         with patch.dict("sys.modules", {"chromadb": None}):
             db = SessionDB(directory=tmp_path)
-        assert db._fallback_records == []
+        assert db.list_decisions() == []
 
 
 # ---------------------------------------------------------------------------

@@ -4,6 +4,39 @@ All notable changes to Synthelion are documented here.
 
 ---
 
+## [1.1.0] — 2026-07-11
+
+### Added
+
+#### Web dashboard
+- **`synthelion serve-dashboard [--host] [--port]`** — local, read-only web dashboard (stdlib `http.server`, no extra dependencies). Binds to `127.0.0.1:8787` by default.
+- Bootstrap 5 and Chart.js **vendored locally** (`synthelion/plugins/dashboard_assets/vendor/`) — no CDN, works fully offline.
+- KPIs: calls, tokens saved, avg efficiency, estimated cost saved, active sessions, avg calls/session, tools used, best single call, avg/p95/max latency.
+- Charts: tokens saved over time, tokens saved by tool.
+- Tables: by content type, recent session-memory decisions, **Sessions** (one row per `synthelion-mcp`/CLI process), **Recent requests** (full per-call feed with latency).
+- Auto-start on Claude Code startup via a `SessionStart` hook — checks if the port is already listening (non-blocking) before launching.
+
+#### Concurrency — built for high-volume AI-provider traffic
+- **Lock-free append-only ledger** (`analytics/ledger.py`): `savings.json` → `savings.jsonl`, one atomic append per record instead of read-modify-write. Old array-format ledgers are migrated automatically on first read.
+- **`analytics/_atomic_append.py`** — new cross-platform atomic line-append primitive. On Windows, Python's `os.open(..., O_APPEND)` is *not* atomic across processes (the CRT does a separate seek-to-EOF + write); an 8-process/1600-write stress test lost ~28% of records with the naive approach. Fixed by opening the file handle with **only** `FILE_APPEND_DATA` access via `CreateFileW` (ctypes) — verified 1600/1600 records with zero loss under concurrent writers.
+- **`analytics/session_db.py`** fallback store also converted to lock-free append-only JSONL; reads always re-scan from disk instead of trusting an in-memory cache that could go stale across processes.
+- **Non-blocking auto-update claim** (`mcp_server.py`): when many `synthelion-mcp` processes notice a new PyPI release at once, only one may run `pip install --upgrade` — enforced with an atomic `O_CREAT|O_EXCL` claim file (self-expiring after 5 minutes) instead of a blocking lock. Losing processes skip immediately.
+- **`asyncio.to_thread`** wraps tool execution in the MCP server's `call_tool` handler — concurrent tool calls no longer serialize on the event loop.
+- Every ledger record now carries **`session_id`**, **`pid`**, and **`duration_ms`** — enables per-session and per-request breakdowns without any extra plumbing at call sites.
+
+#### CLI ledger integration
+- `synthelion compress`, `synthelion route`, and `synthelion summarize` now write to the same ledger the MCP server and dashboard read (`cli_compress`, `cli_route`, `cli_summarize` tool names) — the Claude Code `UserPromptSubmit` hook's compressions are now visible in `synthelion status` and the dashboard, not just MCP tool calls.
+- **`synthelion install --agent opencode [--local]`** — registers Synthelion as an MCP server in OpenCode's config (`~/.config/opencode/opencode.json` global, or `./opencode.json` project-local), using OpenCode's `mcp` schema (`type: "local"`, `command` as an array).
+
+#### Ledger
+- **`sessions_summary()`** — groups ledger records by writer process (session_id), returning calls/tokens/tools/first-last-activity per session.
+- **`avg_latency_ms` / `p95_latency_ms` / `max_latency_ms`** added to `summary()`.
+
+### Fixed
+- README: OpenCode config path corrected from the non-existent `~/.config/opencode/config.json` to the real `~/.config/opencode/opencode.json`, and the MCP block corrected to OpenCode's actual schema (it previously showed the Claude/Gemini `mcpServers` shape, which OpenCode does not use).
+
+---
+
 ## [1.0.8] — 2026-06-27
 
 ### Added

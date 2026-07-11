@@ -12,6 +12,9 @@ Usage:
 """
 from __future__ import annotations
 
+import threading
+import time
+
 from synthelion.core import CompressionService
 from synthelion.detector import LanguageDetector
 from synthelion.models import CompressionLevel, CompressionProfile
@@ -20,6 +23,11 @@ from synthelion.nlp.text_rank import TextRankSummarizer
 _svc = CompressionService()
 _det = LanguageDetector()
 _tr = TextRankSummarizer()
+
+# Per-thread call timer: execute_tool() starts it, _record_ledger() reads the
+# elapsed time. Thread-local because execute_tool runs in a thread pool
+# (asyncio.to_thread in mcp_server.py) — each concurrent call gets its own.
+_call_timer = threading.local()
 
 _LEVEL_MAP = {
     "none": CompressionLevel.NONE,
@@ -381,6 +389,7 @@ def get_tool_list() -> list[str]:
 
 def execute_tool(name: str, arguments: dict) -> dict:
     """Execute a Synthelion tool by name and return a JSON-serializable result."""
+    _call_timer.start = time.perf_counter()
     if name == "compress":
         level = _LEVEL_MAP.get((arguments.get("level") or "semantic").lower(), CompressionLevel.SEMANTIC)
         r = _svc.compress(arguments["text"], level, iso3=arguments.get("language"))
@@ -531,7 +540,9 @@ def _fmt_metrics(before: int, after: int) -> str:
 def _record_ledger(tool: str, before: int, after: int, content_type: str = "") -> None:
     try:
         from synthelion.analytics.ledger import get_ledger
-        get_ledger().record(tool, before, after, content_type=content_type)
+        start = getattr(_call_timer, "start", None)
+        duration_ms = (time.perf_counter() - start) * 1000 if start is not None else 0.0
+        get_ledger().record(tool, before, after, content_type=content_type, duration_ms=duration_ms)
     except Exception:
         pass
 
