@@ -40,6 +40,10 @@ _LEGACY_LEDGER_FILE = "savings.json"  # pre-JSONL format (single JSON array)
 # Sonnet 4.6 input pricing — $3.00/MTok = $0.000003 per token
 # Used to estimate dollar savings from token compression.
 _DEFAULT_PRICE_PER_TOKEN: float = 3e-6
+# Same per-token estimate CompressionResult uses (models.py) -- kept in sync
+# so the dashboard's aggregate energy/CO2 KPI matches individual call results.
+_ENERGY_MWH_PER_TOKEN: float = 0.005
+_CO2_MG_PER_MWH: float = 0.4
 
 
 def _ledger_path(directory: Path | None = None) -> Path:
@@ -162,6 +166,8 @@ class SavingsLedger:
 
         efficiency = (total_saved / total_before * 100) if total_before > 0 else 0.0
         cost_saved = sum(r.get("cost_usd_saved", r.get("tokens_saved", 0) * _DEFAULT_PRICE_PER_TOKEN) for r in data)
+        energy_mwh_saved = total_saved * _ENERGY_MWH_PER_TOKEN
+        co2_mg_saved = energy_mwh_saved * _CO2_MG_PER_MWH
 
         durations = sorted(r.get("duration_ms", 0) or 0 for r in data if r.get("duration_ms"))
         avg_latency = sum(durations) / len(durations) if durations else 0.0
@@ -176,6 +182,8 @@ class SavingsLedger:
             "avg_efficiency_pct": round(efficiency, 2),
             "cost_usd_saved": round(cost_saved, 6),
             "pricing_note": "Estimated at Sonnet 4.6 input price ($3.00/MTok)",
+            "energy_mwh_saved": round(energy_mwh_saved, 3),
+            "co2_mg_saved": round(co2_mg_saved, 3),
             "by_tool": by_tool,
             "by_content_type": by_type,
             "avg_latency_ms": round(avg_latency, 1),
