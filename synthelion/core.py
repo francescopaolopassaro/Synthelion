@@ -11,6 +11,7 @@ from typing import Callable
 
 _log = logging.getLogger(__name__)
 
+from synthelion import cjk_segmenter
 from synthelion.detector import LanguageDetector
 from synthelion.models import CompressionLevel, CompressionResult
 from synthelion.word_provider import FunctionWordProvider
@@ -273,6 +274,14 @@ def _tokenize(text: str) -> list[_Token]:
     for m in _WORD_SPLIT.finditer(text):
         t = m.group()
         is_punct = not (t[0].isalpha() or t[0].isdigit())
+        if not is_punct and len(t) > 1 and cjk_segmenter.is_han(t[0]):
+            # Chinese has no spaces between words, so the regex above matched
+            # this whole run of Han characters as one "word" -- segment it
+            # into real words instead, or every function/negation word check
+            # downstream compares against the entire sentence and never matches.
+            for word in cjk_segmenter.segment_han_run(t):
+                tokens.append(_Token(word, False))
+            continue
         tokens.append(_Token(t, is_punct))
     return tokens
 
