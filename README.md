@@ -1,5 +1,18 @@
 # Synthelion — Universal Token Compressor and Prompt Manager for AI Agents
 ![Synthelion Logo](Synthelion.png)
+
+## Technology Partnership
+
+<img src="https://www.digitalsolutions.it/img/partners/novaroutelogo.png" alt="NovaRouteAI" height="60">
+
+**[NovaRouteAI](https://novarouteai.com/?ref=synthelion)** — Build with Chinese AI models through one simple API.
+
+NovaRouteAI helps developers and AI SaaS teams test, compare, and run models like DeepSeek, Qwen, Doubao, Kimi, and GLM without managing multiple provider accounts. Start with test credits and optimize your cost per successful task.
+
+[Click here to know NovaRouteAI](https://novarouteai.com/?ref=synthelion)
+
+---
+
 Synthelion compresses prompts before they reach any AI model — cutting token usage by up to 70%, reducing API costs, and speeding up responses. It works with **any agent or framework**: Claude Code, OpenAI, LangChain, OpenCode, Cursor, and more.
 
 Supports 50+ languages out of the box. No AI model required. No configuration.
