@@ -151,6 +151,8 @@ class SavingsLedger:
                 "avg_latency_ms": 0.0,
                 "p95_latency_ms": 0.0,
                 "max_latency_ms": 0.0,
+                "energy_mwh_saved": 0.0,
+                "co2_mg_saved": 0.0,
             }
 
         total_before = sum(r.get("tokens_before", 0) for r in data)
