@@ -53,7 +53,7 @@
     document.getElementById("kpi-calls").textContent = fmtInt(s.total_calls);
     document.getElementById("kpi-saved").textContent = fmtInt(s.tokens_saved);
     document.getElementById("kpi-eff").textContent = fmtPct(s.avg_efficiency_pct);
-    document.getElementById("kpi-cost").textContent = fmtCost(s.cost_usd_saved);
+    document.getElementById("kpi-co2").textContent = fmtCo2(s.co2_mg_saved);
 
     document.getElementById("kpi-sessions").textContent = fmtInt(sessions.length);
     const avgCalls = sessions.length ? sessions.reduce((sum, x) => sum + x.calls, 0) / sessions.length : 0;
@@ -250,6 +250,16 @@
 
   document.getElementById("refresh-btn").addEventListener("click", refresh);
 
+  async function loadVersion() {
+    try {
+      const v = await fetchJson("/api/version");
+      document.getElementById("version-badge").textContent = "v" + v.version;
+    } catch (err) {
+      // non-critical — leave the placeholder badge in place
+    }
+  }
+
   refresh();
+  loadVersion();
   setInterval(refresh, 20000);
 })();
