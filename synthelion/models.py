@@ -11,6 +11,9 @@ class CompressionLevel(Enum):
     LIGHT = 1
     SEMANTIC = 2
     AGGRESSIVE = 3
+    # Ported from Caveman C# 1.4.1.
+    STATISTICAL = 4  # TF-IDF word scoring instead of curated dictionaries
+    SYNTACTIC = 5    # rule-based grammatical-glue pruning, POS-gated hedge-clause elision
 
 
 class ContentType(Enum):

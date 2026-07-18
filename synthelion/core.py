@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-import re
+import math
+import regex
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Callable
@@ -14,19 +15,34 @@ from synthelion.detector import LanguageDetector
 from synthelion.models import CompressionLevel, CompressionResult
 from synthelion.word_provider import FunctionWordProvider
 
-_WORD_SPLIT = re.compile(
-    r"[\w]+(?:'[\w]+)?|[^\w\s]", re.UNICODE
+# Ported from Caveman C# 1.4.1: \w in Python's stdlib `re` (like \p{L} in .NET) does not
+# include combining marks (Unicode category M*), so a regex-only tokenizer fragments words
+# in scripts that attach vowel signs/virama as separate codepoints (Kannada, Hindi, Tamil,
+# Thai, ...) — e.g. "दिन" split into "द" and "न". `regex` (already a declared dependency)
+# supports \p{...} Unicode property escapes directly, exactly like the C# fix, and is a
+# compiled matcher rather than a per-character Python loop — the same correctness fix without
+# a performance regression.
+_WORD_SPLIT = regex.compile(
+    r"[\p{L}\p{M}\p{N}_]+(?:'[\p{L}\p{M}\p{N}_]+)?|[^\w\s]", regex.UNICODE
 )
 
 # Languages that capitalise all common nouns — the positional proper-noun
 # heuristic is disabled for these (same as C# CapitalizedNounLanguages).
 _CAPITALIZED_NOUN_LANGS = frozenset({"deu"})
 
-# Language group → suffix lists (ported verbatim from C# IsDescriptiveWord)
+# Language group → suffix lists (ported from C# IsDescriptiveWord).
+# "al"/"ical" (English) and "are" (Romance) were removed in Caveman C# 1.4.1: they catch
+# genuinely decorative adjectives ("occasional") or, for "are", nothing but adjectives in
+# theory — but "are" also matches EVERY Italian first-conjugation infinitive verb
+# ("analizzare", "parlare"), and "al"/"ical" just as often match a domain-specifying
+# adjective that IS the information ("financial"/"medical"/"legal" report are not
+# interchangeable). A comprehensibility test suite caught both dropping real content
+# (a sentence's main verb, and "financial" from "quarterly financial report"). Losing real
+# content outweighs catching a few filler adjectives, so both stay out here too.
 _EN_ADV = ("ly", "wise", "wards")
-_EN_ADJ = ("ous", "al", "ive", "able", "ible", "ful", "less", "ic", "ical", "ant", "ent", "ish", "like", "some")
+_EN_ADJ = ("ous", "ive", "able", "ible", "ful", "less", "ic", "ant", "ent", "ish", "like", "some")
 _ROMANCE_ADV = ("mente",)
-_ROMANCE_ADJ = ("oso", "osa", "ivo", "iva", "abile", "ibile", "ale", "are", "ese", "ista")
+_ROMANCE_ADJ = ("oso", "osa", "ivo", "iva", "abile", "ibile", "ale", "ese", "ista")
 _GERMANIC_ADJ = ("lich", "ig", "isch", "sam", "bar", "haft", "los", "voll", "arm", "reich")
 _SLAVIC_ADJ = ("ный", "ная", "ное", "ные", "ний", "ня", "нє", "ова", "еви", "ски", "цки", "скиј", "чки")
 
@@ -85,6 +101,10 @@ _GENERIC_FALLBACK: frozenset[str] = frozenset({
     "big", "small", "new", "old", "good", "bad",
     "now", "then", "today", "yesterday", "tomorrow", "always", "never",
 })
+
+# Sentence-ending punctuation: splits the token stream into pseudo-documents for TF-IDF
+# (STATISTICAL) and into clauses for verb detection (SYNTACTIC). Ported from Caveman C# 1.4.1.
+_SENTENCE_ENDERS = frozenset({".", "!", "?", "…"})
 
 
 @dataclass
@@ -191,9 +211,16 @@ class CompressionService:
             filtered = _filter_light(tokens, fw)
         elif level == CompressionLevel.SEMANTIC:
             filtered = _filter_semantic(tokens, fw, lemmas, proper_nouns, iso3)
-        else:  # AGGRESSIVE
+        elif level == CompressionLevel.AGGRESSIVE:
             generic = self._provider.get_generic_words(iso3) or _GENERIC_FALLBACK
             filtered = _filter_aggressive(tokens, fw, lemmas, proper_nouns, iso3, generic)
+        elif level == CompressionLevel.STATISTICAL:
+            generic = self._provider.get_generic_words(iso3) or _GENERIC_FALLBACK
+            filtered = _filter_statistical(tokens, fw, lemmas, proper_nouns, iso3, generic)
+        else:  # SYNTACTIC
+            generic = self._provider.get_generic_words(iso3) or _GENERIC_FALLBACK
+            pos_tags = self._provider.get_pos_tags(iso3)
+            filtered = _filter_syntactic(tokens, fw, lemmas, proper_nouns, iso3, generic, pos_tags)
 
         compressed = " ".join(filtered)
         return CompressionResult(
@@ -304,6 +331,10 @@ def _filter_aggressive(
     iso3: str,
     generic: frozenset[str],
 ) -> list[str]:
+    # BUGFIX: this function referenced an undefined `group` name (missing the
+    # _lang_group(iso3) call below), which raised NameError on every non-trivial
+    # sentence — AGGRESSIVE mode was completely broken for any real content word.
+    group = _lang_group(iso3)
     is_proper = _detect_proper_nouns(tokens, iso3, proper_nouns)
     out = []
     for i, tok in enumerate(tokens):
@@ -327,6 +358,261 @@ def _filter_aggressive(
         if _is_descriptive(normalized, group):
             continue
         out.append(normalized)
+
+    # Ported from Caveman C# 1.4.1: a short, content-bearing prompt (e.g. a one-word
+    # imperative like "Vai."/"Go.") can have its only word classified as generic/
+    # descriptive and pruned to nothing. An empty compressed prompt is a total loss of
+    # meaning, worse than keeping one extra word, so fall back to the mildest available
+    # signal instead of returning nothing.
+    if not out and any(not t.is_punct for t in tokens):
+        return _filter_semantic(tokens, fw, lemmas, proper_nouns, iso3)
+
+    return out
+
+
+def _sentence_index_of(tokens: list[_Token]) -> tuple[list[int], int]:
+    """Assigns each token its 0-based sentence index; returns (index_per_token, sentence_count)."""
+    sentence_of: list[int] = [0] * len(tokens)
+    idx = 0
+    for i, tok in enumerate(tokens):
+        sentence_of[i] = idx
+        if tok.is_punct and tok.text in _SENTENCE_ENDERS:
+            idx += 1
+    return sentence_of, idx + 1
+
+
+def _filter_statistical(
+    tokens: list[_Token],
+    fw: frozenset[str],
+    lemmas: dict[str, str],
+    proper_nouns: frozenset[str],
+    iso3: str,
+    generic: frozenset[str],
+) -> list[str]:
+    """TF-IDF word scoring instead of curated dictionaries (ported from Caveman C# 1.4.1).
+
+    Scores each distinct word by frequency in the prompt vs. how many of the prompt's
+    own sentences contain it, grounding "common" words against the language's curated
+    function/generic word lists exactly as a real reference corpus would. Keeps words
+    scoring at or above the median of the prompt's own positively-scored vocabulary, so
+    the cut is relative to this text rather than a fixed threshold. Never drops a
+    sentence to nothing.
+    """
+    is_proper = _detect_proper_nouns(tokens, iso3, proper_nouns)
+    n = len(tokens)
+    sentence_of, sentence_count = _sentence_index_of(tokens)
+
+    # Scoring key per token: None for punctuation/proper nouns/numbers (handled
+    # separately, never scored away), otherwise its lemma/lowercased surface form.
+    keys: list[str | None] = [None] * n
+    for i, tok in enumerate(tokens):
+        if tok.is_punct or is_proper[i] or _is_number(tok.text):
+            continue
+        keys[i] = _lemma_or_lower(tok.text, lemmas)
+
+    term_freq: dict[str, int] = {}
+    docs_with_term: dict[str, set[int]] = {}
+    for i, k in enumerate(keys):
+        if k is None:
+            continue
+        term_freq[k] = term_freq.get(k, 0) + 1
+        docs_with_term.setdefault(k, set()).add(sentence_of[i])
+
+    scores: dict[str, float] = {}
+    for word, freq in term_freq.items():
+        if word in fw or word in generic:
+            scores[word] = 0.0
+            continue
+        df = len(docs_with_term[word])
+        idf = (math.log(sentence_count / (1 + df)) + 1.0) if sentence_count > 1 else 1.0
+        scores[word] = freq * idf
+
+    if not scores:
+        return [t.text for t in tokens if not t.is_punct and not _is_number(t.text)]
+
+    positive = sorted(v for v in scores.values() if v > 0)
+    threshold = positive[len(positive) // 2] if positive else 0
+
+    keep = [False] * n
+    sentence_has_keep = [False] * sentence_count
+    for i, tok in enumerate(tokens):
+        if tok.is_punct:
+            continue
+        if is_proper[i]:
+            keep[i] = True
+            sentence_has_keep[sentence_of[i]] = True
+            continue
+        k = keys[i]
+        if k is None:
+            continue
+        score = scores.get(k, 0)
+        if score > 0 and score >= threshold:
+            keep[i] = True
+            sentence_has_keep[sentence_of[i]] = True
+
+    # Safety floor: a sentence that scored nothing above threshold still keeps its
+    # single highest-scoring word, so compression never erases a whole sentence.
+    for s in range(sentence_count):
+        if sentence_has_keep[s]:
+            continue
+        best_idx, best_score = -1, -1.0
+        for i, tok in enumerate(tokens):
+            if sentence_of[i] != s or tok.is_punct or is_proper[i]:
+                continue
+            k = keys[i]
+            if k is None:
+                continue
+            sc = scores.get(k, 0)
+            if sc > best_score:
+                best_score, best_idx = sc, i
+        if best_idx >= 0:
+            keep[best_idx] = True
+
+    out = []
+    for i, tok in enumerate(tokens):
+        if not keep[i]:
+            continue
+        out.append(tok.text if is_proper[i] else keys[i])
+    return out
+
+
+def _filter_syntactic(
+    tokens: list[_Token],
+    fw: frozenset[str],
+    lemmas: dict[str, str],
+    proper_nouns: frozenset[str],
+    iso3: str,
+    generic: frozenset[str],
+    pos_tags: dict[str, str],
+) -> list[str]:
+    """Rule-based syntactic pruning (ported from Caveman C# 1.4.1).
+
+    Same content-word filtering as AGGRESSIVE, except a function word survives when
+    it is grammatical glue directly touching a word that itself survives — a
+    determiner right in front of its noun — so the result reads as a terse but
+    grammatical sentence instead of a keyword bag. Kept function words are never
+    lemmatised.
+
+    When pos_tags is non-empty, a leading hedging/matrix clause ("I kindly ask you
+    to...", "vorrei che tu...") is additionally elided in favour of the sentence's
+    last verb — gated on real POS evidence (a first attempt without it broke on
+    verb/preposition homographs, e.g. Italian "entro" = "by/within" vs. "I enter")
+    and restricted to only fire when every token between two candidate verbs is
+    grammatical glue or a descriptive modifier, never a real content noun, so
+    coordinated clauses ("I bought bread and ate cake") are never mistaken for a
+    hedge clause and gutted. Proper nouns are never elided. Without POS data for the
+    language, elision is a no-op.
+    """
+    group = _lang_group(iso3)
+    is_proper = _detect_proper_nouns(tokens, iso3, proper_nouns)
+    n = len(tokens)
+
+    def next_survives(j: int) -> bool:
+        if j >= n or tokens[j].is_punct:
+            return False
+        if is_proper[j]:
+            return True
+        if _is_number(tokens[j].text):
+            return False
+        j_lower = tokens[j].text.lower()
+        if j_lower in fw:
+            return False
+        j_norm = _lemma_or_lower(tokens[j].text, lemmas)
+        if j_norm in fw or j_norm in generic:
+            return False
+        if _is_descriptive(j_norm, group):
+            return False
+        return True
+
+    def is_glue_or_modifier(i: int) -> bool:
+        if tokens[i].is_punct or is_proper[i]:
+            return True
+        lower = tokens[i].text.lower()
+        norm = _lemma_or_lower(tokens[i].text, lemmas)
+        return lower in fw or norm in fw or _is_descriptive(norm, group)
+
+    # elided[i]: inside a leading hedge/matrix clause the POS-gated pass chose to drop
+    # wholesale (proper nouns are exempted and flow through normal handling).
+    elided = [False] * n
+    if pos_tags:
+        clause_start = 0
+        for i in range(n + 1):
+            if i < n and not (tokens[i].is_punct and tokens[i].text in _SENTENCE_ENDERS):
+                continue
+            s, e = clause_start, i
+            clause_start = i + 1
+
+            verb_idx = [
+                k for k in range(s, e)
+                if not tokens[k].is_punct and not is_proper[k]
+                and pos_tags.get(tokens[k].text.lower()) == "VERB"
+            ]
+            if len(verb_idx) < 2:
+                continue
+
+            gaps_clear = True
+            for a, b in zip(verb_idx, verb_idx[1:]):
+                for j in range(a + 1, b):
+                    if not is_glue_or_modifier(j):
+                        gaps_clear = False
+                        break
+                if not gaps_clear:
+                    break
+
+            if gaps_clear:
+                for j in range(s, verb_idx[-1]):
+                    if not is_proper[j]:
+                        elided[j] = True
+
+    # is_func[i]: tokens kept purely as grammatical glue keep their surface form
+    # verbatim in the output pass below, never run through lemmatisation.
+    keep = [False] * n
+    is_func = [False] * n
+
+    for i, tok in enumerate(tokens):
+        if tok.is_punct or elided[i]:
+            continue
+        if is_proper[i]:
+            keep[i] = True
+            continue
+        if _is_number(tok.text):
+            continue
+
+        lower = tok.text.lower()
+        normalized = _lemma_or_lower(tok.text, lemmas)
+
+        if lower in fw or normalized in fw:
+            keep[i] = next_survives(i + 1)
+            is_func[i] = True
+            continue
+
+        if normalized in generic:
+            continue
+        if _is_descriptive(normalized, group):
+            continue
+
+        keep[i] = True
+
+    # Safety floor per sentence: never elide a whole sentence to nothing.
+    sentence_of, sentence_count = _sentence_index_of(tokens)
+    sentence_has_keep = [False] * sentence_count
+    for i in range(n):
+        if keep[i]:
+            sentence_has_keep[sentence_of[i]] = True
+    for i, tok in enumerate(tokens):
+        if sentence_has_keep[sentence_of[i]] or tok.is_punct:
+            continue
+        keep[i] = True
+        sentence_has_keep[sentence_of[i]] = True
+
+    out = []
+    for i, tok in enumerate(tokens):
+        if not keep[i]:
+            continue
+        if is_proper[i] or is_func[i]:
+            out.append(tok.text)
+            continue
+        out.append(_lemma_or_lower(tok.text, lemmas))
     return out
 
 

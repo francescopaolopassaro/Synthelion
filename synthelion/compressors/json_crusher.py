@@ -113,8 +113,17 @@ def _to_csv(rows: list[dict], keys: list[str]) -> str:
     return "\n".join(lines)
 
 
-def _bm25_select(rows: list[dict], query: str, top_k: int) -> tuple[list[dict], list[dict]]:
-    """Select top_k rows by BM25 relevance to query. Falls back to first top_k if no query."""
+def _bm25_select(
+    rows: list[dict], query: str, top_k: int, delta: float = 1.0
+) -> tuple[list[dict], list[dict]]:
+    """Select top_k rows by BM25+ relevance to query. Falls back to first top_k if no query.
+
+    `delta` (ported from Caveman C# 1.4.1's CavemanJsonCrusher.Bm25Delta, default 1.0):
+    BM25+'s lower-bound term, added to every non-zero term match. Plain BM25 can score a
+    long row that mentions the query term only once close to zero — the term-frequency
+    component shrinks as document length grows, so a genuinely relevant long row can lose
+    to a short row that barely mentions the term. Set to 0 to recover plain BM25.
+    """
     if not query.strip():
         return rows[:top_k], rows[top_k:]
 
@@ -141,7 +150,9 @@ def _bm25_select(rows: list[dict], query: str, top_k: int) -> tuple[list[dict], 
                 continue
             idf = math.log((n - df[term] + 0.5) / (df[term] + 0.5) + 1)
             tf = wc[term]
-            score += idf * (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * dl / avg_dl))
+            if tf == 0:
+                continue
+            score += idf * (delta + (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * dl / avg_dl)))
         scores.append(score)
 
     ranked = sorted(range(n), key=lambda i: scores[i], reverse=True)
