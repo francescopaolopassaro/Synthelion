@@ -124,15 +124,24 @@ def mcp_command_config(binary: str | None) -> dict:
 # ── hook command ─────────────────────────────────────────────────────────────
 
 def _hook_command_windows(cli: str) -> str:
+    # `& "cli"` (not bare `"cli" args`) is required — a quoted path followed
+    # by arguments is a parse error in PowerShell without the call operator.
+    # Two different strings, two different audiences: `$label` (efficiency %
+    # + energy + CO2 only, no compressed text) goes into top-level
+    # `systemMessage` so it's what the user actually sees in the terminal;
+    # `$r.compressed` goes into hookSpecificOutput.additionalContext, which
+    # Claude reads but the terminal never displays — that's still the actual
+    # compressed prompt doing its job, just invisibly.
     cli_q = cli.replace("\\", "\\\\")          # escape backslashes for PS string
     return (
         f"$j=[Console]::In.ReadToEnd()|ConvertFrom-Json;"
         f"$p=$j.prompt;"
         f"if($p -and $p.Length -gt {HOOK_MIN_LEN})"
-        f"{{$r=($p|\"{cli_q}\" compress --json 2>$null)|ConvertFrom-Json;"
+        f"{{$r=($p| & \"{cli_q}\" compress --json 2>$null)|ConvertFrom-Json;"
         f"if($r -and $r.efficiency_pct -gt {HOOK_MIN_EFF})"
-        f"{{@{{hookSpecificOutput=@{{hookEventName='UserPromptSubmit';"
-        f"additionalContext=\"[Synthelion - Prompt Compression - Compression Rate $([Math]::Round($r.efficiency_pct))% · $($r.energy_mwh) mWh · $($r.co2_mg) mg CO₂]\"}}}}|ConvertTo-Json -Compress}}}}"
+        f"{{$pct=[Math]::Round($r.efficiency_pct);"
+        f"$label='[Synthelion '+$pct+'% saved - '+$r.energy_mwh+' mWh - '+$r.co2_mg+' mg CO2 saved]';"
+        f"@{{systemMessage=$label;hookSpecificOutput=@{{hookEventName='UserPromptSubmit';additionalContext=$r.compressed}}}}|ConvertTo-Json -Compress}}}}"
     )
 
 
@@ -144,8 +153,8 @@ def _hook_command_unix(cli: str) -> str:
         f"if [ -n \"$r\" ]; then "
         f"out=$(printf '%s' \"$r\" | python3 -c \""
         f"import sys,json; d=json.load(sys.stdin); eff=int(d.get('efficiency_pct',0)); "
-        f"label='[Synthelion - Prompt Compression - Compression Rate '+str(eff)+'% · '+str(d.get('energy_mwh',0))+' mWh · '+str(d.get('co2_mg',0))+' mg CO₂]'; "
-        f"print(json.dumps({{'hookSpecificOutput':{{'hookEventName':'UserPromptSubmit','additionalContext':label}}}})) if eff>{HOOK_MIN_EFF} else None\"); "
+        f"label='[Synthelion '+str(eff)+'% saved - '+str(d.get('energy_mwh',0))+' mWh - '+str(d.get('co2_mg',0))+' mg CO2 saved]'; "
+        f"print(json.dumps({{'systemMessage':label,'hookSpecificOutput':{{'hookEventName':'UserPromptSubmit','additionalContext':d.get('compressed','')}}}})) if eff>{HOOK_MIN_EFF} else None\"); "
         f"[ -n \"$out\" ] && printf '%s' \"$out\"; fi; fi"
     )
 

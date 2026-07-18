@@ -1,0 +1,74 @@
+# Minimal in-cluster Redis + Qdrant for the session/vector backends the
+# ConfigMap in configmap.yaml points at. Fine for evaluation or a small
+# deployment; for production, prefer a managed Redis/Qdrant (or Postgres,
+# via the "postgres" session_store backend instead) and just point
+# configmap.yaml's URLs at that instead of applying this file.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: synthelion-redis
+  namespace: synthelion
+spec:
+  serviceName: synthelion-redis
+  replicas: 1
+  selector:
+    matchLabels: { app: synthelion-redis }
+  template:
+    metadata:
+      labels: { app: synthelion-redis }
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports: [{ containerPort: 6379 }]
+          volumeMounts:
+            - { name: data, mountPath: /data }
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources: { requests: { storage: 1Gi } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: synthelion-redis
+  namespace: synthelion
+spec:
+  selector: { app: synthelion-redis }
+  ports: [{ port: 6379, targetPort: 6379 }]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: synthelion-qdrant
+  namespace: synthelion
+spec:
+  serviceName: synthelion-qdrant
+  replicas: 1
+  selector:
+    matchLabels: { app: synthelion-qdrant }
+  template:
+    metadata:
+      labels: { app: synthelion-qdrant }
+    spec:
+      containers:
+        - name: qdrant
+          image: qdrant/qdrant:latest
+          ports: [{ containerPort: 6333 }]
+          volumeMounts:
+            - { name: storage, mountPath: /qdrant/storage }
+  volumeClaimTemplates:
+    - metadata: { name: storage }
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources: { requests: { storage: 5Gi } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: synthelion-qdrant
+  namespace: synthelion
+spec:
+  selector: { app: synthelion-qdrant }
+  ports: [{ port: 6333, targetPort: 6333 }]

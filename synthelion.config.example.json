@@ -1,0 +1,28 @@
+{
+  "$comment": "Copy to synthelion.config.json (or set SYNTHELION_CONFIG to point elsewhere) and edit. Every key has a built-in default (see synthelion/config.py) — a partial file only needs to override what changes. This example shows the docker-compose 'cluster' profile: Redis for sessions, Qdrant for RAG vectors, dashboard listening on all interfaces for a load-balanced/Kubernetes deployment.",
+  "session_store": {
+    "backend": "redis",
+    "redis": {
+      "url": "redis://redis:6379/0",
+      "key_prefix": "synthelion:",
+      "active_ttl_seconds": 300
+    },
+    "postgres": {
+      "dsn": "postgresql://synthelion:synthelion@postgres:5432/synthelion"
+    }
+  },
+  "vector_store": {
+    "backend": "qdrant",
+    "qdrant": {
+      "url": "http://qdrant:6333",
+      "collection": "synthelion_decisions",
+      "api_key": null
+    }
+  },
+  "dashboard": {
+    "host": "0.0.0.0",
+    "port": 8787,
+    "realtime": "websocket",
+    "websocket_port": 8788
+  }
+}

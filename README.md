@@ -414,7 +414,8 @@ Add Synthelion to each agent's config file:
 | Claude Desktop (macOS) | `~/Library/Application Support/Claude/claude_desktop_config.json` |
 | Claude Desktop (Windows) | `%APPDATA%\Claude\claude_desktop_config.json` |
 | OpenCode | `~/.config/opencode/opencode.json` (global) or `opencode.json` (project) |
-| Cursor / Windsurf | MCP settings in the app UI |
+| Cursor | `~/.cursor/mcp.json` |
+| Windsurf | `~/.codeium/windsurf/mcp_config.json` |
 | Continue | `.continue/config.json` |
 
 Claude / Claude Desktop / Cursor / Windsurf / Continue all use the same JSON block:
@@ -447,6 +448,12 @@ synthelion install --agent opencode           # global: ~/.config/opencode/openc
 synthelion install --agent opencode --local    # project: ./opencode.json
 ```
 Once registered, all 13 Synthelion tools (`compress`, `route_content`, `compress_for_context`, `deduplicate`, …) show up as callable tools in OpenCode — ask it to *"use the synthelion tool to compress this text"* or let it call them automatically per your agent instructions (see below).
+
+**Cursor** and **Windsurf** read the same `mcpServers` shape as Claude, just at their own config path — register with:
+```bash
+synthelion install --agent cursor
+synthelion install --agent windsurf
+```
 
 ### Instruct agents to compress automatically
 
@@ -662,6 +669,8 @@ synthelion install --agent gemini            # Gemini CLI
 synthelion install --agent opencode          # OpenCode (global: ~/.config/opencode/opencode.json)
 synthelion install --agent opencode --local  # OpenCode (project: ./opencode.json)
 synthelion install --agent claude --local    # project-local .claude/settings.json
+synthelion install --agent cursor            # Cursor (~/.cursor/mcp.json)
+synthelion install --agent windsurf          # Windsurf (~/.codeium/windsurf/mcp_config.json)
 ```
 
 #### Analytics & savings tracking
@@ -733,6 +742,85 @@ Scroll down for a breakdown by content type, recent session-memory decisions, a 
 ```
 
 The check is non-blocking and idempotent — if the dashboard is already listening on the port, the hook does nothing.
+
+---
+
+## Cluster deployment
+
+For an AI-provider-scale deployment (many nodes, thousands of concurrent agent
+sessions), point every node at a shared session/vector store instead of each
+one keeping its own local ledger — then any dashboard replica shows the
+whole cluster's activity, not just its own.
+
+### 1. Configure
+
+```bash
+synthelion configure --session-store redis --redis-url redis://redis-host:6379/0 \
+                      --vector-store qdrant --qdrant-url http://qdrant-host:6333 \
+                      --dashboard-host 0.0.0.0
+synthelion configure --show   # print the effective config without writing
+```
+Writes `~/.synthelion/config.json` (or `--output <path>` / `SYNTHELION_CONFIG` env
+var for a per-node/ConfigMap-mounted file). See `synthelion.config.example.json`
+in the repo root for the full key reference — every key has a built-in
+default, so a partial file only needs to override what changes.
+
+Backends:
+| | Options |
+|---|---|
+| **Session store** (active sessions, savings ledger) | `local` (single-node file), `redis`, `postgres` |
+| **Vector store** (cross-session RAG memory) | `chromadb` (bundled embedding), `qdrant` (deterministic hashed vectors — no ML model, see below), `lexical` (no external service) |
+| **Dashboard realtime** | `websocket` (push updates), `polling` |
+
+Qdrant support keeps Synthelion's "zero ML models" design: rather than pulling
+in an embedding model just for Qdrant, it indexes a deterministic FNV-1a
+hashed bag-of-words vector — the same lexical scoring the fallback path
+already does, just queryable through Qdrant's ANN index across a cluster.
+
+### 2. Docker
+
+```bash
+docker build -t synthelion:latest .
+docker compose up -d                       # single node, local-file storage
+docker compose --profile cluster up -d     # + redis + postgres + qdrant containers
+```
+See the `Dockerfile` and `docker-compose.yml` at the repo root — the image runs
+`synthelion serve-dashboard --host 0.0.0.0` by default and exposes `8787`
+(dashboard) and `8788` (WebSocket realtime updates).
+
+For Docker Swarm, the same compose file works with `docker stack deploy -c
+docker-compose.yml synthelion`; scale with `docker service scale
+synthelion_dashboard=3` (Swarm's routing mesh load-balances the published
+port across replicas — unlike plain `docker compose up`, where each replica
+binds the host port directly, so scale there via multiple named services or a
+reverse proxy instead).
+
+### 3. Kubernetes
+
+Manifests in `k8s/`: `namespace.yaml`, `configmap.yaml` (holds
+`synthelion.config.json` — edit the Redis/Qdrant URLs to match your cluster),
+`deployment.yaml` (3 replicas + `HorizontalPodAutoscaler`, readiness/liveness
+probes on `/api/summary`, non-root), `service.yaml` (ClusterIP — front it with
+your own Ingress/auth layer), and `backing-services.yaml` (minimal in-cluster
+Redis + Qdrant StatefulSets for evaluation; swap for managed services in
+production).
+
+```bash
+kubectl apply -f k8s/namespace.yaml
+kubectl apply -f k8s/backing-services.yaml   # or point configmap.yaml at managed Redis/Qdrant instead
+kubectl apply -f k8s/configmap.yaml
+kubectl apply -f k8s/deployment.yaml
+kubectl apply -f k8s/service.yaml
+```
+
+### 4. Load balancer (no orchestrator)
+
+Run `synthelion serve-dashboard --host 0.0.0.0` on N plain nodes (systemd
+service, `synthelion install`-style), all pointed at the same
+`SYNTHELION_CONFIG`, and put any standard load balancer (nginx, HAProxy,
+a cloud LB) in front on port 8787. Every node reads/writes the same shared
+Redis/Postgres/Qdrant backend, so it doesn't matter which node a request
+lands on.
 
 ---
 

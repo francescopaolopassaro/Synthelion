@@ -1,0 +1,93 @@
+# Dashboard deployment — stateless, scales horizontally behind the Service in
+# service.yaml. Every replica reads the same ConfigMap, so they all share the
+# same Redis session store / Qdrant vector store and any of them can answer
+# "what's active across the whole cluster right now."
+#
+# Build and push the image first (see ../Dockerfile):
+#   docker build -t <your-registry>/synthelion:1.2.0 ..
+#   docker push <your-registry>/synthelion:1.2.0
+# then set `image:` below accordingly.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: synthelion-dashboard
+  namespace: synthelion
+  labels:
+    app: synthelion-dashboard
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: synthelion-dashboard
+  template:
+    metadata:
+      labels:
+        app: synthelion-dashboard
+    spec:
+      containers:
+        - name: dashboard
+          image: synthelion:latest
+          imagePullPolicy: IfNotPresent
+          args: ["serve-dashboard", "--host", "0.0.0.0", "--port", "8787"]
+          ports:
+            - containerPort: 8787
+              name: http
+          env:
+            - name: SYNTHELION_CONFIG
+              value: /config/synthelion.config.json
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "1"
+              memory: "512Mi"
+          readinessProbe:
+            httpGet:
+              path: /api/summary
+              port: 8787
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/summary
+              port: 8787
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+      volumes:
+        - name: config
+          configMap:
+            name: synthelion-config
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: synthelion-dashboard
+  namespace: synthelion
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: synthelion-dashboard
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

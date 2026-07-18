@@ -86,10 +86,14 @@ function Find-CliSynthelion {
 # ── build hook command ────────────────────────────────────────────────────────
 function Build-HookCommand($cliBin) {
     $cli = if ($cliBin) { $cliBin } else { "synthelion" }
-    # Injects the compressed text (not just a label) so Claude can use it directly.
-    # $ctx is built by concatenation — avoids PS type-literal parsing of [...] in strings.
+    # Two different strings, two different audiences: $label (efficiency % +
+    # energy + CO2 only, no compressed text) goes into top-level
+    # systemMessage so it's what the user actually sees in the terminal;
+    # $r.compressed goes into hookSpecificOutput.additionalContext, which
+    # Claude reads but the terminal never displays — still doing its job,
+    # just invisibly.
     return @"
-`$j=[Console]::In.ReadToEnd()|ConvertFrom-Json;`$p=`$j.prompt;if(`$p -and `$p.Length -gt 200){`$r=(`$p| & "$cli" compress --json 2>`$null)|ConvertFrom-Json;if(`$r -and `$r.efficiency_pct -gt 15){`$pct=[Math]::Round(`$r.efficiency_pct);`$ctx='[Synthelion '+`$pct+'% saved] '+`$r.compressed;@{hookSpecificOutput=@{hookEventName='UserPromptSubmit';additionalContext=`$ctx}}|ConvertTo-Json -Compress}}
+`$j=[Console]::In.ReadToEnd()|ConvertFrom-Json;`$p=`$j.prompt;if(`$p -and `$p.Length -gt 200){`$r=(`$p| & "$cli" compress --json 2>`$null)|ConvertFrom-Json;if(`$r -and `$r.efficiency_pct -gt 15){`$pct=[Math]::Round(`$r.efficiency_pct);`$label='[Synthelion '+`$pct+'% saved - '+`$r.energy_mwh+' mWh - '+`$r.co2_mg+' mg CO2 saved]';@{systemMessage=`$label;hookSpecificOutput=@{hookEventName='UserPromptSubmit';additionalContext=`$r.compressed}}|ConvertTo-Json -Compress}}
 "@
 }
 

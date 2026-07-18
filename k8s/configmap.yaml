@@ -1,0 +1,37 @@
+# Mounted at /config/synthelion.config.json (see deployment.yaml) and pointed
+# to via SYNTHELION_CONFIG. Edit the backend URLs below to match your cluster's
+# Redis/Postgres/Qdrant Services (or an external managed instance) before
+# applying — these defaults assume the redis/postgres/qdrant manifests in this
+# same directory. See synthelion.config.example.json at the repo root for the
+# full key reference and synthelion/config.py for defaults.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: synthelion-config
+  namespace: synthelion
+data:
+  synthelion.config.json: |
+    {
+      "session_store": {
+        "backend": "redis",
+        "redis": {
+          "url": "redis://synthelion-redis:6379/0",
+          "key_prefix": "synthelion:",
+          "active_ttl_seconds": 300
+        }
+      },
+      "vector_store": {
+        "backend": "qdrant",
+        "qdrant": {
+          "url": "http://synthelion-qdrant:6333",
+          "collection": "synthelion_decisions",
+          "api_key": null
+        }
+      },
+      "dashboard": {
+        "host": "0.0.0.0",
+        "port": 8787,
+        "realtime": "websocket",
+        "websocket_port": 8788
+      }
+    }

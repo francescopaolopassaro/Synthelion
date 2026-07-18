@@ -97,9 +97,13 @@ find_cli_binary() {
 # ── build hook command (bash) ─────────────────────────────────────────────────
 build_hook_command() {
   local cli="$1"
-  # Injects the compressed text into additionalContext so Claude can use it directly.
+  # Two different strings, two different audiences: label (efficiency % +
+  # energy + CO2 only, no compressed text) goes into top-level systemMessage
+  # so it's what the user actually sees in the terminal; the compressed text
+  # goes into hookSpecificOutput.additionalContext, which Claude reads but
+  # the terminal never displays — still doing its job, just invisibly.
   cat <<EOF
-prompt=\$(cat | $PY -c "import sys,json; print(json.load(sys.stdin).get('prompt',''))"); if [ \${#prompt} -gt 200 ]; then r=\$(printf '%s' "\$prompt" | "$cli" compress --json 2>/dev/null); if [ -n "\$r" ]; then out=\$(printf '%s' "\$r" | $PY -c "import sys,json; d=json.load(sys.stdin); eff=int(d.get('efficiency_pct',0)); ctx='[Synthelion '+str(eff)+'% saved] '+d.get('compressed_text',''); print(json.dumps({'hookSpecificOutput':{'hookEventName':'UserPromptSubmit','additionalContext':ctx}})) if eff>15 else None"); [ -n "\$out" ] && printf '%s' "\$out"; fi; fi
+prompt=\$(cat | $PY -c "import sys,json; print(json.load(sys.stdin).get('prompt',''))"); if [ \${#prompt} -gt 200 ]; then r=\$(printf '%s' "\$prompt" | "$cli" compress --json 2>/dev/null); if [ -n "\$r" ]; then out=\$(printf '%s' "\$r" | $PY -c "import sys,json; d=json.load(sys.stdin); eff=int(d.get('efficiency_pct',0)); label='[Synthelion '+str(eff)+'% saved - '+str(d.get('energy_mwh',0))+' mWh - '+str(d.get('co2_mg',0))+' mg CO2 saved]'; print(json.dumps({'systemMessage':label,'hookSpecificOutput':{'hookEventName':'UserPromptSubmit','additionalContext':d.get('compressed','')}})) if eff>15 else None"); [ -n "\$out" ] && printf '%s' "\$out"; fi; fi
 EOF
 }
 

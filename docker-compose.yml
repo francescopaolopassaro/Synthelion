@@ -1,0 +1,85 @@
+# Synthelion — Python port of Caveman (https://github.com/francescopaolopassaro/caveman)
+# © 2026 Passaro Francesco Paolo — Digitalsolutions.it
+#
+# Quick start:
+#   docker compose up -d                       # dashboard only, local-file storage
+#   docker compose --profile cluster up -d      # + redis + postgres + qdrant backends
+#
+# Docker Swarm (same file):
+#   docker stack deploy -c docker-compose.yml synthelion
+#   docker service scale synthelion_dashboard=3   # scale out — safe under Swarm's
+#                                                  # routing mesh, which load-balances
+#                                                  # the published port across replicas.
+#                                                  # (`replicas` is kept at 1 below because
+#                                                  # plain `docker compose up`, unlike Swarm,
+#                                                  # binds each replica's port on the host
+#                                                  # directly and a 2nd replica would fail
+#                                                  # with "port is already allocated".)
+#
+# To point the dashboard at the cluster backends started by the "cluster"
+# profile (rather than the single-node local-file default), copy
+# synthelion.config.example.json to synthelion.config.json, then uncomment
+# the environment/volumes lines below — every replica sharing the same config
+# is what makes the dashboard show sessions from every node. See the
+# "Cluster deployment" section of README.md.
+
+services:
+  dashboard:
+    build: .
+    image: synthelion:latest
+    ports:
+      - "8787:8787"
+    # environment:
+    #   SYNTHELION_CONFIG: /config/synthelion.config.json
+    volumes:
+      # - ./synthelion.config.json:/config/synthelion.config.json:ro
+      - synthelion-data:/home/synthelion/.synthelion
+    restart: unless-stopped
+    deploy:
+      replicas: 1
+      update_config:
+        parallelism: 1
+        order: start-first
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+
+  redis:
+    image: redis:7-alpine
+    profiles: ["cluster"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - synthelion-redis:/data
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    profiles: ["cluster"]
+    environment:
+      POSTGRES_USER: synthelion
+      POSTGRES_PASSWORD: synthelion
+      POSTGRES_DB: synthelion
+    ports:
+      - "5432:5432"
+    volumes:
+      - synthelion-postgres:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    profiles: ["cluster"]
+    ports:
+      - "6333:6333"
+    volumes:
+      - synthelion-qdrant:/qdrant/storage
+    restart: unless-stopped
+
+volumes:
+  synthelion-data:
+  synthelion-redis:
+  synthelion-postgres:
+  synthelion-qdrant:
