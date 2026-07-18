@@ -7,7 +7,7 @@
 
   const fmtInt = (n) => new Intl.NumberFormat("en-US").format(Math.round(n || 0));
   const fmtPct = (n) => `${(n || 0).toFixed(1)}%`;
-  const fmtCost = (n) => `$${(n || 0).toFixed(4)}`;
+  const fmtCo2 = (mg) => (mg || 0) >= 1000 ? `${((mg || 0) / 1000).toFixed(2)}g` : `${(mg || 0).toFixed(1)}mg`;
 
   Chart.defaults.color = "#8891a0";
   Chart.defaults.borderColor = "rgba(255,255,255,0.08)";

@@ -64,6 +64,8 @@ class _DashboardHandler(BaseHTTPRequestHandler):
                 self._serve_json(self._sessions(qs))
             elif path == "/api/decisions":
                 self._serve_json(self._decisions(qs))
+            elif path == "/api/version":
+                self._serve_json(self._version())
             else:
                 self._error(404, "Not found")
         except Exception as exc:  # noqa: BLE001 - never let one bad request kill the server
@@ -112,6 +114,12 @@ class _DashboardHandler(BaseHTTPRequestHandler):
         db = get_session_db()
         limit = int(qs.get("limit", [20])[0])
         return {"decisions": db.list_decisions(limit=limit), "backend": db.backend()}
+
+    @staticmethod
+    def _version() -> dict:
+        import synthelion
+
+        return {"version": synthelion.__version__}
 
     # ── plumbing ─────────────────────────────────────────────────────────────
 
