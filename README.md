@@ -346,7 +346,7 @@ Claude will call the MCP tool and return the compressed version.
 
 ## Automatic prompt compression — Claude Code hook
 
-> **How it works:** every prompt longer than 200 characters is automatically compressed by Synthelion and the compressed version is injected as `additionalContext` for Claude. Claude receives both the original prompt and the compressed form and can use the compressed version to save reasoning tokens.
+> **How it works:** every prompt longer than 200 characters is automatically compressed by Synthelion. The compressed text is injected as `additionalContext` for Claude (invisible in the terminal — that's the part that actually does the token-saving work), while a short `systemMessage` — `[Synthelion N% saved - X mWh - Y mg CO2 saved]` — is shown visibly so you can confirm it fired.
 
 ### Automatic setup (recommended)
 
@@ -369,7 +369,7 @@ synthelion install --local  # project-local .claude/settings.json
           {
             "type": "command",
             "shell": "powershell",
-            "command": "$j=[Console]::In.ReadToEnd()|ConvertFrom-Json;$p=$j.prompt;if($p -and $p.Length -gt 200){$r=($p| & synthelion compress --json 2>$null)|ConvertFrom-Json;if($r -and $r.efficiency_pct -gt 15){$pct=[Math]::Round($r.efficiency_pct);$ctx='[Synthelion '+$pct+'% saved] '+$r.compressed;@{hookSpecificOutput=@{hookEventName='UserPromptSubmit';additionalContext=$ctx}}|ConvertTo-Json -Compress}}",
+            "command": "$j=[Console]::In.ReadToEnd()|ConvertFrom-Json;$p=$j.prompt;if($p -and $p.Length -gt 200){$r=($p| & \"synthelion\" compress --json 2>$null)|ConvertFrom-Json;if($r -and $r.efficiency_pct -gt 15){$pct=[Math]::Round($r.efficiency_pct);$label='[Synthelion '+$pct+'% saved - '+$r.energy_mwh+' mWh - '+$r.co2_mg+' mg CO2 saved]';@{systemMessage=$label;hookSpecificOutput=@{hookEventName='UserPromptSubmit';additionalContext=$r.compressed}}|ConvertTo-Json -Compress}}",
             "statusMessage": "Compressing prompt...",
             "timeout": 15
           }
@@ -394,7 +394,7 @@ synthelion install --local  # project-local .claude/settings.json
           {
             "type": "command",
             "shell": "bash",
-            "command": "prompt=$(cat | python3 -c \"import sys,json; print(json.load(sys.stdin).get('prompt',''))\"); if [ ${#prompt} -gt 200 ]; then r=$(printf '%s' \"$prompt\" | synthelion compress --json 2>/dev/null); if [ -n \"$r\" ]; then out=$(printf '%s' \"$r\" | python3 -c \"import sys,json; d=json.load(sys.stdin); eff=int(d.get('efficiency_pct',0)); ctx='[Synthelion '+str(eff)+'% saved] '+d.get('compressed_text',''); print(json.dumps({'hookSpecificOutput':{'hookEventName':'UserPromptSubmit','additionalContext':ctx}})) if eff>15 else None\"); [ -n \"$out\" ] && printf '%s' \"$out\"; fi; fi",
+            "command": "prompt=$(cat | python3 -c \"import sys,json; print(json.load(sys.stdin).get('prompt',''))\"); if [ ${#prompt} -gt 200 ]; then r=$(printf '%s' \"$prompt\" | \"synthelion\" compress --json 2>/dev/null); if [ -n \"$r\" ]; then out=$(printf '%s' \"$r\" | python3 -c \"import sys,json; d=json.load(sys.stdin); eff=int(d.get('efficiency_pct',0)); label='[Synthelion '+str(eff)+'% saved - '+str(d.get('energy_mwh',0))+' mWh - '+str(d.get('co2_mg',0))+' mg CO2 saved]'; print(json.dumps({'systemMessage':label,'hookSpecificOutput':{'hookEventName':'UserPromptSubmit','additionalContext':d.get('compressed','')}})) if eff>15 else None\"); [ -n \"$out\" ] && printf '%s' \"$out\"; fi; fi",
             "statusMessage": "Compressing prompt...",
             "timeout": 15
           }
@@ -868,16 +868,24 @@ svc = CompressionService()
 
 # Semantic (default) — removes stop words and lemmatizes
 r = svc.compress(
-    "I would like to know if it is possible to receive information about cheap restaurants in Rome.",
+    "I would like to know if it is possible to receive information about cheap restaurants in Rome, please.",
     CompressionLevel.SEMANTIC,
 )
-print(r.compressed_text)      # know possible receive information cheap restaurant Rome
-print(f"{r.efficiency_pct:.1f}% saved")   # 65.0% saved
+print(r.compressed_text)      # like know possible receive information about cheap restaurant Rome
+print(f"{r.efficiency_pct:.1f}% saved")   # 55.0% saved
 print(f"{r.original_tokens} → {r.compressed_tokens} tokens")
 
 # Aggressive — also removes generic verbs and adjectives
 r = svc.compress("The important thing is to find a good and reliable solution.", CompressionLevel.AGGRESSIVE)
-print(r.compressed_text)      # important find reliable solution
+print(r.compressed_text)      # solution
+
+# Statistical — TF-IDF word scoring instead of curated dictionaries
+r = svc.compress(
+    "I would like to know if it is possible to receive information about cheap "
+    "restaurants in Rome, please. The city has many wonderful places to eat.",
+    CompressionLevel.STATISTICAL,
+)
+print(r.compressed_text)      # like possible receive information about cheap restaurant Rome city wonderful eat
 
 # Explicit language (skip auto-detection)
 r = svc.apply_compression(
@@ -885,7 +893,7 @@ r = svc.apply_compression(
     iso3="deu",
     level=CompressionLevel.SEMANTIC,
 )
-print(r.compressed_text)      # Kaffee
+print(r.compressed_text)      # gerne kaffee bitten
 
 # Batch — compress many prompts at once
 results = svc.compress_batch(
