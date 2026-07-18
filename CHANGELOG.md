@@ -4,7 +4,77 @@ All notable changes to Synthelion are documented here.
 
 ---
 
+### Dashboard
+- Replaced the "Est. cost saved" KPI with **"CO₂ saved"** (`co2_mg_saved`,
+  aggregated in `ledger.summary()` from the same per-token estimate
+  `CompressionResult.estimated_co2_saved_mg` already uses, so it stays
+  consistent with the per-call figure shown by the Claude Code hook's
+  `systemMessage`). `cost_usd_saved` is still returned by the API for
+  existing consumers (`synthelion status`/`gain`), just no longer a
+  dashboard KPI card.
+- Added a **version badge** next to the dashboard title (`/api/version`,
+  reading `synthelion.__version__`) — also fixed that version string, which
+  had drifted to the stale `"1.1.0"` while `pyproject.toml` had already moved
+  to `1.2.0`.
+
 ## [1.2.0] — 2026-07-18
+
+### Fixed (found via real multi-language text review: Italian/English/Chinese negation quality pass)
+- **Negation particles silently dropped at every compression level** ("non"/"not"/
+  "ne...pas"/"no"/"nicht"/"não"/"不" were classified as ordinary function words
+  and stripped like any stopword — not a fluency loss, a meaning inversion
+  ("non c'era sensibilità" -> "c'era sensibilità"). Added a small closed
+  per-language negation-particle set (`_NEGATION_WORDS` in core.py) folded into
+  the existing proper-noun "always keep verbatim" pass, covering
+  eng/ita/fra/spa/deu/por/zho. For Chinese specifically, negation is a bound
+  prefix morpheme ("不是"/"不管" are themselves dictionary words containing
+  "不") — added prefix matching for zho so compound negations survive too.
+- **Italian "subito" (adverb, "immediately") mis-lemmatised to "subire" (verb,
+  "to undergo")** — same class of UD homograph-contamination bug as the
+  earlier "torta"->"torcere" fix. The existing POS tagger already correctly
+  tags "subito" as `ADV`; `_lemma_or_lower` now skips a lemma substitution
+  whenever the surface form is POS-tagged ADV and the lemma differs (adverbs
+  don't meaningfully inflect, so a differing "lemma" is a contamination
+  signal, not real morphology) — loaded for every compression level, not just
+  SYNTACTIC.
+- **Chinese had no word segmentation at all.** The shared `\p{L}\p{M}`
+  tokenizer matched an entire Han-character sentence as one "token" (Chinese
+  has no spaces), so no function word ever matched — compression and language
+  detection both silently no-op'd beyond punctuation stripping (confirmed:
+  `LanguageDetector.detect()` returned `"eng"` for pure Chinese text). Added
+  **`synthelion.cjk_segmenter`** — dictionary-based segmentation via DAG
+  construction + dynamic-programming longest-match path, the same core
+  algorithm as jieba's non-ML dictionary mode, re-implemented rather than
+  taken as a dependency (jieba's optional HMM unknown-word tagger, the actual
+  ML part, is not used). Dictionary built from Synthelion's own zho worddata
+  (function words + lemma surface forms + proper nouns), so quality tracks
+  what Synthelion already ships. Wired into both `core._tokenize` and
+  `detector._tokenize_words`.
+- **`synthelion/worddata/zho.yaml.br`, `zho.pos.yaml.br`, and `_index.br` had
+  real mojibake corruption**, found while investigating why "不" (not) wasn't
+  recognised: some Chinese entries were UTF-8 bytes mis-decoded as
+  Windows-1252 at some earlier pipeline stage, then re-encoded — reversible,
+  deterministic corruption (confirmed: round-tripping through a
+  cp1252-encode + WHATWG-lenient-passthrough + utf-8-decode recovers exactly
+  the original character, e.g. `0xE5,0x2C6,0xAB` -> `别`). Repaired 618+213
+  entries in `zho.yaml.br`, 131 in `zho.pos.yaml.br`, and — a **separate**
+  corrupted copy, since non-curated-language detection reads `_index.br`, not
+  the per-language file — 10 further languages in `_index.br` (ben, ell, eng,
+  heb, hin, jpn, kor, mar, tha, vie) that shared the same corruption pattern.
+- **Language-detection data contamination**, found via false-positive
+  detection tests: `"john"` (an English first name) was present as a
+  "function word" in 16 languages' `_index.br` entries (ita, ben, bul, ell,
+  est, eus, fin, fra, heb, hun, isl, msa, pol, swe, tur, vie) — a proper noun
+  has no legitimate place in any language's function-word list. This alone
+  flipped `"John bought bread and ate cake yesterday."` to detect as Italian.
+  Also removed `"ha"`/`"e"` (real Italian words, not French) from French's
+  `_index.br` entry, which was tying French against Italian on real Italian
+  sentences, and removed `"ate"` from Portuguese's exclusive-marker list
+  (collided with English's own "ate", defeating the exclusive-marker
+  disambiguation pass that's supposed to resolve exactly this kind of tie).
+  All three fixes verified via `LanguageDetector.detect()` on the exact
+  sentences that mis-detected before the fix.
+- Added `tests/test_negation_and_zh.py` (15 tests) covering all of the above.
 
 ### Fixed (found while refreshing the installed Claude Code hook)
 - **`install_claude.py`'s Windows `UserPromptSubmit` hook was broken** —
