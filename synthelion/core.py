@@ -127,8 +127,24 @@ _NEGATION_WORDS: dict[str, frozenset[str]] = {
 }
 
 
+# Languages where negation is a bound prefix morpheme rather than a separate word:
+# Chinese's dictionary-based segmenter (cjk_segmenter) legitimately merges "不" + the
+# verb/adjective it negates into one word when that compound is itself in the
+# vocabulary ("不是", "不管", "不过", ...) -- an exact-match check against
+# _NEGATION_WORDS never matches those compounds, so the whole token gets treated as
+# an ordinary function word and stripped, silently losing the negation (found via
+# real-text testing: "这不是我们的问题" dropped "不是" entirely at every level).
+_NEGATION_PREFIX_LANGS = frozenset({"zho"})
+
+
 def _is_negation(word: str, iso3: str) -> bool:
-    return word.lower() in _NEGATION_WORDS.get(iso3.lower(), frozenset())
+    lower = word.lower()
+    neg = _NEGATION_WORDS.get(iso3.lower(), frozenset())
+    if lower in neg:
+        return True
+    if iso3.lower() in _NEGATION_PREFIX_LANGS:
+        return any(lower.startswith(p) for p in neg)
+    return False
 
 
 @dataclass
