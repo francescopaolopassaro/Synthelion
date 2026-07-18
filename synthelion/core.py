@@ -106,6 +106,29 @@ _GENERIC_FALLBACK: frozenset[str] = frozenset({
 # (STATISTICAL) and into clauses for verb detection (SYNTACTIC). Ported from Caveman C# 1.4.1.
 _SENTENCE_ENDERS = frozenset({".", "!", "?", "…"})
 
+# Negation particles are grammatically function words (curated per-language word lists
+# correctly classify them as such) but semantically load-bearing — dropping "non"/"not"
+# doesn't just cost fluency, it silently inverts the sentence's meaning ("non c'era
+# sensibilità" -> "c'era sensibilità"). Found via a real compressed-text review: Italian
+# "non" was being stripped at every level. A small closed set per language (this is a
+# fixed grammatical category, unlike open-ended function-word/lemma dictionaries, so a
+# short in-code list here is the same kind of exception as _SENTENCE_ENDERS or the
+# adjective-suffix lists above, not a "hardcoded dictionary"). Matched case-insensitively
+# against the raw surface form, never lemmatised.
+_NEGATION_WORDS: dict[str, frozenset[str]] = {
+    "eng": frozenset({"not", "n't", "no", "never", "none", "nobody", "nothing", "neither", "nor"}),
+    "ita": frozenset({"non", "no", "né", "neanche", "nemmeno", "manco"}),
+    "fra": frozenset({"ne", "pas", "non", "jamais", "aucun", "aucune", "rien", "personne"}),
+    "spa": frozenset({"no", "nunca", "jamás", "ni", "nadie", "nada", "ningún", "ninguna", "ninguno"}),
+    "deu": frozenset({"nicht", "kein", "keine", "keiner", "keinem", "keinen", "keines", "nie", "niemals", "nichts", "niemand"}),
+    "por": frozenset({"não", "nao", "nunca", "jamais", "nem", "nenhum", "nenhuma", "ninguém"}),
+    "zho": frozenset({"不", "没", "没有", "别", "无", "非", "未", "莫"}),
+}
+
+
+def _is_negation(word: str, iso3: str) -> bool:
+    return word.lower() in _NEGATION_WORDS.get(iso3.lower(), frozenset())
+
 
 @dataclass
 class CompressionFilter:
@@ -194,6 +217,10 @@ class CompressionService:
         fw = self._provider.get_function_words(iso3)
         lemmas = self._provider.get_lemma_map(iso3)
         proper_nouns = self._provider.get_proper_nouns(iso3)
+        # Loaded (and cached by the provider) for every level, not just SYNTACTIC: also
+        # guards _lemma_or_lower against ADV-tagged homograph-contaminated lemma entries
+        # (e.g. Italian "subito" wrongly lemmatised to "subire") at every compression level.
+        pos_tags = self._provider.get_pos_tags(iso3)
 
         tokens = _tokenize(text)
         original_count = len(tokens)
@@ -208,18 +235,17 @@ class CompressionService:
         if custom_filter is not None:
             filtered = _apply_custom(tokens, fw, custom_filter)
         elif level == CompressionLevel.LIGHT:
-            filtered = _filter_light(tokens, fw)
+            filtered = _filter_light(tokens, fw, iso3)
         elif level == CompressionLevel.SEMANTIC:
-            filtered = _filter_semantic(tokens, fw, lemmas, proper_nouns, iso3)
+            filtered = _filter_semantic(tokens, fw, lemmas, proper_nouns, iso3, pos_tags)
         elif level == CompressionLevel.AGGRESSIVE:
             generic = self._provider.get_generic_words(iso3) or _GENERIC_FALLBACK
-            filtered = _filter_aggressive(tokens, fw, lemmas, proper_nouns, iso3, generic)
+            filtered = _filter_aggressive(tokens, fw, lemmas, proper_nouns, iso3, generic, pos_tags)
         elif level == CompressionLevel.STATISTICAL:
             generic = self._provider.get_generic_words(iso3) or _GENERIC_FALLBACK
-            filtered = _filter_statistical(tokens, fw, lemmas, proper_nouns, iso3, generic)
+            filtered = _filter_statistical(tokens, fw, lemmas, proper_nouns, iso3, generic, pos_tags)
         else:  # SYNTACTIC
             generic = self._provider.get_generic_words(iso3) or _GENERIC_FALLBACK
-            pos_tags = self._provider.get_pos_tags(iso3)
             filtered = _filter_syntactic(tokens, fw, lemmas, proper_nouns, iso3, generic, pos_tags)
 
         compressed = " ".join(filtered)
@@ -252,7 +278,7 @@ def _tokenize(text: str) -> list[_Token]:
 
 
 # ------------------------------------------------------------------
-# Proper-noun detection
+# Proper-noun (and negation) detection
 # ------------------------------------------------------------------
 
 def _detect_proper_nouns(
@@ -260,6 +286,12 @@ def _detect_proper_nouns(
     iso3: str,
     proper_nouns: frozenset[str],
 ) -> list[bool]:
+    """Returns, per token, whether every filter should keep it verbatim and never
+    lemmatise/drop it as a function word. Despite the name this also covers negation
+    particles (see _NEGATION_WORDS) — every call site already treats a True here as
+    "always keep, unlemmatised", which is exactly what a negation particle needs too,
+    so folding it in here means every filter gets the protection for free instead of
+    needing its own separate check."""
     cap_noun_lang = iso3.lower() in _CAPITALIZED_NOUN_LANGS
     has_gazetteer = bool(proper_nouns)
     result = [False] * len(tokens)
@@ -269,6 +301,10 @@ def _detect_proper_nouns(
         if tok.is_punct:
             if tok.text in (".", "!", "?", "…"):
                 sentence_start = True
+            continue
+        if _is_negation(tok.text, iso3):
+            result[i] = True
+            sentence_start = False
             continue
         if tok.text and tok.text[0].isupper():
             in_gazetteer = has_gazetteer and tok.text.lower() in proper_nouns
@@ -285,16 +321,25 @@ def _detect_proper_nouns(
 # Compression filters
 # ------------------------------------------------------------------
 
-def _filter_light(tokens: list[_Token], fw: frozenset[str]) -> list[str]:
+def _filter_light(tokens: list[_Token], fw: frozenset[str], iso3: str) -> list[str]:
     return [
         t.text for t in tokens
-        if not t.is_punct and t.text.lower() not in fw
+        if not t.is_punct and (t.text.lower() not in fw or _is_negation(t.text, iso3))
     ]
 
 
-def _lemma_or_lower(text: str, lemmas: dict[str, str]) -> str:
+def _lemma_or_lower(text: str, lemmas: dict[str, str], pos_tags: dict[str, str] | None = None) -> str:
     lower = text.lower()
-    return lemmas.get(lower, lower)
+    lemma = lemmas.get(lower, lower)
+    # Found via real-text review: Italian "subito" (adverb, "immediately") was mapped
+    # to "subire" (verb, "to undergo") — the UD-derived lemma map picked the wrong
+    # homograph's lemma, same class of bug as "torta"->"torcere" fixed earlier.
+    # Adverbs don't meaningfully inflect, so a UD lemma differing from the surface
+    # form on an ADV-tagged word is a strong signal of homograph contamination
+    # rather than real morphology — skip the substitution rather than trust it.
+    if lemma != lower and pos_tags is not None and pos_tags.get(lower) == "ADV":
+        return lower
+    return lemma
 
 
 def _filter_semantic(
@@ -303,6 +348,7 @@ def _filter_semantic(
     lemmas: dict[str, str],
     proper_nouns: frozenset[str],
     iso3: str,
+    pos_tags: dict[str, str] | None = None,
 ) -> list[str]:
     is_proper = _detect_proper_nouns(tokens, iso3, proper_nouns)
     out = []
@@ -316,7 +362,7 @@ def _filter_semantic(
             continue
         if tok.text.lower() in fw:
             continue
-        normalized = _lemma_or_lower(tok.text, lemmas)
+        normalized = _lemma_or_lower(tok.text, lemmas, pos_tags)
         if normalized in fw:
             continue
         out.append(normalized)
@@ -330,6 +376,7 @@ def _filter_aggressive(
     proper_nouns: frozenset[str],
     iso3: str,
     generic: frozenset[str],
+    pos_tags: dict[str, str] | None = None,
 ) -> list[str]:
     # BUGFIX: this function referenced an undefined `group` name (missing the
     # _lang_group(iso3) call below), which raised NameError on every non-trivial
@@ -350,7 +397,7 @@ def _filter_aggressive(
         lower = tok.text.lower()
         if lower in fw:
             continue
-        normalized = _lemma_or_lower(tok.text, lemmas)
+        normalized = _lemma_or_lower(tok.text, lemmas, pos_tags)
         if len(normalized) <= 1:
             continue
         if normalized in fw or normalized in generic:
@@ -365,7 +412,7 @@ def _filter_aggressive(
     # meaning, worse than keeping one extra word, so fall back to the mildest available
     # signal instead of returning nothing.
     if not out and any(not t.is_punct for t in tokens):
-        return _filter_semantic(tokens, fw, lemmas, proper_nouns, iso3)
+        return _filter_semantic(tokens, fw, lemmas, proper_nouns, iso3, pos_tags)
 
     return out
 
@@ -388,6 +435,7 @@ def _filter_statistical(
     proper_nouns: frozenset[str],
     iso3: str,
     generic: frozenset[str],
+    pos_tags: dict[str, str] | None = None,
 ) -> list[str]:
     """TF-IDF word scoring instead of curated dictionaries (ported from Caveman C# 1.4.1).
 
@@ -408,7 +456,7 @@ def _filter_statistical(
     for i, tok in enumerate(tokens):
         if tok.is_punct or is_proper[i] or _is_number(tok.text):
             continue
-        keys[i] = _lemma_or_lower(tok.text, lemmas)
+        keys[i] = _lemma_or_lower(tok.text, lemmas, pos_tags)
 
     term_freq: dict[str, int] = {}
     docs_with_term: dict[str, set[int]] = {}
@@ -517,7 +565,7 @@ def _filter_syntactic(
         j_lower = tokens[j].text.lower()
         if j_lower in fw:
             return False
-        j_norm = _lemma_or_lower(tokens[j].text, lemmas)
+        j_norm = _lemma_or_lower(tokens[j].text, lemmas, pos_tags)
         if j_norm in fw or j_norm in generic:
             return False
         if _is_descriptive(j_norm, group):
@@ -528,7 +576,7 @@ def _filter_syntactic(
         if tokens[i].is_punct or is_proper[i]:
             return True
         lower = tokens[i].text.lower()
-        norm = _lemma_or_lower(tokens[i].text, lemmas)
+        norm = _lemma_or_lower(tokens[i].text, lemmas, pos_tags)
         return lower in fw or norm in fw or _is_descriptive(norm, group)
 
     # elided[i]: inside a leading hedge/matrix clause the POS-gated pass chose to drop
@@ -579,7 +627,7 @@ def _filter_syntactic(
             continue
 
         lower = tok.text.lower()
-        normalized = _lemma_or_lower(tok.text, lemmas)
+        normalized = _lemma_or_lower(tok.text, lemmas, pos_tags)
 
         if lower in fw or normalized in fw:
             keep[i] = next_survives(i + 1)
@@ -612,7 +660,7 @@ def _filter_syntactic(
         if is_proper[i] or is_func[i]:
             out.append(tok.text)
             continue
-        out.append(_lemma_or_lower(tok.text, lemmas))
+        out.append(_lemma_or_lower(tok.text, lemmas, pos_tags))
     return out
 
 

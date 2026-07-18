@@ -381,6 +381,89 @@ class TestSessionDBChromaMock:
 
 
 # ---------------------------------------------------------------------------
+# 18b. SessionDB with Qdrant mock
+# ---------------------------------------------------------------------------
+class TestSessionDBQdrantMock:
+    """Tests that verify the Qdrant code path using a mock qdrant_client."""
+
+    def _mock_qdrant_module(self):
+        mock_point = MagicMock()
+        mock_point.id = "id1"
+        mock_point.score = 0.9
+        mock_point.payload = {
+            "text": "some decision text", "reason": "test", "tags": "[]",
+            "files": "[]", "ts": time.time(), "session_id": "s1",
+        }
+
+        mock_query_result = MagicMock()
+        mock_query_result.points = [mock_point]
+
+        mock_client = MagicMock()
+        mock_client.get_collections.return_value = MagicMock(collections=[])
+        mock_client.query_points.return_value = mock_query_result
+        mock_client.scroll.return_value = ([mock_point], None)
+
+        mock_qdrant_client_mod = MagicMock()
+        mock_qdrant_client_mod.QdrantClient.return_value = mock_client
+
+        mock_models_mod = MagicMock()
+
+        mock_pkg = MagicMock()
+        mock_pkg.QdrantClient = mock_qdrant_client_mod.QdrantClient
+        return mock_pkg, mock_models_mod, mock_client
+
+    def _make_db(self, tmp_path):
+        from synthelion.analytics.session_db import SessionDB
+        mock_pkg, mock_models_mod, mock_client = self._mock_qdrant_module()
+        with patch.dict("sys.modules", {
+            "qdrant_client": mock_pkg,
+            "qdrant_client.models": mock_models_mod,
+        }):
+            db = SessionDB(directory=tmp_path, backend="qdrant")
+        return db, mock_client
+
+    def test_backend_is_qdrant(self, tmp_path):
+        db, _ = self._make_db(tmp_path)
+        assert db.backend() == "qdrant"
+
+    def test_record_decision_calls_upsert(self, tmp_path):
+        db, client = self._make_db(tmp_path)
+        with patch.dict("sys.modules", {"qdrant_client.models": MagicMock()}):
+            doc_id = db.record_decision("Test decision", reason="reason")
+        client.upsert.assert_called_once()
+        assert isinstance(doc_id, str)
+
+    def test_session_recall_with_query(self, tmp_path):
+        db, client = self._make_db(tmp_path)
+        results = db.session_recall(query="some decision")
+        assert isinstance(results, list)
+        client.query_points.assert_called()
+
+    def test_session_recall_no_query_uses_scroll(self, tmp_path):
+        db, client = self._make_db(tmp_path)
+        results = db.session_recall()
+        assert isinstance(results, list)
+        client.scroll.assert_called()
+
+    def test_list_decisions_qdrant(self, tmp_path):
+        db, _ = self._make_db(tmp_path)
+        results = db.list_decisions(limit=5)
+        assert isinstance(results, list)
+
+    def test_qdrant_recall_exception_returns_empty(self, tmp_path):
+        db, client = self._make_db(tmp_path)
+        client.query_points.side_effect = RuntimeError("qdrant error")
+        results = db.session_recall(query="something")
+        assert results == []
+
+    def test_qdrant_init_failure_falls_back(self, tmp_path):
+        from synthelion.analytics.session_db import SessionDB
+        with patch.dict("sys.modules", {"qdrant_client": None}):
+            db = SessionDB(directory=tmp_path, backend="qdrant")
+        assert db.backend() == "lexical"
+
+
+# ---------------------------------------------------------------------------
 # 19. New OpenAI Tool handlers (session / status)
 # ---------------------------------------------------------------------------
 class TestNewMcpTools:

@@ -1,0 +1,17 @@
+# ClusterIP by default — front it with your existing Ingress controller
+# (nginx, Traefik, cloud LB) rather than exposing NodePort/LoadBalancer
+# directly, since the dashboard has no built-in auth (see README security
+# note: it's designed for a trusted network / behind your own auth layer).
+apiVersion: v1
+kind: Service
+metadata:
+  name: synthelion-dashboard
+  namespace: synthelion
+spec:
+  selector:
+    app: synthelion-dashboard
+  ports:
+    - name: http
+      port: 8787
+      targetPort: 8787
+  type: ClusterIP

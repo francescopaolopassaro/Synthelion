@@ -25,7 +25,7 @@ def main() -> None:
     # compress
     p_cmp = sub.add_parser("compress", help="Compress text to reduce LLM tokens")
     p_cmp.add_argument("--text", "-t", help="Text to compress (or use stdin)")
-    p_cmp.add_argument("--level", "-l", choices=["light", "semantic", "aggressive"], default="semantic")
+    p_cmp.add_argument("--level", "-l", choices=["light", "semantic", "aggressive", "statistical", "syntactic"], default="semantic")
     p_cmp.add_argument("--language", "-L", help="ISO 639-3 code (auto-detected if omitted)")
     p_cmp.add_argument("--json", action="store_true", help="Output as JSON")
 
@@ -62,7 +62,7 @@ def main() -> None:
 
     # install — register MCP server in agent configs
     p_install = sub.add_parser("install", help="Register Synthelion MCP server in an AI agent config")
-    p_install.add_argument("--agent", choices=["claude", "gemini", "opencode"], default="claude", help="Agent to configure (default: claude)")
+    p_install.add_argument("--agent", choices=["claude", "gemini", "opencode", "cursor", "windsurf"], default="claude", help="Agent to configure (default: claude)")
     p_install.add_argument("--local", action="store_true", help="Install in project-local config instead of global")
 
     # status — aggregate savings from the ledger
@@ -79,7 +79,7 @@ def main() -> None:
     # bench — benchmark compression on sample corpus
     p_bench = sub.add_parser("bench", help="Benchmark compression on built-in sample corpus")
     p_bench.add_argument("--json", action="store_true", help="Output as JSON")
-    p_bench.add_argument("--level", "-l", choices=["light", "semantic", "aggressive"], default="semantic")
+    p_bench.add_argument("--level", "-l", choices=["light", "semantic", "aggressive", "statistical", "syntactic"], default="semantic")
 
     # upgrade — self-upgrade via pip
     p_upgrade = sub.add_parser("upgrade", help="Upgrade Synthelion to the latest version from PyPI")
@@ -90,6 +90,22 @@ def main() -> None:
     p_export.add_argument("--format", "-F", choices=["csv", "jsonl"], default="csv", help="Output format (default: csv)")
     p_export.add_argument("--output", "-o", help="Output file path (stdout if omitted)")
     p_export.add_argument("--days", "-d", type=int, help="Restrict to last N days")
+
+    # configure — write the JSON config (session store / vector store / dashboard backend)
+    p_conf = sub.add_parser(
+        "configure",
+        help="Write ~/.synthelion/config.json (session storage, RAG vector store, dashboard) for single-node or cluster deployment",
+    )
+    p_conf.add_argument("--session-store", choices=["local", "redis", "postgres"], help="Session/analytics storage backend")
+    p_conf.add_argument("--redis-url", help="Redis connection URL, e.g. redis://host:6379/0")
+    p_conf.add_argument("--postgres-dsn", help="Postgres DSN, e.g. postgresql://user:pass@host:5432/synthelion")
+    p_conf.add_argument("--vector-store", choices=["chromadb", "qdrant", "lexical"], help="RAG cross-session memory backend")
+    p_conf.add_argument("--qdrant-url", help="Qdrant URL, e.g. http://host:6333")
+    p_conf.add_argument("--dashboard-host", help="Dashboard bind address")
+    p_conf.add_argument("--dashboard-port", type=int, help="Dashboard HTTP port")
+    p_conf.add_argument("--realtime", choices=["websocket", "polling"], help="Dashboard live-update mechanism")
+    p_conf.add_argument("--output", "-o", help="Config file path (default: ~/.synthelion/config.json)")
+    p_conf.add_argument("--show", action="store_true", help="Print the effective config and exit (no changes written)")
 
     args = parser.parse_args()
 
@@ -121,6 +137,8 @@ def main() -> None:
         _cmd_upgrade(args)
     elif args.cmd == "export":
         _cmd_export(args)
+    elif args.cmd == "configure":
+        _cmd_configure(args)
 
 
 def _read_input(args) -> str:
@@ -556,8 +574,31 @@ def _cmd_install(args) -> None:
         print(f"✓ Synthelion MCP registered in {config_path}")
         print("  Restart OpenCode (or run `opencode mcp list`) to activate.")
 
+    elif agent in ("cursor", "windsurf"):
+        # Both read a plain { "mcpServers": {...} } file, same shape as Claude —
+        # only the path differs, and neither exposes a project-local variant
+        # documented well enough to rely on, so --local is a no-op for these.
+        if agent == "cursor":
+            config_path = Path.home() / ".cursor" / "mcp.json"
+        else:
+            config_path = Path.home() / ".codeium" / "windsurf" / "mcp_config.json"
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if config_path.exists():
+            try:
+                cfg = _json.loads(config_path.read_text(encoding="utf-8"))
+            except Exception:
+                cfg = {}
+        else:
+            cfg = {}
+
+        cfg.setdefault("mcpServers", {})["synthelion"] = mcp_entry
+        config_path.write_text(_json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
+        print(f"✓ Synthelion MCP registered in {config_path}")
+        print(f"  Restart {agent.capitalize()} to activate.")
+
     else:
-        print(f"ERROR: unsupported agent '{agent}'. Supported: claude, gemini, opencode", file=sys.stderr)
+        print(f"ERROR: unsupported agent '{agent}'. Supported: claude, gemini, opencode, cursor, windsurf", file=sys.stderr)
         raise SystemExit(1)
 
 
@@ -620,6 +661,59 @@ def _cmd_export(args) -> None:
         print(f"[OK] Exported {len(records)} records to {output_path}")
     else:
         sys.stdout.write(content)
+
+
+def _cmd_configure(args) -> None:
+    """Write ~/.synthelion/config.json — session storage / RAG vector store /
+    dashboard backend, for single-node or cluster (Redis/Postgres-backed) deployment."""
+    from pathlib import Path
+    from synthelion.config import config_path, default_config_path, load_config, save_config
+
+    if args.show:
+        current = load_config()
+        print(json.dumps(current, indent=2, ensure_ascii=False))
+        existing = config_path()
+        print(f"\n# source: {existing if existing else '(built-in defaults, no config file found)'}", file=sys.stderr)
+        return
+
+    cfg = load_config()  # start from whatever's already configured (or defaults)
+
+    if args.session_store:
+        cfg["session_store"]["backend"] = args.session_store
+    if args.redis_url:
+        cfg["session_store"]["redis"]["url"] = args.redis_url
+    if args.postgres_dsn:
+        cfg["session_store"]["postgres"]["dsn"] = args.postgres_dsn
+    if args.vector_store:
+        cfg["vector_store"]["backend"] = args.vector_store
+    if args.qdrant_url:
+        cfg["vector_store"]["qdrant"]["url"] = args.qdrant_url
+    if args.dashboard_host:
+        cfg["dashboard"]["host"] = args.dashboard_host
+    if args.dashboard_port:
+        cfg["dashboard"]["port"] = args.dashboard_port
+    if args.realtime:
+        cfg["dashboard"]["realtime"] = args.realtime
+
+    target = Path(args.output) if args.output else default_config_path()
+    written = save_config(cfg, target)
+
+    print(f"[OK] Wrote configuration to {written}")
+    print(f"  session_store: {cfg['session_store']['backend']}")
+    print(f"  vector_store:  {cfg['vector_store']['backend']}")
+    print(f"  dashboard:     {cfg['dashboard']['host']}:{cfg['dashboard']['port']} "
+          f"(realtime={cfg['dashboard']['realtime']})")
+
+    backend = cfg["session_store"]["backend"]
+    if backend == "redis":
+        print("\nInstall the Redis client: pip install 'synthelion[redis]'")
+    elif backend == "postgres":
+        print("\nInstall the Postgres client: pip install 'synthelion[postgres]'")
+    if cfg["vector_store"]["backend"] == "qdrant":
+        print("Install the Qdrant client: pip install 'synthelion[qdrant]'")
+    print("\nSet SYNTHELION_CONFIG=<path> on every node to point them all at a shared "
+          "config file (e.g. a mounted Kubernetes ConfigMap) if you'd rather not rely on "
+          "each node writing its own ~/.synthelion/config.json.")
 
 
 if __name__ == "__main__":
