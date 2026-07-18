@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import regex
 
+from synthelion import cjk_segmenter
 from synthelion.word_provider import FunctionWordProvider
 
 # Ported from Caveman C# 1.4.1: the stdlib-`re`-based pattern this used to be
@@ -12,6 +13,21 @@ from synthelion.word_provider import FunctionWordProvider
 # codepoints. `regex` (already a dependency) supports \p{L}/\p{M} Unicode property escapes
 # directly, matching the C# fix.
 _WORD_RE = regex.compile(r"[\p{L}\p{M}]+(?:'[\p{L}\p{M}]+)?", regex.UNICODE)
+
+
+def _tokenize_words(text: str) -> list[str]:
+    """Same Han-run segmentation fix as core._tokenize: without it, an entire
+    Chinese sentence matches _WORD_RE as one token and never scores against
+    any single-word function-word list, so detect() always falls through to
+    the "eng" fallback for Chinese input."""
+    out: list[str] = []
+    for t in _WORD_RE.findall(text):
+        if len(t) > 1 and cjk_segmenter.is_han(t[0]):
+            out.extend(cjk_segmenter.segment_han_run(t))
+        else:
+            out.append(t)
+    return out
+
 
 # (threshold removed — the exclusive-marker pass now uses a uniqueness check:
 # a language wins if it has MORE exclusive-marker hits than any other language)
@@ -50,7 +66,7 @@ class LanguageDetector:
         """Return the most likely ISO 639-3 code, falling back to 'eng'."""
         if not text or not text.strip():
             return "eng"
-        tokens = _WORD_RE.findall(text.lower())
+        tokens = _tokenize_words(text.lower())
         if not tokens:
             return "eng"
 
@@ -133,7 +149,7 @@ class LanguageDetector:
         """
         if not text or not text.strip():
             return {"eng": 1.0}
-        tokens = _WORD_RE.findall(text.lower())
+        tokens = _tokenize_words(text.lower())
         if not tokens:
             return {"eng": 1.0}
 
