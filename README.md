@@ -27,20 +27,20 @@ Every token sent to a model costs money and time. Synthelion removes the words t
 
 ### Before / After
 
-**English prose** — 20 tokens → 7 tokens (−65%)
+**English prose** — 20 tokens → 9 tokens (−55%)
 ```
 Before: I would like to know if it is possible to receive information about
-        cheap restaurants in Rome.
+        cheap restaurants in Rome, please.
 
-After:  know possible receive information cheap restaurant Rome
+After:  like know possible receive information about cheap restaurant Rome
 ```
 
-**Italian prose** — 17 tokens → 8 tokens (−52%)
+**Italian prose** — 16 tokens → 9 tokens (−44%)
 ```
 Before: Vorrei sapere se è possibile ricevere informazioni sui ristoranti
         economici a Roma, per favore.
 
-After:  sapere possibile ricevere informazione ristorante economico Roma
+After:  sapere è possibile ricevere informazione ristorante economico Roma favore
 ```
 
 **JSON array** — 256 tokens → 80 tokens (−69%)
@@ -68,33 +68,31 @@ Visit Rome today enjoy ancient history food culture
 
 ### Benchmark — token savings by content type
 
-Measured on GPT-4 token counts with real inputs.
+Measured with `synthelion`'s own token counter against real inputs — reproduce
+with `synthelion bench --json` (content router) or `CompressionService.compress`
+directly (NLP-only, per-level).
 
-#### NLP compression
+#### NLP compression (prose, per level)
 
 | Content | Original tokens | Light | Semantic | Aggressive |
 |:---|---:|:---:|:---:|:---:|
-| Prose EN | 92 | −35.9% | −34.8% | −34.8% |
-| Prose IT | 93 | −23.7% | −28.0% | **−51.6%** |
-| Prose DE | 81 | −25.9% | −28.4% | −35.8% |
-| Prose FR | 65 | −33.8% | −32.3% | −38.5% |
-| Prose ES | 51 | −27.5% | −19.6% | −27.5% |
-| JSON array | 256 | −66.8% | **−68.8%** | **−68.8%** |
-| Git diff | 196 | −51.0% | −58.2% | −58.2% |
-| Build log | 207 | −32.4% | **−62.3%** | **−62.3%** |
-| Markdown table | 158 | −60.8% | **−64.6%** | **−64.6%** |
-| HTML page | 192 | −45.3% | −49.0% | −50.0% |
-| Source code | 249 | −41.0% | −41.0% | −41.0% |
+| Prose EN | 20 | −55.0% | −55.0% | **−75.0%** |
+| Prose IT | 16 | −43.8% | −43.8% | **−62.5%** |
+| Prose DE | 19 | −47.4% | −47.4% | **−63.2%** |
+| Prose FR | 18 | −38.9% | −38.9% | **−55.6%** |
+| Prose ES | 17 | −47.1% | −47.1% | −52.9% |
 
-#### Content router (Balanced profile — auto-selects the best strategy)
+#### Content router (`synthelion bench --json`, auto-selects the best strategy)
 
-| Content | Original | After | Saved | Strategy |
-|:---|---:|---:|:---:|:---|
-| Prose EN | 92 | 60 | −34.8% | NlpCompression |
-| JSON array | 256 | 134 | **−47.7%** | JsonCrush:MarkdownTable |
-| Git diff | 196 | 137 | −30.1% | DiffCompression |
-| HTML page | 192 | 58 | **−69.8%** | HtmlExtract+NlpCompression |
-| Source code | 249 | 184 | −26.1% | CodeCompression |
+| Content | Original | After | Saved |
+|:---|---:|---:|:---:|
+| Plain text EN | 58 | 36 | −37.9% |
+| Plain text IT | 51 | 36 | −29.4% |
+| JSON array | 46 | 32 | −30.4% |
+| Git diff | 51 | 31 | −39.2% |
+| Python code | 56 | 31 | −44.6% |
+| Log / stacktrace | 101 | 45 | −55.4% |
+| HTML page | 51 | 16 | **−68.6%** |
 
 ---
 
@@ -727,7 +725,7 @@ synthelion serve-dashboard --host 0.0.0.0     # explicit opt-in to expose it on 
 
 ![Synthelion dashboard — overview](docs/dashboard-overview.jpg)
 
-KPIs at a glance: calls, tokens saved, avg efficiency, estimated cost saved, active sessions, avg calls per session, tools used, best single call, and latency (avg / p95 / max). Charts for tokens saved over time and by tool.
+KPIs at a glance: calls, tokens saved, avg efficiency, CO₂ saved, active sessions, avg calls per session, tools used, best single call, and latency (avg / p95 / max) — plus a version badge next to the title showing exactly which Synthelion build is running. Charts for tokens saved over time and by tool.
 
 ![Synthelion dashboard — sessions and requests](docs/dashboard-sessions.jpg)
 
@@ -1143,11 +1141,19 @@ print(f"Note:         {summary['pricing_note']}")
 
 | Level | What it removes | Typical savings |
 |---|---|---|
-| `light` | Stop words (articles, prepositions, conjunctions…) | 25–35% |
-| `semantic` | Stop words + lemmatization to base form | 30–69% |
-| `aggressive` | Everything above + generic verbs and descriptive adjectives | 35–70% |
+| `light` | Stop words (articles, prepositions, conjunctions…) | 25–55% |
+| `semantic` | Stop words + lemmatization to base form | 30–55% |
+| `aggressive` | Everything above + generic verbs and descriptive adjectives | 35–75% |
+| `statistical` | TF-IDF word scoring instead of curated dictionaries — keeps words that score above the prompt's own median relevance | 40–65% |
+| `syntactic` | Rule-based pruning: keeps grammatical glue only where it touches a surviving word, plus (when POS data is available) elides a leading hedging/matrix clause in favour of the sentence's last verb | 45–70% |
 
-Default: `semantic`.
+Negation particles ("non"/"not"/"ne...pas"/"no"/"nicht"/"não"/"不") are always
+protected and never dropped, at every level, in every supported language they
+apply to — dropping a negation doesn't just cost fluency, it inverts the
+sentence's meaning.
+
+Default: `semantic`. All levels are additive — earlier levels are never
+removed or replaced when a new one ships.
 
 ---
 
