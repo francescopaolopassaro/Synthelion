@@ -4,6 +4,100 @@ All notable changes to Synthelion are documented here.
 
 ---
 
+## [1.2.0] — 2026-07-18
+
+Incremental update porting the algorithmic/correctness work from **Caveman 1.4.1** (the
+original C# project — https://github.com/francescopaolopassaro/caveman) to Python. All
+new capabilities are additive: existing levels, methods and return signatures keep
+working exactly as before unless noted.
+
+### Fixed
+- **Critical: `CompressionLevel.AGGRESSIVE` crashed on every non-trivial sentence** —
+  `_filter_aggressive` referenced an undefined `group` name (the `_lang_group(iso3)`
+  call was missing). `compress()` silently swallowed the exception into
+  `error_message`; direct `apply_compression()` calls (e.g. from the MCP server)
+  raised outright. Fixed; added regression tests (the existing test for this path
+  only checked token counts, which happened to pass even with the exception
+  swallowed — now also asserts `error_message is None`).
+- **Tokenizer fragmented words in scripts using combining marks** (Kannada, Hindi,
+  Tamil, Thai, …): both `core._tokenize` and `detector._WORD_RE` excluded Unicode
+  combining marks (category M*), splitting e.g. "दिन" into "द" and "न". Switched
+  to the `regex` package (already a declared dependency) with `\p{L}\p{M}` Unicode
+  property escapes — a compiled matcher, not a per-character loop, so no
+  performance regression.
+- **Silent content loss from two overly-broad descriptive-word suffixes**, found via
+  a new comprehensibility test suite: the Romance `"are"` suffix matched every
+  Italian first-conjugation infinitive verb ("analizzare") in addition to its
+  intended "-are" adjectives, silently deleting sentences' main verbs; the English
+  `"al"`/`"ical"` suffixes matched domain-specifying adjectives ("financial") as
+  often as decorative ones. Both removed from their suffix lists.
+- **Historical-treebank contamination in the bundled word data** (Italian, Swedish,
+  Romanian, Icelandic): an archaic sense of a word (e.g. Italian "torta" — modern
+  "cake" — annotated as a form of "torcere", "to twist", throughout Dante's Divine
+  Comedy) could outvote the modern meaning in the lemma map. Word data files
+  regenerated from Caveman's corrected pipeline, which now excludes treebanks that
+  silently share a modern language's name (`-Old`, `PaHC`, and
+  `UD_Romanian-Nonstandard`, found by reading treebank READMEs rather than by
+  naming pattern alone).
+
+### Added
+- **`CompressionLevel.STATISTICAL`** — TF-IDF word scoring as an alternative to
+  curated dictionaries: scores each word by frequency in the prompt vs. how many of
+  the prompt's own sentences contain it, grounding "common" words against the
+  language's curated function/generic-word lists as the standard-corpus reference.
+- **`CompressionLevel.SYNTACTIC`** — rule-based pruning: same content-word filtering
+  as `AGGRESSIVE`, but a function word survives when it is grammatical glue directly
+  touching a surviving word, so the result reads as a terse but grammatical sentence
+  rather than a keyword bag. When POS data is available for the language (see
+  below), also elides a leading hedging/matrix clause ("I kindly ask you to…") in
+  favour of the sentence's last verb — gated on real POS evidence and restricted to
+  never fire when a genuine content noun sits between two candidate verbs, so
+  coordinated clauses ("I bought bread and ate cake") are never mistaken for a
+  hedge clause and gutted.
+- **`FunctionWordProvider.get_pos_tags(iso3)` / `get_pos_tag(word, iso3)`** — a
+  Universal POS lookup (NOUN, VERB, ADJ, ADP, DET, …), the most frequent tag
+  Universal Dependencies treebanks observed per word form. A frequency-baseline
+  tagger, not a model — covers 54 of 55 mappable languages.
+- **`FunctionWordProvider.get_generic_words(iso3)`** now derives a generic-word set
+  algorithmically for every language without a curated `{iso3}.generic.yaml.br`
+  file, instead of falling back to nothing: the most richly inflected verb lemmas
+  in that language's own worddata are ranked as the generic set (validated against
+  Polish, where the top-ranked lemmas are "być"/be, "mieć"/have, "mówić"/say —
+  exactly the target category, derived from data instead of a translated list).
+- **`synthelion.simhash`** — a 64-bit Charikar SimHash fingerprint (FNV-1a feature
+  hashing, stdlib only) for near-duplicate text detection.
+  `LogCompressor.compress(..., fuzzy=True)` uses it to group near-duplicate lines
+  (not just exact matches after normalisation) — e.g. templated lines that
+  substitute a username or IP address. Off by default.
+- **`CodeCompressor.compress(code, skeletonize=True)`** — an additional pass that
+  replaces function/method bodies with a placeholder, keeping only signatures. Real
+  brace-depth counting (not regex) handles arbitrary nesting and braces inside
+  string/char literals correctly; Python bodies are found by indentation. Only leaf
+  `def`/method bodies are collapsed, never a `class`/type container. Lossy by
+  design, so off by default; the return signature gained a 4th element
+  (`functions_skeletonized`).
+- **`_bm25_select(..., delta=1.0)`** in the JSON crusher — BM25+ instead of plain
+  BM25: a lower-bound term is added to every non-zero term match, so a genuinely
+  relevant row that only mentions the query term once no longer scores near zero
+  just because it's a long row.
+- **`synthelion.nlp.TopicSegmenter`** — TextTiling-style topic segmentation
+  (Hearst, 1997): groups sentences into blocks, scores vocabulary similarity
+  between adjacent blocks, and cuts where similarity dips sharply relative to the
+  surrounding peaks.
+  **`TfIdfSummarizer.summarize_topic_aware(...)`** is a new, separate method
+  (existing `summarize` is unchanged) that segments first and allocates the
+  sentence budget proportionally across topics (largest-remainder rounding), so a
+  summary can't let one statistically dense topic dominate and starve the others —
+  falls back to `summarize()` when segmentation finds no real topic structure.
+- **`synthelion.retriever.Retriever`** — BM25+ ranking over arbitrary text chunks
+  (sentences, conversation turns, log lines, …), with `retrieve_with_feedback`
+  adding an RM3 pseudo-relevance-feedback pass: an initial BM25 ranking builds a
+  relevance model from its own top results' vocabulary, expands the query with
+  that model's top terms, and re-ranks — surfacing genuinely relevant chunks that
+  don't literally contain the query's words.
+- **A comprehensibility test suite** treating "would a reader — human or AI — still
+  get the point from the compressed text alone?" as a directly testable property.
+
 ## [1.1.0] — 2026-07-11
 
 ### Added

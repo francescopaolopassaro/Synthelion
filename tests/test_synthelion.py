@@ -133,7 +133,24 @@ class TestCompressionService:
     def test_compress_aggressive_further_reduces(self):
         r_sem = self.svc.compress(self.EN_SENTENCE, CompressionLevel.SEMANTIC)
         r_agg = self.svc.compress(self.EN_SENTENCE, CompressionLevel.AGGRESSIVE)
+        # Regression guard: compress() swallows exceptions into error_message, so a
+        # broken AGGRESSIVE filter (NameError: 'group' not defined — the exact bug this
+        # asserts against) could previously make this test pass for the wrong reason
+        # (r_agg silently falling back to the unmodified original text/zeroed counts).
+        assert r_agg.error_message is None, f"AGGRESSIVE raised: {r_agg.error_message}"
         assert r_agg.compressed_tokens <= r_sem.compressed_tokens
+
+    def test_compress_aggressive_does_not_crash_on_real_content_words(self):
+        # Direct regression test for the missing `group = _lang_group(iso3)` bug that
+        # made apply_compression() raise NameError on every non-trivial AGGRESSIVE
+        # compression (compress() masked it as an error_message; direct
+        # apply_compression() calls, e.g. from the MCP server, crashed outright).
+        r = self.svc.apply_compression(
+            "Devi analizzare questo documento finanziario importante.",
+            "ita", CompressionLevel.AGGRESSIVE,
+        )
+        assert "analizzare" in r.compressed_text.lower()
+        assert "finanziario" in r.compressed_text.lower()
 
     def test_compress_italian_sentence(self):
         r = self.svc.compress(

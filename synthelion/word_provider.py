@@ -40,6 +40,7 @@ class FunctionWordProvider:
     _word_data_cache: dict[str, WordDataFile | None] = {}
     _excl_cache: dict[str, tuple[frozenset[str], frozenset[str]]] = {}
     _generic_cache: dict[str, frozenset[str]] = {}
+    _pos_cache: dict[str, dict[str, str]] = {}
 
     @classmethod
     def _worddata_path(cls) -> importlib.resources.abc.Traversable:
@@ -172,11 +173,30 @@ class FunctionWordProvider:
     # ------------------------------------------------------------------
 
     def get_generic_words(self, iso3: str) -> frozenset[str]:
-        """Load {iso3}.generic.yaml.br — generic words removed in aggressive mode."""
+        """Generic/filler words pruned in aggressive mode.
+
+        Loaded from {iso3}.generic.yaml.br for curated languages. For every other
+        language, derived algorithmically from that language's own verb data instead
+        of guessing translations (ported from Caveman C# 1.4.1's
+        DeriveGenericWordsFromVerbRichness): the most richly inflected verb lemmas
+        (>=4 attested conjugated forms) are ranked as the generic set. Verified
+        against Polish worddata, where the top-ranked lemmas by form count are
+        "być" (be), "mieć" (have), "mówić" (say), "iść" (go), "chcieć" (want) —
+        exactly the category curated generic-word lists target, but derived from
+        data instead of a translated word list, so it scales to every language with
+        verb data without risking a wrong translation.
+        """
         iso3 = iso3.lower()
         cached = FunctionWordProvider._generic_cache.get(iso3)
         if cached is not None:
             return cached
+        result = self._load_curated_generic_words(iso3)
+        if not result:
+            result = self._derive_generic_words_from_verb_richness(iso3)
+        FunctionWordProvider._generic_cache[iso3] = result
+        return result
+
+    def _load_curated_generic_words(self, iso3: str) -> frozenset[str]:
         words: list[str] = []
         try:
             data = self._worddata_path().joinpath(f"{iso3}.generic.yaml.br").read_bytes()
@@ -197,9 +217,75 @@ class FunctionWordProvider:
                             words.append(w)
         except Exception:
             pass
-        result = frozenset(words)
-        FunctionWordProvider._generic_cache[iso3] = result
+        return frozenset(words)
+
+    def _derive_generic_words_from_verb_richness(self, iso3: str) -> frozenset[str]:
+        data = self.load_word_data(iso3)
+        if data is None or len(data.verbs) < 10:
+            return frozenset()
+
+        ranked = sorted(
+            (
+                (lemma, forms)
+                for lemma, forms in data.verbs.items()
+                if lemma and forms and len(forms) >= 4
+            ),
+            key=lambda item: len(item[1]),
+            reverse=True,
+        )[:25]
+
+        result: set[str] = set()
+        for lemma, forms in ranked:
+            result.add(lemma)
+            result.update(f for f in forms if f)
+        return frozenset(result)
+
+    # ------------------------------------------------------------------
+    # Supplementary: POS lookup (ported from Caveman C# 1.4.1)
+    # ------------------------------------------------------------------
+
+    def get_pos_tags(self, iso3: str) -> dict[str, str]:
+        """Word -> Universal POS tag (NOUN, VERB, ADJ, ADP, DET, ...) lookup.
+
+        The most frequent tag Universal Dependencies treebanks observed for
+        each word form: a frequency-baseline tagger, not a model — a plain
+        dictionary lookup generated offline (scripts/import-ud-lemmas in the
+        Caveman C# repo) from the same UD source already used for
+        lemmas/verbs. Covers 54 of 55 mappable languages (only Kannada has no
+        UD treebank). Returns an empty dict when no {iso3}.pos.yaml.br
+        resource is available for the language.
+        """
+        iso3 = iso3.lower()
+        cached = FunctionWordProvider._pos_cache.get(iso3)
+        if cached is not None:
+            return cached
+
+        result: dict[str, str] = {}
+        try:
+            data = self._worddata_path().joinpath(f"{iso3}.pos.yaml.br").read_bytes()
+            raw = brotli.decompress(data).decode("utf-8")
+            in_section = False
+            for line in raw.splitlines():
+                stripped = line.rstrip()
+                if not stripped:
+                    continue
+                if not stripped[0].isspace():
+                    in_section = stripped.rstrip(":") == "pos"
+                    continue
+                if in_section:
+                    kv = _try_parse_kv(stripped.strip())
+                    if kv and kv[0] and kv[1]:
+                        result[kv[0]] = kv[1]
+        except Exception:
+            pass
+        FunctionWordProvider._pos_cache[iso3] = result
         return result
+
+    def get_pos_tag(self, word: str, iso3: str) -> str | None:
+        """Look up the most frequent Universal POS tag for a single word; None if unknown."""
+        if not word or not word.strip():
+            return None
+        return self.get_pos_tags(iso3).get(word.strip().lower())
 
     # ------------------------------------------------------------------
     # Full word data (lemmas, verbs, proper nouns)

@@ -142,7 +142,7 @@ class ContentRouter:
             )
 
         if ct == ContentType.CODE:
-            compressed, lang, _ = self._code.compress(content)
+            compressed, lang, _, _ = self._code.compress(content)
             return RoutedCompressionResult(
                 compressed=compressed, original=content,
                 detected_type=ct, strategy_used=f"CodeCompression:{lang}",

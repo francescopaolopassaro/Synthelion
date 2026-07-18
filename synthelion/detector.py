@@ -2,11 +2,16 @@
 # © 2026 Passaro Francesco Paolo — Digitalsolutions.it
 from __future__ import annotations
 
-import re
+import regex
 
 from synthelion.word_provider import FunctionWordProvider
 
-_WORD_RE = re.compile(r"[^\W\d_]+(?:'[^\W\d_]+)?", re.UNICODE)
+# Ported from Caveman C# 1.4.1: the stdlib-`re`-based pattern this used to be
+# ([^\W\d_]+...) excludes Unicode combining marks (category M*), fragmenting words in
+# scripts like Kannada/Hindi/Tamil/Thai that attach vowel signs/virama as separate
+# codepoints. `regex` (already a dependency) supports \p{L}/\p{M} Unicode property escapes
+# directly, matching the C# fix.
+_WORD_RE = regex.compile(r"[\p{L}\p{M}]+(?:'[\p{L}\p{M}]+)?", regex.UNICODE)
 
 # (threshold removed — the exclusive-marker pass now uses a uniqueness check:
 # a language wins if it has MORE exclusive-marker hits than any other language)

@@ -7,6 +7,7 @@ from collections import Counter
 
 from synthelion.detector import LanguageDetector
 from synthelion.nlp.sentence_detector import SentenceDetector
+from synthelion.nlp.topic_segmenter import TopicSegmenter
 from synthelion.word_provider import FunctionWordProvider
 
 _POSITION_FIRST = 1.5
@@ -55,17 +56,18 @@ def _jaccard(a: set[str], b: set[str]) -> float:
     return len(a & b) / len(a | b)
 
 
-def _mmr_select(
+def _mmr_select_indices(
     sentences: list[str],
     scores: list[float],
     fw: frozenset[str],
     k: int,
     lam: float = 0.6,
-) -> list[str]:
-    """Maximum Marginal Relevance selection with Jaccard similarity."""
+) -> list[int]:
+    """Maximum Marginal Relevance selection with Jaccard similarity — returns indices
+    into `sentences` (not the text itself), so callers can tell apart two identical
+    sentences that happen to appear more than once."""
     if k >= len(sentences):
-        order = sorted(range(len(sentences)), key=lambda i: scores[i], reverse=True)
-        return [sentences[i] for i in order]
+        return sorted(range(len(sentences)), key=lambda i: scores[i], reverse=True)
 
     tok_sets = [set(_tokenize(s, fw)) for s in sentences]
     selected_idx: list[int] = []
@@ -87,9 +89,40 @@ def _mmr_select(
         selected_idx.append(best_idx)
         candidates.remove(best_idx)
 
-    # Return in original document order
-    selected_idx.sort()
-    return [sentences[i] for i in selected_idx]
+    selected_idx.sort()  # original document order
+    return selected_idx
+
+
+def _mmr_select(
+    sentences: list[str],
+    scores: list[float],
+    fw: frozenset[str],
+    k: int,
+    lam: float = 0.6,
+) -> list[str]:
+    """Maximum Marginal Relevance selection with Jaccard similarity."""
+    return [sentences[i] for i in _mmr_select_indices(sentences, scores, fw, k, lam)]
+
+
+def _allocate_segment_budget(segment_sentence_counts: list[int], total_budget: int) -> list[int]:
+    """Largest-remainder apportionment (ported from Caveman C# 1.4.1): gives each topic
+    segment a sentence share proportional to how much of the document it covers, then
+    hands out the few leftover slots (from integer rounding) to the segments with the
+    biggest fractional remainder — the standard way to round a set of proportions so
+    they still sum to the target total."""
+    total_sentences = sum(segment_sentence_counts)
+    if total_sentences == 0:
+        return [0] * len(segment_sentence_counts)
+
+    raw = [count / total_sentences * total_budget for count in segment_sentence_counts]
+    alloc = [int(r) for r in raw]  # floor
+    remaining = total_budget - sum(alloc)
+
+    by_remainder = sorted(range(len(raw)), key=lambda i: raw[i] - int(raw[i]), reverse=True)
+    for i in by_remainder[:remaining]:
+        alloc[i] += 1
+
+    return alloc
 
 
 class TfIdfSummarizer:
@@ -102,6 +135,7 @@ class TfIdfSummarizer:
         self._provider = word_provider or FunctionWordProvider()
         self._detector = LanguageDetector(self._provider)
         self._splitter = SentenceDetector(self._provider)
+        self._topic_segmenter = TopicSegmenter(self._provider)
 
     def summarize(
         self,
@@ -132,3 +166,64 @@ class TfIdfSummarizer:
         scores = _tfidf_scores(sentences, fw)
         selected = _mmr_select(sentences, scores, fw, k)
         return " ".join(selected)
+
+    def summarize_topic_aware(
+        self,
+        text: str,
+        sentence_count: int | None = None,
+        ratio: float | None = None,
+        iso3: str | None = None,
+    ) -> str:
+        """Topic-aware summarization (ported from Caveman C# 1.4.1's
+        CondenseTextTopicAware).
+
+        Segments the text with TopicSegmenter first, then allocates the sentence
+        budget proportionally across topics (largest-remainder rounding) and
+        scores/selects sentences independently within each topic, instead of scoring
+        the whole document as one undifferentiated bag of sentences. This is a
+        separate method from `summarize` — existing behaviour is unchanged — because
+        on a single-topic document the two approaches converge, while on a genuinely
+        multi-topic document plain TF-IDF scoring can let one statistically dense
+        topic dominate the whole summary and starve the others entirely; this method
+        guarantees every detected topic gets some representation.
+
+        Falls back to `summarize()` when segmentation finds no real topic structure
+        (a single segment).
+        """
+        if not text or not text.strip():
+            return ""
+
+        lang = iso3 or self._detector.detect(text)
+        segments = self._topic_segmenter.segment(text, lang)
+        if len(segments) <= 1:
+            return self.summarize(text, sentence_count, ratio, lang)
+
+        fw = self._provider.get_function_words(lang)
+        sentences = self._splitter.split_text(text, lang)
+        if not sentences:
+            return text
+
+        k = sentence_count
+        if k is None and ratio is not None:
+            k = max(1, round(len(sentences) * ratio))
+        if k is None:
+            k = max(1, len(sentences) // 3)
+        if len(sentences) <= k:
+            return text
+
+        budget = _allocate_segment_budget([s.sentence_count for s in segments], k)
+
+        selected_indexes: set[int] = set()
+        for segment, seg_budget in zip(segments, budget):
+            if seg_budget <= 0:
+                continue
+            seg_sentences = sentences[segment.start_sentence:segment.end_sentence]
+            if not seg_sentences:
+                continue
+            scores = _tfidf_scores(seg_sentences, fw)
+            local_indexes = _mmr_select_indices(seg_sentences, scores, fw, min(seg_budget, len(seg_sentences)))
+            for local_idx in local_indexes:
+                selected_indexes.add(segment.start_sentence + local_idx)
+
+        ordered = sorted(selected_indexes)
+        return " ".join(sentences[i] for i in ordered)
