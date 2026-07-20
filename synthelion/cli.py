@@ -25,7 +25,7 @@ def main() -> None:
     # compress
     p_cmp = sub.add_parser("compress", help="Compress text to reduce LLM tokens")
     p_cmp.add_argument("--text", "-t", help="Text to compress (or use stdin)")
-    p_cmp.add_argument("--level", "-l", choices=["light", "semantic", "aggressive", "statistical", "syntactic"], default="semantic")
+    p_cmp.add_argument("--level", "-l", choices=["light", "semantic", "aggressive", "statistical", "syntactic"], default=None, help="Default: configured value (see `synthelion configure --show`), normally 'semantic'")
     p_cmp.add_argument("--language", "-L", help="ISO 639-3 code (auto-detected if omitted)")
     p_cmp.add_argument("--json", action="store_true", help="Output as JSON")
 
@@ -117,6 +117,11 @@ def main() -> None:
     p_review.add_argument("--diff", help="Diff text (or use stdin, e.g. `git diff | synthelion review`)")
     p_review.add_argument("--json", action="store_true")
 
+    # dashboard-passwd — change the dashboard's HTTP Basic Auth login
+    p_dashpw = sub.add_parser("dashboard-passwd", help="Change the dashboard login (default: admin/admin)")
+    p_dashpw.add_argument("--username", "-u", help="New username (default: keep current)")
+    p_dashpw.add_argument("--password", "-p", help="New password (omit to be prompted securely)")
+
     # loop-check — pre-tool loop guardrail (persisted across process invocations)
     p_loopck = sub.add_parser(
         "loop-check",
@@ -132,12 +137,28 @@ def main() -> None:
     p_loopreset = sub.add_parser("loop-reset", help="Clear loop-guard call history for a session")
     p_loopreset.add_argument("--session", "-s", default="default", help="Session/agent id (default: 'default')")
 
+    # cluster — multi-node master/slave management
+    p_cluster = sub.add_parser("cluster", help="Multi-node cluster management (master/slave)")
+    cluster_sub = p_cluster.add_subparsers(dest="cluster_cmd", required=True)
+
+    cluster_sub.add_parser("init", help="Become a cluster master (generates node id + shared token)")
+
+    p_cluster_join = cluster_sub.add_parser("join", help="Join this node to a cluster master")
+    p_cluster_join.add_argument("master_url", nargs="?", help="Master's base URL, e.g. http://master-host:8787 (prompted if omitted)")
+    p_cluster_join.add_argument("--token", help="Cluster shared token (prompted if omitted)")
+    p_cluster_join.add_argument("--node-id", help="This node's id (auto-generated if omitted)")
+    p_cluster_join.add_argument("--self-url", default="", help="This node's own reachable URL, reported to the master")
+
+    cluster_sub.add_parser("status", help="Show this node's cluster role, and (if master) joined nodes")
+    cluster_sub.add_parser("leave", help="Return this node to standalone mode")
+
     # wiki — generate AI-friendly project documentation
     p_wiki = sub.add_parser("wiki", help="Generate AI-friendly, compressed project documentation")
     p_wiki.add_argument("path", help="Project folder to scan")
     p_wiki.add_argument("--output", "-o", help="Output file path (stdout if omitted)")
     p_wiki.add_argument("--no-contents", action="store_true", help="Metadata/structure only, skip file contents")
     p_wiki.add_argument("--max-file-size", type=int, default=100 * 1024, help="Max file size in bytes (default: 100KB)")
+    p_wiki.add_argument("--depth", type=int, choices=[1, 2, 3, 4], default=None, help="Detail level 1-4. Default: configured value (see `synthelion configure --show`), normally 2. 4 adds short code excerpts.")
 
     args = parser.parse_args()
 
@@ -177,10 +198,14 @@ def main() -> None:
         _cmd_review(args)
     elif args.cmd == "wiki":
         _cmd_wiki(args)
+    elif args.cmd == "dashboard-passwd":
+        _cmd_dashboard_passwd(args)
     elif args.cmd == "loop-check":
         _cmd_loop_check(args)
     elif args.cmd == "loop-reset":
         _cmd_loop_reset(args)
+    elif args.cmd == "cluster":
+        _cmd_cluster(args)
 
 
 def _read_input(args) -> str:
@@ -213,7 +238,17 @@ def _cmd_compress(args) -> None:
     import time
     from synthelion.core import CompressionService
     from synthelion.models import CompressionLevel
-    level_map = {"light": CompressionLevel.LIGHT, "semantic": CompressionLevel.SEMANTIC, "aggressive": CompressionLevel.AGGRESSIVE}
+    level_map = {
+        "none": CompressionLevel.NONE,
+        "light": CompressionLevel.LIGHT,
+        "semantic": CompressionLevel.SEMANTIC,
+        "aggressive": CompressionLevel.AGGRESSIVE,
+        "statistical": CompressionLevel.STATISTICAL,
+        "syntactic": CompressionLevel.SYNTACTIC,
+    }
+    if args.level is None:
+        from synthelion.config import default_compression_level
+        args.level = default_compression_level()
     text = _read_input(args)
     svc = CompressionService()
     start = time.perf_counter()
@@ -458,8 +493,13 @@ def _bench_corpus() -> list[dict]:
     ]
 
 
-def _cmd_doctor(args) -> None:
-    """Health check: verify MCP package, ledger, session DB, and installation."""
+def run_doctor_checks() -> list[dict]:
+    """Health check: verify MCP package, ledger, session DB, and installation.
+
+    Shared by `synthelion doctor` and the dashboard's Settings > System panel
+    (`GET /api/doctor` in dashboard.py) so both surfaces run the exact same
+    checks instead of two copies drifting apart.
+    """
     import shutil
     from pathlib import Path
 
@@ -517,6 +557,12 @@ def _cmd_doctor(args) -> None:
             checks.append({"check": "claude code mcp", "status": "warn", "detail": "could not read ~/.claude.json"})
     else:
         checks.append({"check": "claude code mcp", "status": "warn", "detail": "~/.claude.json not found — run: synthelion install"})
+
+    return checks
+
+
+def _cmd_doctor(args) -> None:
+    checks = run_doctor_checks()
 
     if getattr(args, "json", False):
         print(json.dumps(checks, ensure_ascii=False, indent=2))
@@ -642,6 +688,36 @@ def _cmd_install(args) -> None:
     else:
         print(f"ERROR: unsupported agent '{agent}'. Supported: claude, gemini, opencode, cursor, windsurf", file=sys.stderr)
         raise SystemExit(1)
+
+
+def check_pypi_version(timeout: float = 8.0) -> dict:
+    """Explicit, on-demand PyPI version check — never called automatically on a
+    page load or CLI startup, only in response to a direct user action
+    ("Check for updates" in the dashboard, `synthelion upgrade` on the CLI),
+    consistent with Synthelion otherwise making zero outbound network calls.
+    """
+    import urllib.request
+
+    import synthelion
+    current = synthelion.__version__
+    try:
+        with urllib.request.urlopen("https://pypi.org/pypi/synthelion/json", timeout=timeout) as resp:
+            info = json.loads(resp.read())
+        latest = info["info"]["version"]
+    except Exception as exc:
+        return {"current": current, "latest": None, "update_available": False, "error": str(exc)}
+
+    def _tuple(v: str) -> tuple[int, ...]:
+        try:
+            return tuple(int(x) for x in v.split("."))
+        except ValueError:
+            return (0,)
+
+    return {
+        "current": current,
+        "latest": latest,
+        "update_available": _tuple(latest) > _tuple(current),
+    }
 
 
 def _cmd_upgrade(args) -> None:
@@ -795,11 +871,15 @@ def _cmd_review(args) -> None:
 
 def _cmd_wiki(args) -> None:
     from synthelion.devtools.wiki import ProjectWiki
+    if args.depth is None:
+        from synthelion.config import default_wiki_depth
+        args.depth = default_wiki_depth()
     wiki = ProjectWiki()
     markdown = wiki.generate(
         args.path,
         max_file_size_bytes=args.max_file_size,
         include_contents=not args.no_contents,
+        depth=args.depth,
     )
     if args.output:
         with open(args.output, "w", encoding="utf-8") as fh:
@@ -807,6 +887,130 @@ def _cmd_wiki(args) -> None:
         print(f"[OK] Wrote project wiki to {args.output}")
     else:
         print(markdown)
+
+
+def _cmd_cluster(args) -> None:
+    if args.cluster_cmd == "init":
+        _cmd_cluster_init(args)
+    elif args.cluster_cmd == "join":
+        _cmd_cluster_join(args)
+    elif args.cluster_cmd == "status":
+        _cmd_cluster_status(args)
+    elif args.cluster_cmd == "leave":
+        _cmd_cluster_leave(args)
+
+
+def _cmd_cluster_init(args) -> None:
+    from synthelion.config import load_config, new_cluster_token, new_node_id, save_config
+    cfg = load_config()
+    cfg["cluster"]["role"] = "master"
+    cfg["cluster"]["node_id"] = cfg["cluster"]["node_id"] or new_node_id()
+    cfg["cluster"]["node_token"] = cfg["cluster"]["node_token"] or new_cluster_token()
+    save_config(cfg)
+    print("[OK] This node is now a cluster master.")
+    print(f"  node_id: {cfg['cluster']['node_id']}")
+    print(f"  token:   {cfg['cluster']['node_token']}")
+    print("\nOn another node, run:")
+    print(f"  synthelion cluster join http://<this-node-host>:8787 --token {cfg['cluster']['node_token']}")
+
+
+def _cmd_cluster_join(args) -> None:
+    from synthelion.cluster import ClusterJoinError, join_master
+    from synthelion.config import load_config, new_node_id, save_config
+
+    master_url = args.master_url
+    if not master_url:
+        master_url = input("Master URL to join (leave empty to stay standalone): ").strip()
+        if not master_url:
+            print("Staying standalone. Run `synthelion cluster init` to become a master instead.")
+            return
+
+    token = args.token
+    if not token:
+        import getpass
+        token = getpass.getpass("Cluster token: ")
+    if not token:
+        print("ERROR: a cluster token is required", file=sys.stderr)
+        raise SystemExit(1)
+
+    cfg = load_config()
+    node_id = args.node_id or cfg["cluster"]["node_id"] or new_node_id()
+
+    try:
+        result = join_master(master_url, token, node_id, args.self_url)
+    except ClusterJoinError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        raise SystemExit(1)
+
+    cfg["cluster"]["role"] = "slave"
+    cfg["cluster"]["node_id"] = node_id
+    cfg["cluster"]["node_token"] = token
+    cfg["cluster"]["master_url"] = master_url.rstrip("/")
+    cfg["cluster"]["self_url"] = args.self_url
+    shared = result.get("config") or {}
+    if "compression" in shared:
+        cfg["compression"] = shared["compression"]
+    if "wiki" in shared:
+        cfg["wiki"] = shared["wiki"]
+    save_config(cfg)
+    print(f"[OK] Joined cluster as '{node_id}' (master: '{result.get('master_node_id', '?')}').")
+    print("Copied the master's compression/wiki defaults into this node's config.")
+
+
+def _cmd_cluster_status(args) -> None:
+    import time as _time
+    from synthelion.config import load_config
+    cfg = load_config()["cluster"]
+    print(f"Role: {cfg['role']}")
+    if cfg["role"] == "standalone":
+        print("Not part of a cluster. `synthelion cluster init` to become a master, "
+              "or `synthelion cluster join <url>` to join one.")
+        return
+    print(f"Node ID: {cfg['node_id']}")
+    if cfg["role"] == "slave":
+        print(f"Master: {cfg['master_url']}")
+        return
+    from synthelion.analytics.cluster_registry import get_cluster_registry
+    nodes = get_cluster_registry().list_nodes()
+    if not nodes:
+        print("No nodes have joined yet.")
+        return
+    print(f"{len(nodes)} node(s) joined:")
+    for n in nodes:
+        age = _time.time() - n.get("last_seen", 0)
+        status = "up" if age < 90 else "stale"
+        print(f"  - {n['node_id']}  {n.get('url', '?')}  last seen {int(age)}s ago [{status}]")
+
+
+def _cmd_cluster_leave(args) -> None:
+    from synthelion.config import load_config, save_config
+    cfg = load_config()
+    cfg["cluster"]["role"] = "standalone"
+    cfg["cluster"]["master_url"] = ""
+    save_config(cfg)
+    print("[OK] This node is now standalone.")
+
+
+def _cmd_dashboard_passwd(args) -> None:
+    from synthelion.plugins import dashboard_auth
+
+    dashboard_auth.ensure_default_credentials()
+    username = args.username or dashboard_auth.current_username()
+    password = args.password
+    if not password:
+        import getpass
+        password = getpass.getpass("New dashboard password: ")
+        confirm = getpass.getpass("Confirm password: ")
+        if password != confirm:
+            print("ERROR: passwords do not match", file=sys.stderr)
+            raise SystemExit(1)
+
+    try:
+        dashboard_auth.set_credentials(username, password)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        raise SystemExit(1)
+    print(f"[OK] Dashboard credentials updated for user '{username}'.")
 
 
 def _cmd_loop_check(args) -> None:

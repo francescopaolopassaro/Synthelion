@@ -1,251 +1,916 @@
 <!doctype html>
-<html lang="en" data-bs-theme="dark">
+<html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
 <title>Synthelion Dashboard</title>
 <link rel="icon" type="image/x-icon" href="/favicon.ico">
 <link rel="icon" type="image/png" sizes="96x96" href="/assets/img/favicon-96x96.png">
 <link rel="apple-touch-icon" href="/assets/img/apple-touch-icon.png">
-<link rel="stylesheet" href="/assets/vendor/bootstrap/bootstrap.min.css">
+<!-- Sidenav + navbar structure mapped from Material Dashboard 3 Free's
+     pages/dashboard.html and pages/profile.html (Creative Tim, MIT License) —
+     see /assets/vendor/material-dashboard/ATTRIBUTION.md. All assets are
+     vendored locally, nothing is fetched from a CDN at runtime. -->
+<link rel="stylesheet" href="/assets/vendor/material-dashboard/css/inter.css">
+<link id="pagestyle" href="/assets/vendor/material-dashboard/material-dashboard.min.css" rel="stylesheet" />
 <link rel="stylesheet" href="/assets/dashboard.css">
 </head>
-<body>
-<nav class="navbar navbar-expand navbar-dark bg-dark border-bottom border-secondary-subtle mb-4">
-  <div class="container-fluid">
-    <span class="navbar-brand d-flex align-items-center" style="height: 40px;">
-      <img src="/assets/img/apple-touch-icon.png" alt="Synthelion" height="90" class="rounded">
-      <span class="ms-2 fw-semibold">Synthelion Dashboard</span>
-      <span class="ms-2 badge text-bg-secondary" id="version-badge">v—</span>
-    </span>
-    <span class="text-secondary small" id="last-updated">—</span>
-  </div>
-</nav>
+<body class="dark-version g-sidenav-show bg-gray-900">
+  <aside class="sidenav navbar navbar-vertical navbar-expand-xs border-radius-lg fixed-start ms-2 bg-gradient-dark my-2" id="sidenav-main">
+    <div class="sidenav-header">
+      <span class="p-3 cursor-pointer text-white opacity-5 position-absolute end-0 top-0 d-none d-xl-none" aria-hidden="true" id="iconSidenav">&times;</span>
+      <a class="navbar-brand px-2 py-3 m-2 d-flex align-items-center" href="/" data-page-link>
+        <img src="/assets/img/apple-touch-icon.png" class="navbar-brand-img" width="64" height="64" alt="Synthelion">
+        <span class="ms-2 text-sm text-white">Synthelion</span>
+      </a>
+    </div>
+    <hr class="horizontal light mt-0 mb-2">
+    <div class="collapse navbar-collapse w-auto" id="sidenav-collapse-main">
+      <ul class="navbar-nav">
+        <li class="nav-item">
+          <a class="nav-link text-white" href="/" data-page-link data-page="overview">
+            <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+            <span class="nav-link-text ms-1">Overview</span>
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link text-white" href="/charts" data-page-link data-page="charts">
+            <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="20" x2="4" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="20" y1="20" x2="20" y2="14"/></svg>
+            <span class="nav-link-text ms-1">Charts</span>
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link text-white" href="/sessions" data-page-link data-page="sessions">
+            <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
+            <span class="nav-link-text ms-1">Sessions</span>
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link text-white" href="/requests" data-page-link data-page="requests">
+            <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg>
+            <span class="nav-link-text ms-1">Recent requests</span>
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link text-white" href="/decisions" data-page-link data-page="decisions">
+            <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+            <span class="nav-link-text ms-1">Decisions</span>
+          </a>
+        </li>
+        <li class="nav-item mt-3">
+          <h6 class="ps-4 ms-2 text-uppercase text-xs text-white font-weight-bolder opacity-5">System</h6>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link text-white" href="/cluster" data-page-link data-page="cluster">
+            <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="2.5"/><circle cx="5" cy="19" r="2.5"/><circle cx="19" cy="19" r="2.5"/><line x1="12" y1="7.5" x2="6.3" y2="17"/><line x1="12" y1="7.5" x2="17.7" y2="17"/></svg>
+            <span class="nav-link-text ms-1">Cluster</span>
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link text-white" href="/settings" data-page-link data-page="settings">
+            <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3.5"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/><line x1="4.9" y1="4.9" x2="7" y2="7"/><line x1="17" y1="17" x2="19.1" y2="19.1"/><line x1="4.9" y1="19.1" x2="7" y2="17"/><line x1="17" y1="7" x2="19.1" y2="4.9"/></svg>
+            <span class="nav-link-text ms-1">Settings</span>
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link text-white" href="/profile" data-page-link data-page="profile">
+            <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>
+            <span class="nav-link-text ms-1">Profile</span>
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link text-white" href="/notifications" data-page-link data-page="notifications">
+            <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+            <span class="nav-link-text ms-1">Notifications</span>
+            <span class="badge bg-gradient-danger ms-1" id="notif-badge" style="display:none">0</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+    <div class="sidenav-footer position-absolute w-100 bottom-0">
+      <div class="mx-3 mb-3">
+        <a class="btn bg-gradient-info w-100 d-flex align-items-center justify-content-center" href="/logout">
+          <svg class="nav-icon me-1" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v9"/><path d="M6.3 6.3a9 9 0 1 0 11.4 0"/></svg>
+          Log out
+        </a>
+      </div>
+    </div>
+  </aside>
 
-<div class="container-fluid px-4 pb-5">
-
-  <div class="d-flex flex-wrap align-items-center gap-2 mb-4">
-    <div class="btn-group" role="group" aria-label="Range">
-      <button type="button" class="btn btn-outline-secondary range-btn" data-days="1">24h</button>
-      <button type="button" class="btn btn-outline-secondary range-btn" data-days="7">7d</button>
-      <button type="button" class="btn btn-outline-secondary range-btn active" data-days="30">30d</button>
-      <button type="button" class="btn btn-outline-secondary range-btn" data-days="">All time</button>
-    </div>
-    <button type="button" class="btn btn-outline-primary ms-auto" id="refresh-btn">Refresh</button>
-  </div>
-
-  <div class="row g-3 mb-4" id="kpi-row">
-    <div class="col-6 col-md-3">
-      <div class="card kpi-card h-100">
-        <div class="card-body">
-          <div class="text-secondary small text-uppercase">Calls</div>
-          <div class="fs-3 fw-semibold" id="kpi-calls">–</div>
-        </div>
-      </div>
-    </div>
-    <div class="col-6 col-md-3">
-      <div class="card kpi-card h-100">
-        <div class="card-body">
-          <div class="text-secondary small text-uppercase">Tokens saved</div>
-          <div class="fs-3 fw-semibold" id="kpi-saved">–</div>
-        </div>
-      </div>
-    </div>
-    <div class="col-6 col-md-3">
-      <div class="card kpi-card h-100">
-        <div class="card-body">
-          <div class="text-secondary small text-uppercase">Avg efficiency</div>
-          <div class="fs-3 fw-semibold" id="kpi-eff">–</div>
-        </div>
-      </div>
-    </div>
-    <div class="col-6 col-md-3">
-      <div class="card kpi-card h-100">
-        <div class="card-body">
-          <div class="text-secondary small text-uppercase">CO₂ saved</div>
-          <div class="fs-3 fw-semibold" id="kpi-co2">–</div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="row g-3 mb-4">
-    <div class="col-6 col-md-3">
-      <div class="card kpi-card h-100">
-        <div class="card-body">
-          <div class="text-secondary small text-uppercase">Sessions</div>
-          <div class="fs-3 fw-semibold" id="kpi-sessions">–</div>
-        </div>
-      </div>
-    </div>
-    <div class="col-6 col-md-3">
-      <div class="card kpi-card h-100">
-        <div class="card-body">
-          <div class="text-secondary small text-uppercase">Avg calls / session</div>
-          <div class="fs-3 fw-semibold" id="kpi-avg-calls">–</div>
-        </div>
-      </div>
-    </div>
-    <div class="col-6 col-md-3">
-      <div class="card kpi-card h-100">
-        <div class="card-body">
-          <div class="text-secondary small text-uppercase">Tools used</div>
-          <div class="fs-3 fw-semibold" id="kpi-tools">–</div>
-        </div>
-      </div>
-    </div>
-    <div class="col-6 col-md-3">
-      <div class="card kpi-card h-100">
-        <div class="card-body">
-          <div class="text-secondary small text-uppercase">Best single call</div>
-          <div class="fs-3 fw-semibold" id="kpi-best-call">–</div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="row g-3 mb-4">
-    <div class="col-6 col-md-4">
-      <div class="card kpi-card h-100">
-        <div class="card-body">
-          <div class="text-secondary small text-uppercase">Avg latency</div>
-          <div class="fs-3 fw-semibold" id="kpi-latency-avg">–</div>
-        </div>
-      </div>
-    </div>
-    <div class="col-6 col-md-4">
-      <div class="card kpi-card h-100">
-        <div class="card-body">
-          <div class="text-secondary small text-uppercase">p95 latency</div>
-          <div class="fs-3 fw-semibold" id="kpi-latency-p95">–</div>
-        </div>
-      </div>
-    </div>
-    <div class="col-6 col-md-4">
-      <div class="card kpi-card h-100">
-        <div class="card-body">
-          <div class="text-secondary small text-uppercase">Max latency</div>
-          <div class="fs-3 fw-semibold" id="kpi-latency-max">–</div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="row g-3 mb-4">
-    <div class="col-12 col-lg-8">
-      <div class="card h-100">
-        <div class="card-header">Tokens saved over time</div>
-        <div class="card-body">
-          <div class="chart-box">
-            <canvas id="chart-timeline"></canvas>
+  <main class="main-content position-relative max-height-vh-100 h-100 border-radius-lg">
+    <nav class="navbar navbar-main navbar-expand-lg px-0 mx-3 shadow-none border-radius-xl" id="navbarBlur" data-scroll="true">
+      <div class="container-fluid py-1 px-3">
+        <nav aria-label="breadcrumb">
+          <ol class="breadcrumb bg-transparent mb-0 pb-0 pt-1 px-0 me-sm-6 me-5">
+            <li class="breadcrumb-item text-sm"><span class="opacity-5 text-white">Synthelion</span></li>
+            <li class="breadcrumb-item text-sm text-white active" aria-current="page" id="breadcrumb-page">Overview</li>
+          </ol>
+          <span class="text-white text-xs opacity-8" id="last-updated">—</span>
+        </nav>
+        <div class="collapse navbar-collapse mt-sm-0 mt-2 me-md-0 me-sm-4" id="navbar">
+          <div class="ms-md-auto pe-md-3 d-flex align-items-center gap-2 flex-wrap">
+            <span class="badge bg-gradient-info" id="version-badge">v—</span>
+            <div class="btn-group" role="group" aria-label="Range">
+              <button type="button" class="btn btn-sm btn-outline-info range-btn" data-days="1">24h</button>
+              <button type="button" class="btn btn-sm btn-outline-info range-btn" data-days="7">7d</button>
+              <button type="button" class="btn btn-sm btn-outline-info range-btn active" data-days="30">30d</button>
+              <button type="button" class="btn btn-sm btn-outline-info range-btn" data-days="">All time</button>
+            </div>
+            <button type="button" class="btn btn-sm bg-gradient-info mb-0" id="refresh-btn">Refresh</button>
           </div>
-          <div class="text-secondary small mt-2" id="timeline-empty" style="display:none">No data in the selected range.</div>
-        </div>
-      </div>
-    </div>
-    <div class="col-12 col-lg-4">
-      <div class="card h-100">
-        <div class="card-header">By tool</div>
-        <div class="card-body">
-          <div class="chart-box">
-            <canvas id="chart-tools"></canvas>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="row g-3 mb-4">
-    <div class="col-12 col-lg-6">
-      <div class="card h-100">
-        <div class="card-header">By content type</div>
-        <div class="card-body p-0">
-          <table class="table table-sm table-hover mb-0">
-            <thead><tr><th>Type</th><th class="text-end">Tokens saved</th></tr></thead>
-            <tbody id="table-content-type"><tr><td colspan="2" class="text-secondary">Loading…</td></tr></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-    <div class="col-12 col-lg-6">
-      <div class="card h-100">
-        <div class="card-header d-flex justify-content-between align-items-center">
-          <span>Recent decisions (session memory)</span>
-          <span class="badge text-bg-secondary" id="decisions-backend">–</span>
-        </div>
-        <div class="card-body p-0" style="max-height: 320px; overflow-y: auto;">
-          <ul class="list-group list-group-flush" id="decisions-list">
-            <li class="list-group-item text-secondary">Loading…</li>
+          <ul class="navbar-nav d-flex align-items-center justify-content-end">
+            <li class="nav-item d-xl-none ps-3 d-flex align-items-center">
+              <a href="javascript:;" class="nav-link p-0 text-white" id="iconNavbarSidenav">
+                <div class="sidenav-toggler-inner">
+                  <i class="sidenav-toggler-line bg-white"></i>
+                  <i class="sidenav-toggler-line bg-white"></i>
+                  <i class="sidenav-toggler-line bg-white"></i>
+                </div>
+              </a>
+            </li>
+            <li class="nav-item px-3 d-flex align-items-center">
+              <a href="/settings" data-page-link data-page="settings" class="nav-link p-0 text-white" title="Settings">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3.5"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/><line x1="4.9" y1="4.9" x2="7" y2="7"/><line x1="17" y1="17" x2="19.1" y2="19.1"/><line x1="4.9" y1="19.1" x2="7" y2="17"/><line x1="17" y1="7" x2="19.1" y2="4.9"/></svg>
+              </a>
+            </li>
+            <li class="nav-item dropdown pe-3 d-flex align-items-center">
+              <a href="javascript:;" class="nav-link p-0 text-white" id="dropdownMenuButton" data-bs-toggle="dropdown" aria-expanded="false" title="Notifications">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+              </a>
+              <ul class="dropdown-menu dropdown-menu-end px-2 py-3 me-sm-n4" aria-labelledby="dropdownMenuButton" id="notif-dropdown" style="min-width: 20rem;">
+                <li class="text-secondary text-sm px-2">No notifications.</li>
+              </ul>
+            </li>
+            <li class="nav-item d-flex align-items-center">
+              <a href="/profile" data-page-link data-page="profile" class="nav-link font-weight-bold px-0 text-white" title="Profile">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>
+              </a>
+            </li>
           </ul>
         </div>
       </div>
-    </div>
-  </div>
+    </nav>
 
-  <div class="row g-3 mb-4">
-    <div class="col-12">
-      <div class="card h-100">
-        <div class="card-header d-flex justify-content-between align-items-center">
-          <span>Sessions</span>
-          <span class="text-secondary small">one row per synthelion-mcp / CLI process</span>
+    <div class="container-fluid py-4">
+
+      <section data-page="overview">
+      <div class="row g-3 mb-4" id="kpi-row">
+        <div class="col-xl-3 col-sm-6">
+          <div class="card kpi-card h-100">
+            <div class="card-header p-2 ps-3">
+              <div class="d-flex justify-content-between">
+                <div>
+                  <p class="text-sm mb-0 text-capitalize">Calls</p>
+                  <h4 class="mb-0" id="kpi-calls">–</h4>
+                </div>
+                <div class="icon icon-md icon-shape bg-gradient-info shadow text-center border-radius-lg">
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 12 8 12 10 18 14 6 16 12 21 12"/></svg>
+                </div>
+              </div>
+            </div>
+            <hr class="horizontal my-0 light">
+            <div class="card-footer p-2 ps-3">
+              <p class="mb-0 text-sm text-secondary">Total tool calls compressed</p>
+            </div>
+          </div>
         </div>
-        <div class="card-body p-0" style="max-height: 360px; overflow-y: auto;">
-          <table class="table table-sm table-hover mb-0">
-            <thead>
-              <tr>
-                <th>Session</th>
-                <th>PID</th>
-                <th class="text-end">Calls</th>
-                <th class="text-end">Tokens saved</th>
-                <th>Tools used</th>
-                <th>First activity</th>
-                <th>Last activity</th>
-              </tr>
-            </thead>
-            <tbody id="table-sessions"><tr><td colspan="7" class="text-secondary">Loading…</td></tr></tbody>
-          </table>
+        <div class="col-xl-3 col-sm-6">
+          <div class="card kpi-card h-100">
+            <div class="card-header p-2 ps-3">
+              <div class="d-flex justify-content-between">
+                <div>
+                  <p class="text-sm mb-0 text-capitalize">Tokens saved</p>
+                  <h4 class="mb-0" id="kpi-saved">–</h4>
+                </div>
+                <div class="icon icon-md icon-shape bg-gradient-info shadow text-center border-radius-lg">
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>
+                </div>
+              </div>
+            </div>
+            <hr class="horizontal my-0 light">
+            <div class="card-footer p-2 ps-3">
+              <p class="mb-0 text-sm text-secondary">Across all sessions</p>
+            </div>
+          </div>
+        </div>
+        <div class="col-xl-3 col-sm-6">
+          <div class="card kpi-card h-100">
+            <div class="card-header p-2 ps-3">
+              <div class="d-flex justify-content-between">
+                <div>
+                  <p class="text-sm mb-0 text-capitalize">Avg efficiency</p>
+                  <h4 class="mb-0" id="kpi-eff">–</h4>
+                </div>
+                <div class="icon icon-md icon-shape bg-gradient-info shadow text-center border-radius-lg">
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></svg>
+                </div>
+              </div>
+            </div>
+            <hr class="horizontal my-0 light">
+            <div class="card-footer p-2 ps-3">
+              <p class="mb-0 text-sm text-secondary">Tokens saved per call</p>
+            </div>
+          </div>
+        </div>
+        <div class="col-xl-3 col-sm-6">
+          <div class="card kpi-card h-100">
+            <div class="card-header p-2 ps-3">
+              <div class="d-flex justify-content-between">
+                <div>
+                  <p class="text-sm mb-0 text-capitalize">CO₂ saved</p>
+                  <h4 class="mb-0" id="kpi-co2">–</h4>
+                </div>
+                <div class="icon icon-md icon-shape bg-gradient-info shadow text-center border-radius-lg">
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 21c9 0 14-5 14-14V5h-2C8 5 3 10 3 19v2z"/></svg>
+                </div>
+              </div>
+            </div>
+            <hr class="horizontal my-0 light">
+            <div class="card-footer p-2 ps-3">
+              <p class="mb-0 text-sm text-secondary">Estimated, from tokens saved</p>
+            </div>
+          </div>
         </div>
       </div>
-    </div>
-  </div>
 
-  <div class="row g-3 mb-4">
-    <div class="col-12">
-      <div class="card h-100">
-        <div class="card-header d-flex justify-content-between align-items-center">
-          <span>Recent requests</span>
-          <span class="text-secondary small" id="requests-count">–</span>
+      <div class="row g-3 mb-4">
+        <div class="col-xl-3 col-sm-6">
+          <div class="card kpi-card h-100">
+            <div class="card-header p-2 ps-3">
+              <div class="d-flex justify-content-between">
+                <div>
+                  <p class="text-sm mb-0 text-capitalize">Sessions</p>
+                  <h4 class="mb-0" id="kpi-sessions">–</h4>
+                </div>
+                <div class="icon icon-md icon-shape bg-gradient-dark shadow text-center border-radius-lg">
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+                </div>
+              </div>
+            </div>
+            <hr class="horizontal my-0 light">
+            <div class="card-footer p-2 ps-3">
+              <p class="mb-0 text-sm text-secondary">synthelion-mcp / CLI processes</p>
+            </div>
+          </div>
         </div>
-        <div class="card-body p-0" style="max-height: 420px; overflow-y: auto;">
-          <table class="table table-sm table-hover mb-0">
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>Tool</th>
-                <th>Type</th>
-                <th class="text-end">Before</th>
-                <th class="text-end">After</th>
-                <th class="text-end">Saved</th>
-                <th class="text-end">Efficiency</th>
-                <th class="text-end">Latency</th>
-                <th>Session</th>
-              </tr>
-            </thead>
-            <tbody id="table-requests"><tr><td colspan="9" class="text-secondary">Loading…</td></tr></tbody>
-          </table>
+        <div class="col-xl-3 col-sm-6">
+          <div class="card kpi-card h-100">
+            <div class="card-header p-2 ps-3">
+              <div class="d-flex justify-content-between">
+                <div>
+                  <p class="text-sm mb-0 text-capitalize">Avg calls / session</p>
+                  <h4 class="mb-0" id="kpi-avg-calls">–</h4>
+                </div>
+                <div class="icon icon-md icon-shape bg-gradient-dark shadow text-center border-radius-lg">
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
+                </div>
+              </div>
+            </div>
+            <hr class="horizontal my-0 light">
+            <div class="card-footer p-2 ps-3">
+              <p class="mb-0 text-sm text-secondary">Calls / session count</p>
+            </div>
+          </div>
+        </div>
+        <div class="col-xl-3 col-sm-6">
+          <div class="card kpi-card h-100">
+            <div class="card-header p-2 ps-3">
+              <div class="d-flex justify-content-between">
+                <div>
+                  <p class="text-sm mb-0 text-capitalize">Tools used</p>
+                  <h4 class="mb-0" id="kpi-tools">–</h4>
+                </div>
+                <div class="icon icon-md icon-shape bg-gradient-dark shadow text-center border-radius-lg">
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 1 0 1.4l-1.6 1.6 3.6 3.6 1.6-1.6a1 1 0 0 1 1.4 0l1.9 1.9a1 1 0 0 1 0 1.4l-4 4a1 1 0 0 1-1.4 0l-1.9-1.9a1 1 0 0 1 0-1.4l1.6-1.6-3.6-3.6-1.6 1.6a1 1 0 0 1-1.4 0l-1.9-1.9a1 1 0 0 1 0-1.4l4-4a1 1 0 0 1 1.4 0z"/></svg>
+                </div>
+              </div>
+            </div>
+            <hr class="horizontal my-0 light">
+            <div class="card-footer p-2 ps-3">
+              <p class="mb-0 text-sm text-secondary">Distinct tool names</p>
+            </div>
+          </div>
+        </div>
+        <div class="col-xl-3 col-sm-6">
+          <div class="card kpi-card h-100">
+            <div class="card-header p-2 ps-3">
+              <div class="d-flex justify-content-between">
+                <div>
+                  <p class="text-sm mb-0 text-capitalize">Best single call</p>
+                  <h4 class="mb-0" id="kpi-best-call">–</h4>
+                </div>
+                <div class="icon icon-md icon-shape bg-gradient-dark shadow text-center border-radius-lg">
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15 9 22 9.5 17 14.5 18.5 21.5 12 18 5.5 21.5 7 14.5 2 9.5 9 9 12 2"/></svg>
+                </div>
+              </div>
+            </div>
+            <hr class="horizontal my-0 light">
+            <div class="card-footer p-2 ps-3">
+              <p class="mb-0 text-sm text-secondary">Highest single-call savings</p>
+            </div>
+          </div>
         </div>
       </div>
+
+      <div class="row g-3 mb-4">
+        <div class="col-xl-4 col-sm-6">
+          <div class="card kpi-card h-100">
+            <div class="card-header p-2 ps-3">
+              <div class="d-flex justify-content-between">
+                <div>
+                  <p class="text-sm mb-0 text-capitalize">Avg latency</p>
+                  <h4 class="mb-0" id="kpi-latency-avg">–</h4>
+                </div>
+                <div class="icon icon-md icon-shape bg-gradient-secondary shadow text-center border-radius-lg">
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg>
+                </div>
+              </div>
+            </div>
+            <hr class="horizontal my-0 light">
+            <div class="card-footer p-2 ps-3">
+              <p class="mb-0 text-sm text-secondary">Mean call duration</p>
+            </div>
+          </div>
+        </div>
+        <div class="col-xl-4 col-sm-6">
+          <div class="card kpi-card h-100">
+            <div class="card-header p-2 ps-3">
+              <div class="d-flex justify-content-between">
+                <div>
+                  <p class="text-sm mb-0 text-capitalize">p95 latency</p>
+                  <h4 class="mb-0" id="kpi-latency-p95">–</h4>
+                </div>
+                <div class="icon icon-md icon-shape bg-gradient-secondary shadow text-center border-radius-lg">
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg>
+                </div>
+              </div>
+            </div>
+            <hr class="horizontal my-0 light">
+            <div class="card-footer p-2 ps-3">
+              <p class="mb-0 text-sm text-secondary">95th percentile duration</p>
+            </div>
+          </div>
+        </div>
+        <div class="col-xl-4 col-sm-6">
+          <div class="card kpi-card h-100">
+            <div class="card-header p-2 ps-3">
+              <div class="d-flex justify-content-between">
+                <div>
+                  <p class="text-sm mb-0 text-capitalize">Max latency</p>
+                  <h4 class="mb-0" id="kpi-latency-max">–</h4>
+                </div>
+                <div class="icon icon-md icon-shape bg-gradient-secondary shadow text-center border-radius-lg">
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg>
+                </div>
+              </div>
+            </div>
+            <hr class="horizontal my-0 light">
+            <div class="card-footer p-2 ps-3">
+              <p class="mb-0 text-sm text-secondary">Slowest call duration</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      </section>
+
+      <section data-page="charts" style="display:none">
+      <div class="row g-3 mb-4">
+        <div class="col-12 col-lg-8">
+          <div class="card h-100">
+            <div class="card-body">
+              <h6 class="mb-0">Tokens saved over time</h6>
+              <p class="text-sm">Compression savings by day, selected range</p>
+              <div class="pe-2">
+                <div class="chart-box">
+                  <canvas id="chart-timeline" class="chart-canvas"></canvas>
+                </div>
+              </div>
+              <div class="text-secondary text-sm mt-2" id="timeline-empty" style="display:none">No data in the selected range.</div>
+              <hr class="horizontal light">
+              <div class="d-flex">
+                <svg class="nav-icon text-sm my-auto me-1" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg>
+                <p class="mb-0 text-sm">reads ~/.synthelion/savings.jsonl</p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="col-12 col-lg-4">
+          <div class="card h-100">
+            <div class="card-body">
+              <h6 class="mb-0">By tool</h6>
+              <p class="text-sm">Share of tokens saved per tool</p>
+              <div class="pe-2">
+                <div class="chart-box">
+                  <canvas id="chart-tools" class="chart-canvas"></canvas>
+                </div>
+              </div>
+              <hr class="horizontal light">
+              <div class="d-flex">
+                <svg class="nav-icon text-sm my-auto me-1" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg>
+                <p class="mb-0 text-sm">updates on refresh</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="row g-3 mb-4">
+        <div class="col-12">
+          <div class="card h-100">
+            <div class="card-header pb-0"><h6 class="mb-0">By content type</h6></div>
+            <div class="card-body p-0">
+              <div class="table-responsive">
+                <table class="table table-sm align-items-center mb-0">
+                  <thead><tr><th>Type</th><th class="text-end">Tokens saved</th></tr></thead>
+                  <tbody id="table-content-type"><tr><td colspan="2" class="text-secondary">Loading…</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      </section>
+
+      <section data-page="sessions" style="display:none">
+      <div class="row g-3 mb-4">
+        <div class="col-12">
+          <div class="card">
+            <div class="card-header pb-0"><h6 class="mb-0">Cleanup</h6></div>
+            <div class="card-body d-flex flex-wrap align-items-center gap-2">
+              <span class="text-sm text-secondary me-2">Delete session records older than</span>
+              <button type="button" class="btn btn-sm btn-outline-info prune-btn" data-days="10">10 days</button>
+              <button type="button" class="btn btn-sm btn-outline-info prune-btn" data-days="20">20 days</button>
+              <button type="button" class="btn btn-sm btn-outline-info prune-btn" data-days="30">30 days</button>
+              <span class="text-sm ms-2" id="prune-status"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="row g-3 mb-4">
+        <div class="col-12">
+          <div class="card h-100">
+            <div class="card-header pb-0 d-flex justify-content-between align-items-center">
+              <h6 class="mb-0">Sessions</h6>
+              <span class="text-secondary text-sm">one row per synthelion-mcp / CLI process</span>
+            </div>
+            <div class="card-body p-0" style="max-height: 420px; overflow-y: auto;">
+              <div class="table-responsive">
+                <table class="table table-sm align-items-center mb-0">
+                  <thead>
+                    <tr>
+                      <th>Session</th>
+                      <th>PID</th>
+                      <th class="text-end">Calls</th>
+                      <th class="text-end">Tokens saved</th>
+                      <th>Tools used</th>
+                      <th>First activity</th>
+                      <th>Last activity</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody id="table-sessions"><tr><td colspan="8" class="text-secondary">Loading…</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      </section>
+
+      <section data-page="requests" style="display:none">
+      <div class="row g-3 mb-4">
+        <div class="col-12">
+          <div class="card h-100">
+            <div class="card-header pb-0 d-flex justify-content-between align-items-center">
+              <h6 class="mb-0">Recent requests</h6>
+              <span class="text-secondary text-sm" id="requests-count">–</span>
+            </div>
+            <div class="card-body p-0" style="max-height: 560px; overflow-y: auto;">
+              <div class="table-responsive">
+                <table class="table table-sm align-items-center mb-0">
+                  <thead>
+                    <tr>
+                      <th>Time</th>
+                      <th>Tool</th>
+                      <th>Type</th>
+                      <th class="text-end">Before</th>
+                      <th class="text-end">After</th>
+                      <th class="text-end">Saved</th>
+                      <th class="text-end">Efficiency</th>
+                      <th class="text-end">Latency</th>
+                      <th>Session</th>
+                    </tr>
+                  </thead>
+                  <tbody id="table-requests"><tr><td colspan="9" class="text-secondary">Loading…</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      </section>
+
+      <section data-page="decisions" style="display:none">
+      <div class="row g-3 mb-4">
+        <div class="col-12">
+          <div class="card">
+            <div class="card-header pb-0"><h6 class="mb-0">Cleanup</h6></div>
+            <div class="card-body d-flex flex-wrap align-items-center gap-2">
+              <span class="text-sm text-secondary me-2">Delete decisions older than</span>
+              <button type="button" class="btn btn-sm btn-outline-info prune-decisions-btn" data-days="10">10 days</button>
+              <button type="button" class="btn btn-sm btn-outline-info prune-decisions-btn" data-days="20">20 days</button>
+              <button type="button" class="btn btn-sm btn-outline-info prune-decisions-btn" data-days="30">30 days</button>
+              <span class="text-sm ms-2" id="prune-decisions-status"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="row g-3 mb-4">
+        <div class="col-12">
+          <div class="card h-100">
+            <div class="card-header pb-0 d-flex justify-content-between align-items-center">
+              <h6 class="mb-0">Recent decisions (session memory)</h6>
+              <span class="badge bg-gradient-secondary" id="decisions-backend">–</span>
+            </div>
+            <div class="card-body p-0" style="max-height: 480px; overflow-y: auto;">
+              <ul class="list-group list-group-flush" id="decisions-list">
+                <li class="list-group-item text-secondary">Loading…</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+      </section>
+
+      <section data-page="cluster" style="display:none">
+      <div class="page-header min-height-200 border-radius-xl mt-2" style="background-image: url('/assets/img/synthelion-banner.png'); background-size: cover; background-position: center;">
+        <span class="mask bg-gradient-info opacity-6 border-radius-xl"></span>
+      </div>
+      <div class="card card-body mx-2 mx-md-2 mt-n6">
+      <div class="row g-3 mb-4">
+        <div class="col-12">
+          <div class="card card-plain">
+            <div class="card-header pb-0 d-flex justify-content-between align-items-center">
+              <div>
+                <h6 class="mb-0">This node</h6>
+                <p class="text-sm mb-0 text-secondary">Multi-node cluster role — standalone, master, or a slave joined to a master</p>
+              </div>
+              <span class="badge bg-gradient-info" id="cluster-role-badge">standalone</span>
+            </div>
+            <div class="card-body">
+              <div class="row g-3">
+                <div class="col-6 col-md-3">
+                  <p class="text-sm mb-0 text-uppercase text-secondary">Node ID</p>
+                  <h6 class="mb-0" id="cluster-node-id">–</h6>
+                </div>
+                <div class="col-6 col-md-3">
+                  <p class="text-sm mb-0 text-uppercase text-secondary">Master URL</p>
+                  <h6 class="mb-0" id="cluster-master-url">–</h6>
+                </div>
+                <div class="col-12 col-md-6" id="cluster-token-group" style="display:none">
+                  <p class="text-sm mb-0 text-uppercase text-secondary">Shared cluster token</p>
+                  <div class="d-flex align-items-center gap-2">
+                    <code class="text-sm" id="cluster-token-value">••••••••</code>
+                    <button type="button" class="btn btn-sm btn-outline-info py-0 px-2" id="cluster-token-toggle">Show</button>
+                    <button type="button" class="btn btn-sm btn-outline-info py-0 px-2" id="cluster-token-copy">Copy</button>
+                  </div>
+                </div>
+              </div>
+              <hr class="horizontal light">
+              <div class="d-flex flex-wrap gap-2">
+                <button type="button" class="btn btn-sm bg-gradient-info mb-0" id="cluster-become-master-btn">Become master</button>
+                <button type="button" class="btn btn-sm btn-outline-info mb-0" id="cluster-rotate-token-btn" style="display:none">Rotate token</button>
+                <button type="button" class="btn btn-sm btn-outline-danger mb-0" id="cluster-leave-btn" style="display:none">Leave cluster</button>
+              </div>
+              <div class="text-sm mt-2" id="cluster-action-status"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row g-3 mb-4" id="cluster-join-row">
+        <div class="col-12">
+          <div class="card card-plain">
+            <div class="card-header pb-0">
+              <h6 class="mb-0">Join a master</h6>
+              <p class="text-sm mb-0 text-secondary">Copy the master's node URL and token from its own Cluster page, then join from here</p>
+            </div>
+            <div class="card-body">
+              <div class="row g-3">
+                <div class="col-12 col-md-5">
+                  <div class="input-group input-group-outline">
+                    <label class="form-label">Master URL</label>
+                    <input type="text" class="form-control" id="cluster-join-master-url" placeholder="http://master-host:8787">
+                  </div>
+                </div>
+                <div class="col-12 col-md-5">
+                  <div class="input-group input-group-outline">
+                    <label class="form-label">Cluster token</label>
+                    <input type="password" class="form-control" id="cluster-join-token">
+                  </div>
+                </div>
+                <div class="col-12 col-md-2 d-flex align-items-center">
+                  <button type="button" class="btn bg-gradient-info w-100 mb-0" id="cluster-join-btn">Join</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row g-3 mb-4" id="cluster-nodes-row" style="display:none">
+        <div class="col-12">
+          <div class="card card-plain">
+            <div class="card-header pb-0 d-flex justify-content-between align-items-center">
+              <h6 class="mb-0">Joined nodes</h6>
+              <span class="text-secondary text-sm">a node's own dashboard controls it — this is a fleet view, not remote admin</span>
+            </div>
+            <div class="card-body p-0">
+              <div class="table-responsive">
+                <table class="table table-sm align-items-center mb-0">
+                  <thead>
+                    <tr>
+                      <th>Node ID</th>
+                      <th>URL</th>
+                      <th class="text-end">Calls</th>
+                      <th class="text-end">Tokens saved</th>
+                      <th>Version</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody id="cluster-nodes-table"><tr><td colspan="6" class="text-secondary">No nodes joined yet.</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row g-3 mb-4">
+        <div class="col-12">
+          <div class="card card-plain">
+            <div class="card-header pb-0">
+              <h6 class="mb-0">Deploy files</h6>
+              <p class="text-sm mb-0 text-secondary">Docker/Kubernetes templates for this cluster topology — no token baked in, fill in <code>${SYNTHELION_NODE_TOKEN}</code> at deploy time</p>
+            </div>
+            <div class="card-body d-flex flex-wrap gap-2">
+              <a class="btn btn-sm btn-outline-info mb-0" href="/api/cluster/compose-file" download="docker-compose.cluster.yml">Download docker-compose.yml</a>
+              <a class="btn btn-sm btn-outline-info mb-0" href="/api/cluster/k8s-manifest" download="synthelion-cluster.k8s.yaml">Download k8s manifest</a>
+            </div>
+          </div>
+        </div>
+      </div>
+      </div>
+      </section>
+
+      <section data-page="settings" style="display:none">
+      <div class="page-header min-height-200 border-radius-xl mt-2" style="background-image: url('/assets/img/synthelion-banner.png'); background-size: cover; background-position: center;">
+        <span class="mask bg-gradient-info opacity-6 border-radius-xl"></span>
+      </div>
+      <div class="card card-body mx-2 mx-md-2 mt-n6">
+      <div class="row g-3 mb-4">
+        <div class="col-12 col-lg-6">
+          <div class="card card-plain h-100">
+            <div class="card-header pb-0">
+              <h6 class="mb-0">Compression</h6>
+              <p class="text-sm mb-0">Default level used when a caller (CLI, MCP tool) doesn't specify one</p>
+            </div>
+            <div class="card-body">
+              <div class="mb-3">
+                <label class="form-label text-sm text-secondary mb-1">Default level</label>
+                <select class="form-control" id="settings-compression-level">
+                  <option value="none">None</option>
+                  <option value="light">Light</option>
+                  <option value="semantic">Semantic</option>
+                  <option value="aggressive">Aggressive</option>
+                  <option value="statistical">Statistical</option>
+                  <option value="syntactic">Syntactic</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="col-12 col-lg-6">
+          <div class="card card-plain h-100">
+            <div class="card-header pb-0">
+              <h6 class="mb-0">Project Wiki</h6>
+              <p class="text-sm mb-0">Default detail level (1-4) for `synthelion wiki` / the MCP tool when not specified per call</p>
+            </div>
+            <div class="card-body">
+              <div class="mb-3">
+                <label class="form-label text-sm text-secondary mb-1">Default depth</label>
+                <select class="form-control" id="settings-wiki-depth">
+                  <option value="1">1 — Overview only</option>
+                  <option value="2">2 — Standard</option>
+                  <option value="3">3 — Detailed</option>
+                  <option value="4">4 — Exhaustive (+ code excerpts)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="col-12 col-lg-6">
+          <div class="card card-plain h-100">
+            <div class="card-header pb-0">
+              <h6 class="mb-0">Cluster storage</h6>
+              <p class="text-sm mb-0">Session/analytics store and cross-session memory (RAG) backend</p>
+            </div>
+            <div class="card-body">
+              <div class="mb-3">
+                <label class="form-label text-sm text-secondary mb-1">Session store backend</label>
+                <select class="form-control" id="settings-session-backend">
+                  <option value="local">Local (JSONL, single node)</option>
+                  <option value="redis">Redis (multi-node)</option>
+                  <option value="postgres">Postgres (multi-node)</option>
+                </select>
+              </div>
+              <div class="input-group input-group-outline mb-3" id="settings-redis-url-group" style="display:none">
+                <label class="form-label">Redis URL</label>
+                <input type="text" class="form-control" id="settings-redis-url" placeholder="redis://localhost:6379/0">
+              </div>
+              <div class="input-group input-group-outline mb-3" id="settings-postgres-dsn-group" style="display:none">
+                <label class="form-label">Postgres DSN</label>
+                <input type="text" class="form-control" id="settings-postgres-dsn" placeholder="postgresql://user:pass@host:5432/synthelion">
+              </div>
+              <div class="mb-3">
+                <label class="form-label text-sm text-secondary mb-1">Vector store backend (RAG)</label>
+                <select class="form-control" id="settings-vector-backend">
+                  <option value="chromadb">ChromaDB</option>
+                  <option value="qdrant">Qdrant (multi-node)</option>
+                  <option value="lexical">Lexical (no external service)</option>
+                </select>
+              </div>
+              <div class="input-group input-group-outline mb-3" id="settings-qdrant-url-group" style="display:none">
+                <label class="form-label">Qdrant URL</label>
+                <input type="text" class="form-control" id="settings-qdrant-url" placeholder="http://localhost:6333">
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="col-12">
+          <div class="card card-plain">
+            <div class="card-header pb-0 d-flex justify-content-between align-items-center">
+              <h6 class="mb-0">Storage status</h6>
+              <span class="text-secondary text-sm">read-only, current process</span>
+            </div>
+            <div class="card-body">
+              <div class="row g-3">
+                <div class="col-6 col-md-3">
+                  <p class="text-sm mb-0 text-uppercase text-secondary">Sessions on disk</p>
+                  <h5 class="mb-0" id="settings-info-sessions">–</h5>
+                </div>
+                <div class="col-6 col-md-3">
+                  <p class="text-sm mb-0 text-uppercase text-secondary">Decisions stored</p>
+                  <h5 class="mb-0" id="settings-info-decisions">–</h5>
+                </div>
+                <div class="col-6 col-md-3">
+                  <p class="text-sm mb-0 text-uppercase text-secondary">Ledger records</p>
+                  <h5 class="mb-0" id="settings-info-records">–</h5>
+                </div>
+                <div class="col-6 col-md-3">
+                  <p class="text-sm mb-0 text-uppercase text-secondary">Active memory backend</p>
+                  <h5 class="mb-0" id="settings-info-backend">–</h5>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="col-12 d-flex align-items-center gap-3">
+          <button type="button" class="btn bg-gradient-info mb-0" id="settings-save-btn">Save settings</button>
+          <span class="text-sm" id="settings-status"></span>
+        </div>
+
+        <div class="col-12 col-lg-6">
+          <div class="card card-plain h-100">
+            <div class="card-header pb-0 d-flex justify-content-between align-items-center">
+              <h6 class="mb-0">Doctor</h6>
+              <button type="button" class="btn btn-sm btn-outline-info mb-0" id="doctor-run-btn">Run checks</button>
+            </div>
+            <div class="card-body">
+              <ul class="list-group" id="doctor-list">
+                <li class="list-group-item border-0 px-0 text-sm text-secondary">Not run yet.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        <div class="col-12 col-lg-6">
+          <div class="card card-plain h-100">
+            <div class="card-header pb-0">
+              <h6 class="mb-0">Version</h6>
+            </div>
+            <div class="card-body">
+              <p class="text-sm text-secondary mb-3">Running <span class="text-white font-weight-bold" id="version-info-current">v—</span></p>
+              <button type="button" class="btn btn-sm btn-outline-info mb-0" id="version-check-btn">Check for updates</button>
+              <button type="button" class="btn btn-sm bg-gradient-info mb-0" id="version-upgrade-btn" style="display:none">Upgrade now</button>
+              <div class="text-sm mt-2" id="version-status"></div>
+              <p class="text-xs text-secondary mt-2 mb-0">Only checks PyPI when you click the button — Synthelion makes no network calls otherwise.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      </div>
+      </section>
+
+      <section data-page="profile" style="display:none">
+      <div class="page-header min-height-200 border-radius-xl mt-2" style="background-image: url('/assets/img/synthelion-banner.png'); background-size: cover; background-position: center;">
+        <span class="mask bg-gradient-info opacity-6 border-radius-xl"></span>
+      </div>
+      <div class="card card-body mx-2 mx-md-2 mt-n6">
+        <div class="row gx-4 mb-2">
+          <div class="col-auto">
+            <div class="avatar avatar-xl bg-gradient-dark position-relative">
+              <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>
+            </div>
+          </div>
+          <div class="col-auto my-auto">
+            <div class="h-100">
+              <h5 class="mb-1" id="profile-heading-username">–</h5>
+              <p class="mb-0 font-weight-normal text-sm">Dashboard administrator</p>
+            </div>
+          </div>
+        </div>
+        <div class="row">
+          <div class="col-12 col-xl-4">
+            <div class="card card-plain h-100">
+              <div class="card-header pb-0 p-3">
+                <h6 class="mb-0">Account</h6>
+                <p class="text-sm mb-0 text-secondary">Change the dashboard login</p>
+              </div>
+              <div class="card-body p-3">
+                <div class="input-group input-group-outline mb-3">
+                  <label class="form-label">Current password</label>
+                  <input type="password" class="form-control" id="profile-current-password" autocomplete="current-password">
+                </div>
+                <div class="input-group input-group-outline mb-3">
+                  <label class="form-label">New username (optional)</label>
+                  <input type="text" class="form-control" id="profile-new-username" autocomplete="username">
+                </div>
+                <div class="input-group input-group-outline mb-3">
+                  <label class="form-label">New password</label>
+                  <input type="password" class="form-control" id="profile-new-password" autocomplete="new-password">
+                </div>
+                <button type="button" class="btn bg-gradient-info mb-0" id="profile-save-btn">Update credentials</button>
+                <div class="text-sm mt-2" id="profile-status"></div>
+              </div>
+            </div>
+          </div>
+          <div class="col-12 col-xl-4">
+            <div class="card card-plain h-100">
+              <div class="card-header pb-0 p-3">
+                <h6 class="mb-0">Account information</h6>
+              </div>
+              <div class="card-body p-3">
+                <ul class="list-group">
+                  <li class="list-group-item border-0 ps-0 pt-0 text-sm"><strong class="text-white">Username:</strong> &nbsp;<span id="profile-info-username">–</span></li>
+                  <li class="list-group-item border-0 ps-0 text-sm"><strong class="text-white">Synthelion version:</strong> &nbsp;<span id="profile-info-version">–</span></li>
+                  <li class="list-group-item border-0 ps-0 text-sm"><strong class="text-white">Session store:</strong> &nbsp;<span id="profile-info-session-store">–</span></li>
+                  <li class="list-group-item border-0 ps-0 pb-0 text-sm"><strong class="text-white">Memory backend:</strong> &nbsp;<span id="profile-info-vector-store">–</span></li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <div class="col-12 col-xl-4">
+            <div class="card card-plain h-100">
+              <div class="card-header pb-0 p-3 d-flex justify-content-between align-items-center">
+                <h6 class="mb-0">Recent notifications</h6>
+              </div>
+              <div class="card-body p-3 pt-0">
+                <ul class="list-group" id="profile-notifications-list">
+                  <li class="list-group-item border-0 px-0 text-sm text-secondary">Loading…</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      </section>
+
+      <section data-page="notifications" style="display:none">
+      <div class="row g-3 mb-4">
+        <div class="col-12">
+          <div class="card">
+            <div class="card-header pb-0"><h6 class="mb-0">Notifications</h6></div>
+            <div class="card-body p-0">
+              <ul class="list-group list-group-flush" id="notif-page-list">
+                <li class="list-group-item text-secondary">Loading…</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+      </section>
+
+      <p class="text-secondary text-sm text-center">
+        Local dashboard — reads from ~/.synthelion/. Settings/account changes write to disk.
+      </p>
+
     </div>
-  </div>
+  </main>
 
-  <p class="text-secondary small text-center">
-    Local, read-only dashboard — reads from ~/.synthelion/. No external calls, no writes.
-  </p>
-
-</div>
-
-<script src="/assets/vendor/bootstrap/bootstrap.bundle.min.js"></script>
-<script src="/assets/vendor/chartjs/chart.umd.min.js"></script>
-<script src="/assets/dashboard.js"></script>
+  <script src="/assets/vendor/bootstrap/bootstrap.bundle.min.js"></script>
+  <script src="/assets/vendor/material-dashboard/js/perfect-scrollbar.min.js"></script>
+  <script src="/assets/vendor/material-dashboard/js/smooth-scrollbar.min.js"></script>
+  <script src="/assets/vendor/material-dashboard/material-dashboard.min.js"></script>
+  <script src="/assets/vendor/chartjs/chart.umd.min.js"></script>
+  <script src="/assets/dashboard.js"></script>
 </body>
 </html>

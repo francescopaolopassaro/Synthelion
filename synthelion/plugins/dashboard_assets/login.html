@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="icon" type="image/png" sizes="96x96" href="/assets/img/favicon-96x96.png">
+  <link rel="apple-touch-icon" href="/assets/img/apple-touch-icon.png">
+  <title>Sign in — Synthelion Dashboard</title>
+  <!--
+    Structure mapped from the "Sign Up" page of Material Dashboard 3 Free by
+    Creative Tim (https://www.creative-tim.com/product/material-dashboard),
+    MIT License — see /assets/vendor/material-dashboard/LICENSE-material-dashboard.md
+    and ATTRIBUTION.md in that folder. Every asset the template loads from a
+    CDN in its original demo pages (Inter font, Nucleo icons) is self-hosted
+    here instead — nothing is fetched from a CDN at runtime. Font Awesome
+    (used only for the demo's own marketing navbar) and that navbar itself
+    were dropped rather than vendored, since neither is part of the actual
+    Material Dashboard Free kit or relevant to a login form.
+  -->
+  <link rel="stylesheet" href="/assets/vendor/material-dashboard/css/inter.css">
+  <link id="pagestyle" href="/assets/vendor/material-dashboard/material-dashboard.min.css" rel="stylesheet" />
+  <style>
+    body { font-family: 'Inter', system-ui, sans-serif; }
+    .login-error { display: none; }
+    .login-error.show { display: block; }
+    /* dark-version only re-colors .card / borders, not input text — the free
+       kit's own auth pages never combine dark-version with input-group-outline,
+       so this combination needs an explicit override or typed text is invisible
+       (dark-gray #404040 default text on a #1d1d1d card). */
+    .dark-version .input-group.input-group-outline .form-control {
+      color: #fff;
+    }
+    .dark-version .input-group.input-group-outline .form-control:-webkit-autofill {
+      -webkit-text-fill-color: #fff;
+    }
+  </style>
+</head>
+
+<body class="dark-version bg-gray-900">
+  <main class="main-content mt-0">
+    <section>
+      <div class="page-header min-vh-100">
+        <div class="container">
+          <div class="row">
+            <div class="col-6 d-lg-flex d-none h-100 my-auto pe-0 position-absolute top-0 start-0 text-center justify-content-center flex-column">
+              <div class="position-relative bg-gradient-info h-100 m-3 px-7 border-radius-lg d-flex flex-column justify-content-center align-items-center text-center"
+                   style="background-image: url('/assets/vendor/material-dashboard/img/synthelion-login.png'); background-size: cover; background-position: center;">
+                <span class="mask bg-gradient-info opacity-6 border-radius-lg"></span>
+                <img src="/assets/img/apple-touch-icon.png" alt="Synthelion" width="350" height="350" class="mb-4 position-relative">
+                <h3 class="text-white font-weight-bolder position-relative">Synthelion Dashboard</h3>
+                <p class="text-white opacity-8 position-relative px-5">Token savings, sessions and decisions at a glance.</p>
+              </div>
+            </div>
+            <div class="col-xl-4 col-lg-5 col-md-7 d-flex flex-column ms-auto me-auto ms-lg-auto me-lg-5">
+              <div class="card card-plain">
+                <div class="card-header">
+                  <h4 class="font-weight-bolder">Sign in</h4>
+                  <p class="mb-0">Enter your credentials to access the dashboard</p>
+                </div>
+                <div class="card-body">
+                  <div class="alert alert-danger login-error" id="login-error">Invalid username or password.</div>
+                  <form role="form" method="post" action="/login" id="login-form">
+                    <input type="hidden" name="next" id="next-field" value="/">
+                    <div class="input-group input-group-outline mb-3">
+                      <label class="form-label">Username</label>
+                      <input type="text" name="username" class="form-control" autocomplete="username" autofocus required>
+                    </div>
+                    <div class="input-group input-group-outline mb-3">
+                      <label class="form-label">Password</label>
+                      <input type="password" name="password" class="form-control" autocomplete="current-password" required>
+                    </div>
+                    <div class="text-center">
+                      <button type="submit" class="btn btn-lg bg-gradient-info btn-lg w-100 mt-4 mb-0">Sign in</button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+  <!-- Core JS Files -->
+  <script src="/assets/vendor/bootstrap/bootstrap.bundle.min.js"></script>
+  <script src="/assets/vendor/material-dashboard/js/perfect-scrollbar.min.js"></script>
+  <script src="/assets/vendor/material-dashboard/js/smooth-scrollbar.min.js"></script>
+  <!-- Control Center for Material Dashboard: drives the floating-label
+       is-focused/is-filled behavior on .input-group-outline fields. Depends
+       on PerfectScrollbar/Scrollbar being loaded first even on pages with no
+       sidenav to scroll. -->
+  <script src="/assets/vendor/material-dashboard/material-dashboard.min.js"></script>
+  <script>
+    var params = new URLSearchParams(window.location.search);
+    if (params.get('error')) {
+      document.getElementById('login-error').classList.add('show');
+    }
+    var next = params.get('next');
+    if (next) {
+      document.getElementById('next-field').value = next;
+    }
+  </script>
+</body>
+
+</html>

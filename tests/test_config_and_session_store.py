@@ -20,7 +20,10 @@ from synthelion.analytics.session_store import (
     LocalFileSessionStore, PostgresSessionStore, RedisSessionStore,
     SessionCall, create_session_store,
 )
-from synthelion.config import default_config, load_config, save_config
+from synthelion.config import (
+    default_compression_level, default_config, default_wiki_depth, load_config, merge_config,
+    new_cluster_token, new_node_id, save_config,
+)
 
 
 class TestConfig:
@@ -59,6 +62,88 @@ class TestConfig:
         path.write_text("{not valid json", encoding="utf-8")
         with pytest.raises(ValueError):
             load_config(path)
+
+    def test_default_compression_level_defaults_to_semantic(self):
+        assert default_compression_level(default_config()) == "semantic"
+
+    def test_default_compression_level_reads_configured_value(self):
+        cfg = default_config()
+        cfg["compression"]["default_level"] = "aggressive"
+        assert default_compression_level(cfg) == "aggressive"
+
+    def test_default_compression_level_rejects_unknown_value(self):
+        cfg = default_config()
+        cfg["compression"]["default_level"] = "not-a-real-level"
+        assert default_compression_level(cfg) == "semantic"
+
+    def test_default_wiki_depth_defaults_to_2(self):
+        assert default_wiki_depth(default_config()) == 2
+
+    def test_default_wiki_depth_reads_configured_value(self):
+        cfg = default_config()
+        cfg["wiki"]["default_depth"] = 4
+        assert default_wiki_depth(cfg) == 4
+
+    def test_default_wiki_depth_rejects_out_of_range_value(self):
+        cfg = default_config()
+        cfg["wiki"]["default_depth"] = 7
+        assert default_wiki_depth(cfg) == 2
+
+    def test_merge_config_overrides_only_given_keys(self):
+        base = default_config()
+        merged = merge_config(base, {"session_store": {"backend": "redis"}})
+        assert merged["session_store"]["backend"] == "redis"
+        assert merged["dashboard"]["port"] == 8787
+        assert merged["compression"]["default_level"] == "semantic"
+
+    def test_merge_config_does_not_mutate_base(self):
+        base = default_config()
+        merge_config(base, {"session_store": {"backend": "postgres"}})
+        assert base["session_store"]["backend"] == "local"
+
+
+class TestClusterConfig:
+    def test_default_config_has_standalone_cluster_role(self):
+        cfg = default_config()
+        assert cfg["cluster"]["role"] == "standalone"
+        assert cfg["cluster"]["node_id"] == ""
+        assert cfg["cluster"]["node_token"] == ""
+
+    def test_load_config_applies_cluster_env_overrides(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SYNTHELION_ROLE", "slave")
+        monkeypatch.setenv("SYNTHELION_NODE_ID", "node-7")
+        monkeypatch.setenv("SYNTHELION_NODE_TOKEN", "secret-token")
+        monkeypatch.setenv("SYNTHELION_MASTER_URL", "http://master:8787")
+        loaded = load_config(tmp_path / "does_not_exist.json")
+        assert loaded["cluster"]["role"] == "slave"
+        assert loaded["cluster"]["node_id"] == "node-7"
+        assert loaded["cluster"]["node_token"] == "secret-token"
+        assert loaded["cluster"]["master_url"] == "http://master:8787"
+
+    def test_load_config_env_override_wins_over_file(self, tmp_path, monkeypatch):
+        path = tmp_path / "config.json"
+        path.write_text('{"cluster": {"role": "master"}}', encoding="utf-8")
+        monkeypatch.setenv("SYNTHELION_ROLE", "slave")
+        loaded = load_config(path)
+        assert loaded["cluster"]["role"] == "slave"
+
+    def test_no_cluster_env_vars_leaves_defaults(self, tmp_path, monkeypatch):
+        for var in ("SYNTHELION_ROLE", "SYNTHELION_NODE_ID", "SYNTHELION_NODE_TOKEN", "SYNTHELION_MASTER_URL", "SYNTHELION_SELF_URL"):
+            monkeypatch.delenv(var, raising=False)
+        loaded = load_config(tmp_path / "does_not_exist.json")
+        assert loaded["cluster"]["role"] == "standalone"
+
+    def test_new_node_id_is_unique_and_short(self):
+        a = new_node_id()
+        b = new_node_id()
+        assert a != b
+        assert len(a) < 40
+
+    def test_new_cluster_token_is_unique_and_long(self):
+        a = new_cluster_token()
+        b = new_cluster_token()
+        assert a != b
+        assert len(a) >= 32
 
 
 class TestLocalFileSessionStore:

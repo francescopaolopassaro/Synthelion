@@ -715,7 +715,7 @@ synthelion upgrade --dry-run  # show what would run, don't run it
 
 ## Web dashboard
 
-A local, **read-only** web dashboard over everything Synthelion has compressed — no external calls, no CDN, works offline. Built for a multi-session setup: every `synthelion-mcp` process (one per agent session) and every CLI/hook invocation writes to the same lock-free ledger, and the dashboard aggregates them live.
+A local web dashboard over everything Synthelion has compressed — no external calls, no CDN, works offline. Built for a multi-session setup: every `synthelion-mcp` process (one per agent session) and every CLI/hook invocation writes to the same lock-free ledger, and the dashboard aggregates them live. Since 1.2.1 it's a full multi-page admin panel (separate URLs, not one long scroll) rather than a single read-only report.
 
 ```bash
 synthelion serve-dashboard                    # http://127.0.0.1:8787
@@ -723,13 +723,38 @@ synthelion serve-dashboard --port 9000        # custom port
 synthelion serve-dashboard --host 0.0.0.0     # explicit opt-in to expose it on the network
 ```
 
-![Synthelion dashboard — overview](docs/dashboard-overview.jpg)
+Protected by a login page — default credentials are **admin / admin**, change them before exposing the dashboard beyond your own machine:
 
-KPIs at a glance: calls, tokens saved, avg efficiency, CO₂ saved, active sessions, avg calls per session, tools used, best single call, and latency (avg / p95 / max) — plus a version badge next to the title showing exactly which Synthelion build is running. Charts for tokens saved over time and by tool.
+```bash
+synthelion dashboard-passwd                   # prompts for a new password (keeps current username)
+synthelion dashboard-passwd -u alice -p ...   # change username and password non-interactively
+```
 
-![Synthelion dashboard — sessions and requests](docs/dashboard-sessions.jpg)
+Changing the password immediately invalidates every session already logged in on that running dashboard process. The dashboard's own **Notifications** page also flags it for you if the default password is still active — see below.
 
-Scroll down for a breakdown by content type, recent session-memory decisions, a **Sessions** table (one row per `synthelion-mcp`/CLI process — PID, calls, tools used, first/last activity), and a **Recent requests** feed (every individual call with before/after tokens, efficiency, and latency).
+UI built with [Material Dashboard Free](https://www.creative-tim.com/product/material-dashboard) by [Creative Tim](https://www.creative-tim.com) (MIT License, vendored locally — no CDN, see `synthelion/plugins/dashboard_assets/vendor/material-dashboard/ATTRIBUTION.md`).
+
+![Synthelion dashboard — login](docs/dashboard-login.png)
+
+![Synthelion dashboard — overview](docs/dashboard-overview.png)
+
+**Overview**: calls, tokens saved, avg efficiency, CO₂ saved, active sessions, avg calls per session, tools used, best single call, and latency (avg / p95 / max) — plus a version badge showing exactly which Synthelion build is running. **Charts**: tokens saved over time, by tool, and by content type.
+
+![Synthelion dashboard — sessions](docs/dashboard-sessions.png)
+
+**Sessions**: one row per `synthelion-mcp`/CLI process (PID, calls, tools used, first/last activity), with per-row delete and a one-click cleanup (10/20/30 days) for old records. **Recent requests**: every individual call with before/after tokens, efficiency, and latency. **Decisions**: recorded session-memory notes, with the same age-based cleanup.
+
+![Synthelion dashboard — settings](docs/dashboard-settings.png)
+
+**Settings**: default compression level, default project-wiki depth (1-4, see below), session-store/vector-store backend selection, live storage counts, a **Doctor** panel (same checks as `synthelion doctor`, one click), and **Version** (checks PyPI only when you click "Check for updates" — never automatically — and can trigger `pip install --upgrade synthelion` from the button next to it).
+
+![Synthelion dashboard — profile](docs/dashboard-profile.png)
+
+**Profile**: change the dashboard's own username/password (requires the current password), account info (version, active backends), and a feed of the same real health notifications shown in the bell icon up top — never fabricated demo content, only things actually true about this install (default password still set, a configured backend's Python package isn't installed, etc.).
+
+![Synthelion dashboard — cluster](docs/dashboard-cluster.png)
+
+**Cluster** — a lightweight master/slave fleet layer, separate from (and on top of) the shared-backend replica model described in [Cluster deployment](#cluster-deployment) below: "Become master" generates a node ID and a shared token; other nodes join with that token (from their own dashboard's "Join a master" form, or `synthelion cluster join <url> --token ...`) and appear in the master's node table with live calls/tokens-saved/version. The master and every slave authenticate to each other with that shared token (`Authorization: Bearer ...`), never with the browser session cookie — one node's dashboard login has no bearing on another node's. A joining slave copies the master's compression/wiki defaults; storage backends are deliberately **not** copied, since those often differ per node/region. The page also has one-click downloads for a `docker-compose.yml` and a Kubernetes manifest pre-wired for this master/N-slave topology (env-var based — `SYNTHELION_ROLE`, `SYNTHELION_NODE_TOKEN`, `SYNTHELION_MASTER_URL` — no secret baked into the downloaded file). See `synthelion cluster --help`.
 
 **Auto-start with Claude Code** — add a `SessionStart` hook so the dashboard is already running whenever you open a session:
 
@@ -762,6 +787,14 @@ For an AI-provider-scale deployment (many nodes, thousands of concurrent agent
 sessions), point every node at a shared session/vector store instead of each
 one keeping its own local ledger — then any dashboard replica shows the
 whole cluster's activity, not just its own.
+
+This is about *storage* — identical, interchangeable replicas behind a load
+balancer. For *node identity and fleet visibility* (master/slave roles, a
+shared cluster token, "which nodes have joined and are they healthy", one-click
+deploy file downloads), see the dashboard's **Cluster** page and `synthelion
+cluster --help` in the [Web dashboard](#web-dashboard) section above — the two
+are independent and commonly used together (identical nodes, still individually
+tracked).
 
 ### 1. Configure
 
@@ -837,7 +870,7 @@ lands on.
 
 ## Tools
 
-13 MCP tools — all marked `readOnlyHint: true` so Claude Code and other MCP clients can call them safely in parallel.
+26 MCP tools — the compression/read tools are marked `readOnlyHint: true` so Claude Code and other MCP clients can call them safely in parallel; the handful that mutate state (session recording, the loop guard) are not.
 
 | Tool | What it does |
 |---|---|
@@ -854,6 +887,20 @@ lands on.
 | **session_start / session_end** | Track session boundaries and emit summaries. |
 | **compress_file** | Read a file by path and return only the compressed content. Avoids loading raw files into context. |
 | **synthelion_status** | Returns aggregate token savings and estimated cost as structured JSON. |
+| **safety_check** | Flags security-critical or destructive-command text before it gets compressed away. |
+| **analyze_waste** | Detects HTML noise, base64 blobs, excess whitespace, inline JSON bloat — read-only. |
+| **check_cache_alignment** | Scans a system prompt for volatile tokens (UUIDs, timestamps, JWTs, hashes) that break provider KV-cache prefix reuse. |
+| **align_cache_prompt** | Rewrites a system prompt so volatile blocks sink to the end, keeping the cacheable prefix stable call-to-call. |
+| **shape_output** | Appends verbosity-steering instructions to a system prompt to cut the model's *output* tokens. |
+| **focus_relevant** | Query-focused context shaping: keeps only the top-K most relevant blocks of a text. |
+| **estimate_cost** | Estimates the USD/EUR value of a token count for a given model. |
+| **generate_commit_message** | Generates a conventional commit message from a git diff. |
+| **review_diff** | Generates single-line PR review comments from a git diff (bugs, security, perf, TODOs). |
+| **generate_project_wiki** | Scans a project folder into an AI-synthesized Markdown wiki — `depth` 1-4 controls detail (see [Web dashboard](#web-dashboard) Settings for the default). |
+| **check_tool_loop** | Pre-tool guardrail: blocks a tool call that would repeat an identical prior call too many times in a row (agent stuck retrying). |
+| **reset_tool_loop** | Clears the loop-guard history for a session after a genuine change of approach. |
+
+Two more ship as CLI-only, meant for shell hooks rather than an agent calling them directly: `synthelion loop-check` / `synthelion loop-reset` — same loop guard, but persisted across process invocations (`~/.synthelion/loop_guard.jsonl`) for use as an external `PreToolUse`-style hook, since a hook script is a fresh process every call and can't keep the MCP tools' in-memory history.
 
 ---
 
