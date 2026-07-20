@@ -27,6 +27,7 @@ from synthelion.output_shaper import OutputShaper
 from synthelion.ccr_store import CcrStore
 from synthelion.cost_estimator import default_usd_per_1k_tokens, usd, eur
 from synthelion.tokenizer import ModelTokenizer, LlmModel
+from synthelion.loop_guard import LoopGuard, LoopVerdict, LoopCheckResult, PersistentLoopGuard
 
 __version__ = "1.2.0"
 __author__ = "Passaro Francesco Paolo"
@@ -77,4 +78,8 @@ __all__ = [
     "eur",
     "ModelTokenizer",
     "LlmModel",
+    "LoopGuard",
+    "LoopVerdict",
+    "LoopCheckResult",
+    "PersistentLoopGuard",
 ]
