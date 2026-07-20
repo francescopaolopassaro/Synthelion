@@ -24,6 +24,13 @@ class VolatileFinding:
     sample: str
 
 
+@dataclass
+class AlignmentResult:
+    prompt: str
+    reordered: bool
+    moved_blocks: int
+
+
 class CacheAligner:
     """Detects tokens in a system prompt that invalidate the LLM provider's KV-cache prefix.
 
@@ -45,3 +52,38 @@ class CacheAligner:
 
     def has_volatile_tokens(self, system_prompt: str) -> bool:
         return len(self.scan(system_prompt)) > 0
+
+    def _is_volatile(self, block: str) -> bool:
+        return any(pattern.search(block) for pattern, _ in _DETECTORS)
+
+    def align(self, system_prompt: str) -> AlignmentResult:
+        """Rewrite *system_prompt* so blocks containing volatile tokens sink to the end.
+
+        Providers match a prompt's KV-cache against the *prefix* shared with the
+        previous call, so a stable prefix gets reused (and billed cheaper) even if
+        content later in the prompt is different on every call. This splits the
+        prompt into paragraphs (falling back to lines if there's only one
+        paragraph), keeps each group's relative order, and moves every
+        UUID/timestamp/JWT/hash-bearing block after every stable one — diagnosis
+        via `scan()` alone doesn't fix that, only reordering does.
+        """
+        if not system_prompt or not system_prompt.strip():
+            return AlignmentResult(prompt=system_prompt, reordered=False, moved_blocks=0)
+
+        sep = "\n\n"
+        blocks = [b for b in system_prompt.split(sep) if b.strip()]
+        if len(blocks) < 2:
+            sep = "\n"
+            blocks = [b for b in system_prompt.split(sep) if b.strip()]
+        if len(blocks) < 2:
+            return AlignmentResult(prompt=system_prompt, reordered=False, moved_blocks=0)
+
+        stable = [b for b in blocks if not self._is_volatile(b)]
+        volatile = [b for b in blocks if self._is_volatile(b)]
+        if not volatile or not stable:
+            return AlignmentResult(prompt=system_prompt, reordered=False, moved_blocks=0)
+
+        reordered_prompt = sep.join(stable + volatile)
+        if reordered_prompt == system_prompt:
+            return AlignmentResult(prompt=system_prompt, reordered=False, moved_blocks=0)
+        return AlignmentResult(prompt=reordered_prompt, reordered=True, moved_blocks=len(volatile))

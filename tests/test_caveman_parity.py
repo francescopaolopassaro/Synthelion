@@ -48,6 +48,43 @@ def test_cache_aligner_clean_prompt():
     assert not aligner.has_volatile_tokens("")
 
 
+def test_cache_aligner_align_moves_volatile_block_to_end():
+    prompt = (
+        "session id: 550e8400-e29b-41d4-a716-446655440000\n\n"
+        "You are a helpful assistant.\n\n"
+        "Follow the user's instructions precisely."
+    )
+    aligner = CacheAligner()
+    result = aligner.align(prompt)
+    assert result.reordered is True
+    assert result.moved_blocks == 1
+    assert result.prompt.index("helpful assistant") < result.prompt.index("550e8400")
+    assert not aligner.has_volatile_tokens(result.prompt.split("\n\n")[0])
+
+
+def test_cache_aligner_align_stable_prompt_unchanged():
+    aligner = CacheAligner()
+    prompt = "You are a helpful assistant.\n\nFollow the user's instructions precisely."
+    result = aligner.align(prompt)
+    assert result.reordered is False
+    assert result.moved_blocks == 0
+    assert result.prompt == prompt
+
+
+def test_cache_aligner_align_empty_prompt():
+    aligner = CacheAligner()
+    result = aligner.align("")
+    assert result.reordered is False
+    assert result.prompt == ""
+
+
+def test_cache_aligner_align_all_volatile_unchanged():
+    aligner = CacheAligner()
+    prompt = "550e8400-e29b-41d4-a716-446655440000\n\n2026-07-20T10:00:00Z"
+    result = aligner.align(prompt)
+    assert result.reordered is False
+
+
 # ---------------------------------------------------------------------------
 # SafetyGuard
 # ---------------------------------------------------------------------------

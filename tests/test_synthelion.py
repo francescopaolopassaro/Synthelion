@@ -507,6 +507,60 @@ class TestMcpServer:
         from synthelion.plugins.openai_tools import get_tool_list as openai_gtl
         assert set(mcp_gtl()) == set(openai_gtl())
 
+
+# ---------------------------------------------------------------------------
+# 11. check_tool_loop / reset_tool_loop — loop guardrail MCP tools
+# ---------------------------------------------------------------------------
+class TestLoopGuardTools:
+    def test_check_tool_loop_in_tool_definitions(self):
+        names = {t["function"]["name"] for t in get_tool_definitions()}
+        assert {"check_tool_loop", "reset_tool_loop"}.issubset(names)
+
+    def test_execute_check_tool_loop_allows_then_blocks(self):
+        session = "test-session-loop-tools"
+        execute_tool("reset_tool_loop", {"session_id": session})
+        args = {"tool": "shell", "arguments": {"cmd": "pytest"}, "session_id": session, "max_repeats": 2}
+        assert execute_tool("check_tool_loop", args)["verdict"] == "Allow"
+        assert execute_tool("check_tool_loop", args)["verdict"] == "Allow"
+        blocked = execute_tool("check_tool_loop", args)
+        assert blocked["verdict"] == "Block"
+        assert blocked["should_block"] is True
+        assert blocked["reason"]
+
+    def test_execute_reset_tool_loop(self):
+        session = "test-session-loop-reset"
+        args = {"tool": "shell", "arguments": {"cmd": "x"}, "session_id": session, "max_repeats": 1}
+        execute_tool("check_tool_loop", args)
+        assert execute_tool("check_tool_loop", args)["verdict"] == "Block"
+        r = execute_tool("reset_tool_loop", {"session_id": session})
+        assert r["status"] == "reset"
+        assert execute_tool("check_tool_loop", args)["verdict"] == "Allow"
+
+
+# ---------------------------------------------------------------------------
+# 12. align_cache_prompt — cache-friendly prompt reordering MCP tool
+# ---------------------------------------------------------------------------
+class TestAlignCachePromptTool:
+    def test_align_cache_prompt_in_tool_definitions(self):
+        names = {t["function"]["name"] for t in get_tool_definitions()}
+        assert "align_cache_prompt" in names
+
+    def test_execute_align_cache_prompt_moves_volatile_block(self):
+        prompt = (
+            "request id: 550e8400-e29b-41d4-a716-446655440000\n\n"
+            "You are a helpful assistant."
+        )
+        r = execute_tool("align_cache_prompt", {"system_prompt": prompt})
+        assert r["reordered"] is True
+        assert r["moved_blocks"] == 1
+        assert r["system_prompt"].index("helpful assistant") < r["system_prompt"].index("550e8400")
+
+    def test_execute_align_cache_prompt_stable_unchanged(self):
+        prompt = "You are a helpful assistant."
+        r = execute_tool("align_cache_prompt", {"system_prompt": prompt})
+        assert r["reordered"] is False
+        assert r["system_prompt"] == prompt
+
     def test_no_duplicate_get_tool_list_in_mcp_server(self):
         """mcp_server must not redefine get_tool_list locally (was a bug)."""
         import inspect, synthelion.plugins.mcp_server as ms, synthelion.plugins.openai_tools as ot

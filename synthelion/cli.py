@@ -117,6 +117,21 @@ def main() -> None:
     p_review.add_argument("--diff", help="Diff text (or use stdin, e.g. `git diff | synthelion review`)")
     p_review.add_argument("--json", action="store_true")
 
+    # loop-check — pre-tool loop guardrail (persisted across process invocations)
+    p_loopck = sub.add_parser(
+        "loop-check",
+        help="Pre-tool loop guardrail: check whether a tool call repeats a prior one too many times",
+    )
+    p_loopck.add_argument("--tool", "-t", required=True, help="Name of the tool about to be called")
+    p_loopck.add_argument("--args", "-a", help="JSON object of the arguments that would be passed to it")
+    p_loopck.add_argument("--session", "-s", default="default", help="Session/agent id (default: 'default')")
+    p_loopck.add_argument("--max-repeats", type=int, default=2, help="Identical repeats allowed before blocking (default: 2)")
+    p_loopck.add_argument("--json", action="store_true", help="Output as JSON")
+
+    # loop-reset — clear loop guardrail history for a session
+    p_loopreset = sub.add_parser("loop-reset", help="Clear loop-guard call history for a session")
+    p_loopreset.add_argument("--session", "-s", default="default", help="Session/agent id (default: 'default')")
+
     # wiki — generate AI-friendly project documentation
     p_wiki = sub.add_parser("wiki", help="Generate AI-friendly, compressed project documentation")
     p_wiki.add_argument("path", help="Project folder to scan")
@@ -162,6 +177,10 @@ def main() -> None:
         _cmd_review(args)
     elif args.cmd == "wiki":
         _cmd_wiki(args)
+    elif args.cmd == "loop-check":
+        _cmd_loop_check(args)
+    elif args.cmd == "loop-reset":
+        _cmd_loop_reset(args)
 
 
 def _read_input(args) -> str:
@@ -788,6 +807,45 @@ def _cmd_wiki(args) -> None:
         print(f"[OK] Wrote project wiki to {args.output}")
     else:
         print(markdown)
+
+
+def _cmd_loop_check(args) -> None:
+    """Pre-tool guardrail, meant to run as an agent hook (e.g. Claude Code's
+    PreToolUse): one process per invocation, so history is read from and
+    appended to ~/.synthelion/loop_guard.jsonl via PersistentLoopGuard rather
+    than kept in memory. Exit code doubles as the verdict for shell hooks that
+    just want to gate on it: 0 = allow, 2 = block, without needing --json.
+    """
+    from synthelion.loop_guard import PersistentLoopGuard
+
+    try:
+        arguments = json.loads(args.args) if args.args else {}
+    except json.JSONDecodeError as exc:
+        print(f"ERROR: --args is not valid JSON: {exc}", file=sys.stderr)
+        raise SystemExit(1)
+
+    guard = PersistentLoopGuard(max_repeats=args.max_repeats)
+    result = guard.check(args.tool, arguments, session_id=args.session)
+
+    if args.json:
+        print(json.dumps({
+            "verdict": result.verdict.value,
+            "should_block": result.should_block,
+            "repeat_count": result.repeat_count,
+            "reason": result.reason,
+        }, ensure_ascii=False))
+    elif result.should_block:
+        print(f"BLOCK: {result.reason}", file=sys.stderr)
+    else:
+        print(f"ALLOW (repeat {result.repeat_count})")
+
+    raise SystemExit(2 if result.should_block else 0)
+
+
+def _cmd_loop_reset(args) -> None:
+    from synthelion.loop_guard import PersistentLoopGuard
+    PersistentLoopGuard().reset(session_id=args.session)
+    print(f"[OK] Loop-guard history reset for session '{args.session}'")
 
 
 if __name__ == "__main__":

@@ -429,6 +429,22 @@ def get_tool_definitions() -> list[dict]:
         {
             "type": "function",
             "function": {
+                "name": "align_cache_prompt",
+                "description": (
+                    "Rewrite a system prompt so blocks containing volatile tokens (UUIDs, timestamps, "
+                    "JWTs, hashes) sink to the end, keeping the stable prefix identical call-to-call so "
+                    "the LLM provider's KV-cache can reuse it. Splits on paragraphs (or lines)."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {"system_prompt": {"type": "string", "description": "System prompt to reorder."}},
+                    "required": ["system_prompt"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
                 "name": "shape_output",
                 "description": (
                     "Append verbosity-steering instructions to a system prompt to reduce the "
@@ -510,6 +526,45 @@ def get_tool_definitions() -> list[dict]:
                     "type": "object",
                     "properties": {"diff": {"type": "string", "description": "Unified git diff text."}},
                     "required": ["diff"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "check_tool_loop",
+                "description": (
+                    "Pre-tool guardrail: check whether a tool call would repeat an identical prior "
+                    "call too many times in a row for this session (agent stuck retrying the same "
+                    "failed approach). Call this BEFORE issuing the real tool call. Returns Allow/Block; "
+                    "on Block, stop and change approach or ask the user instead of retrying."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "tool": {"type": "string", "description": "Name of the tool about to be called."},
+                        "arguments": {"type": "object", "description": "Arguments that would be passed to it."},
+                        "session_id": {"type": "string", "description": "Session/agent id. Default: 'default'."},
+                        "max_repeats": {
+                            "type": "integer",
+                            "description": "Identical repeats allowed before blocking. Default: 2.",
+                        },
+                    },
+                    "required": ["tool"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "reset_tool_loop",
+                "description": "Clear the loop-guard call history for a session (use after a genuine change of approach).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "session_id": {"type": "string", "description": "Session/agent id. Default: 'default'."},
+                    },
+                    "required": [],
                 },
             },
         },
@@ -685,6 +740,9 @@ def execute_tool(name: str, arguments: dict) -> dict:
     if name == "check_cache_alignment":
         return _exec_check_cache_alignment(arguments)
 
+    if name == "align_cache_prompt":
+        return _exec_align_cache_prompt(arguments)
+
     if name == "shape_output":
         return _exec_shape_output(arguments)
 
@@ -702,6 +760,12 @@ def execute_tool(name: str, arguments: dict) -> dict:
 
     if name == "generate_project_wiki":
         return _exec_generate_project_wiki(arguments)
+
+    if name == "check_tool_loop":
+        return _exec_check_tool_loop(arguments)
+
+    if name == "reset_tool_loop":
+        return _exec_reset_tool_loop(arguments)
 
     return {"error": f"Unknown tool: {name}"}
 
@@ -950,6 +1014,12 @@ def _exec_check_cache_alignment(arguments: dict) -> dict:
     }
 
 
+def _exec_align_cache_prompt(arguments: dict) -> dict:
+    from synthelion.cache_aligner import CacheAligner
+    result = CacheAligner().align(arguments["system_prompt"])
+    return {"system_prompt": result.prompt, "reordered": result.reordered, "moved_blocks": result.moved_blocks}
+
+
 _VERBOSITY_MAP = None
 
 
@@ -1023,3 +1093,39 @@ def _exec_generate_project_wiki(arguments: dict) -> dict:
     except NotADirectoryError as exc:
         return {"error": str(exc)}
     return {"markdown": markdown}
+
+
+_loop_guard = None
+_loop_guard_lock = threading.Lock()
+
+
+def _get_loop_guard():
+    global _loop_guard
+    if _loop_guard is None:
+        with _loop_guard_lock:
+            if _loop_guard is None:
+                from synthelion.loop_guard import LoopGuard
+                _loop_guard = LoopGuard()
+    return _loop_guard
+
+
+def _exec_check_tool_loop(arguments: dict) -> dict:
+    guard = _get_loop_guard()
+    result = guard.check(
+        arguments["tool"],
+        arguments.get("arguments"),
+        session_id=arguments.get("session_id") or "default",
+        max_repeats=arguments.get("max_repeats"),
+    )
+    return {
+        "verdict": result.verdict.value,
+        "should_block": result.should_block,
+        "repeat_count": result.repeat_count,
+        "reason": result.reason,
+    }
+
+
+def _exec_reset_tool_loop(arguments: dict) -> dict:
+    guard = _get_loop_guard()
+    guard.reset(arguments.get("session_id") or "default")
+    return {"status": "reset"}
