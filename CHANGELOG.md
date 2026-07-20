@@ -4,7 +4,101 @@ All notable changes to Synthelion are documented here.
 
 ---
 
-### Dashboard
+## [1.2.1] — 2026-07-20
+
+### Dashboard — full rewrite: login, multi-page admin panel, cluster
+- **Login page** (session cookie, not HTTP Basic Auth): default `admin`/`admin`,
+  change with `synthelion dashboard-passwd`. Credentials are salted+hashed
+  (PBKDF2-HMAC-SHA256), never stored in plaintext; changing the password
+  invalidates every session already logged in on that running process.
+- UI restyled on [Material Dashboard Free](https://www.creative-tim.com/product/material-dashboard)
+  by Creative Tim (MIT, vendored locally — no CDN); login/dashboard structure
+  mapped from the template's `sign-up.html`/`dashboard.html`, own SVG icons
+  (the template's bundled Nucleo icon font turned out to be corrupted
+  upstream — verified in three independently-fetched copies, so it was
+  dropped rather than shipped broken).
+- **Split into real, separately-routed pages** (Overview, Charts, Sessions,
+  Recent requests, Decisions, Settings, Profile, Notifications, Cluster) —
+  client-side routed with `history.pushState`, not one long scrolling page.
+- **Notifications**: real, never-fabricated health signals (default password
+  still set, a configured backend's Python package isn't installed) — bell
+  icon dropdown + dedicated page.
+- **Profile**: change username/password from the UI; account info; the same
+  notifications feed.
+- **Settings**: default compression level, default project-wiki depth (new,
+  see below), session-store/vector-store backend selection, live storage
+  counts, a **Doctor** panel (`synthelion doctor`'s checks, one click), and
+  **Version** (PyPI check only on click — never automatic — with an
+  "Upgrade now" button).
+- **Sessions/Decisions cleanup**: per-row delete, and one-click retention
+  cleanup (10/20/30 days) — new `SavingsLedger.prune_older_than()` /
+  `.delete_session()` and `SessionDB.prune_older_than()`.
+- **Cluster page** (new, see below).
+
+### Cluster — master/slave fleet management
+A lightweight node-identity layer, independent of (and complementary to) the
+existing shared-backend replica model: a node becomes a **master**
+(`synthelion cluster init` or the dashboard's "Become master" button),
+generating a node ID and a shared token; other nodes **join** with that token
+(`synthelion cluster join <url> --token ...`, prompts for standalone-vs-join
+if run with no arguments, or the dashboard's "Join a master" form) and appear
+in the master's live node table (calls, tokens saved, version, up/stale). A
+joining slave auto-registers on startup and heartbeats every 30s
+(`SYNTHELION_ROLE=slave` + `SYNTHELION_MASTER_URL=...` env vars are enough —
+no manual join step needed in a container). Node-to-node calls authenticate
+with the shared token (`Authorization: Bearer`), a separate scheme from the
+browser session cookie — rotating the token disconnects every node until they
+re-join. One-click `docker-compose.yml` / Kubernetes manifest downloads for
+this topology (env-var based, no secret baked into the file). New module
+`synthelion/cluster.py`, `synthelion/analytics/cluster_registry.py`; new
+`cluster.*` config section with `SYNTHELION_ROLE`/`SYNTHELION_NODE_ID`/
+`SYNTHELION_NODE_TOKEN`/`SYNTHELION_MASTER_URL`/`SYNTHELION_SELF_URL` env
+overrides.
+
+### Project Wiki — configurable depth (1-4)
+`ProjectWiki.generate(..., depth=1-4)` (CLI `synthelion wiki --depth`, MCP
+`generate_project_wiki`'s `depth` argument, and a dashboard Settings default):
+1 = overview + file tree only, 2 = standard (previous default, unchanged
+output), 3 = wider symbol ranking, 4 = adds short code excerpts for the most
+symbol-dense files. An explicit `depth` argument always wins over the
+configured default, from both the CLI and MCP.
+
+### Cache alignment — prompt rewriting, not just diagnosis
+New `CacheAligner.align()` (MCP tool `align_cache_prompt`): rewrites a system
+prompt so blocks containing volatile tokens (UUIDs, timestamps, JWTs, hashes)
+sink after the stable blocks, instead of only reporting where they are
+(`scan()`, existing) — a stable prefix is what actually lets a provider reuse
+its KV-cache.
+
+### Loop guard — agent stuck-in-a-retry-loop guardrail
+New `LoopGuard` (MCP tools `check_tool_loop`/`reset_tool_loop`): blocks a tool
+call that repeats an identical prior call (same tool + arguments) more than
+`max_repeats` times in a row. A `PersistentLoopGuard` variant
+(`synthelion loop-check`/`loop-reset` CLI commands) persists history to
+`~/.synthelion/loop_guard.jsonl` for use as an external shell hook, since a
+hook script is a fresh process every invocation and can't share the MCP
+tools' in-memory history.
+
+### Configurable defaults
+New `compression.default_level` and `wiki.default_depth` config keys (set via
+the dashboard Settings page or `~/.synthelion/config.json` directly) — used
+by the CLI and MCP tools whenever a caller doesn't pass an explicit
+`--level`/`level`/`--depth`/`depth`.
+
+### Fixed
+- **`ledger.py` and `session_db.py` computed their default storage directory
+  from `Path.home()` at module import time**, not lazily — meaning tests (and
+  anything else) that patch `Path.home()` after import had no effect, and
+  those modules' default-directory callers were silently reading/writing the
+  real `~/.synthelion` regardless. Found via a test asserting an exact record
+  count that didn't match; fixed by resolving `Path.home()` at the point of
+  use in both modules (same class of bug, and fix, as `loop_guard.py`'s
+  `PersistentLoopGuard` default path a few days earlier).
+- CLI `--level`/`--depth` defaults are now resolved from config rather than a
+  hardcoded literal, fixing `synthelion compress`/`wiki` to actually respect
+  a configured default instead of always using `semantic`/`2`.
+
+### Dashboard (earlier 1.2.x work)
 - Replaced the "Est. cost saved" KPI with **"CO₂ saved"** (`co2_mg_saved`,
   aggregated in `ledger.summary()` from the same per-token estimate
   `CompressionResult.estimated_co2_saved_mg` already uses, so it stays
