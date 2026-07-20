@@ -451,3 +451,59 @@ def test_project_wiki_npm_dependencies_and_engines(tmp_path):
     assert "react-dom @ ^18.2.0" in markdown
     assert "npm:optional" in markdown
     assert "fsevents @ ^2.3.0" in markdown
+
+
+def _make_code_project(tmp_path, n_files: int = 3, n_funcs_each: int = 6):
+    for i in range(n_files):
+        body = "\n".join(f"def func_{i}_{j}():\n    pass\n" for j in range(n_funcs_each))
+        (tmp_path / f"mod{i}.py").write_text(body)
+    return tmp_path
+
+
+def test_project_wiki_rejects_invalid_depth(tmp_path):
+    _make_code_project(tmp_path)
+    with pytest.raises(ValueError):
+        ProjectWiki().generate(str(tmp_path), depth=5)
+    with pytest.raises(ValueError):
+        ProjectWiki().generate(str(tmp_path), depth=0)
+
+
+def test_project_wiki_depth_1_omits_dependencies_and_assets(tmp_path):
+    (tmp_path / "requirements.txt").write_text("requests==2.31.0\n")
+    _make_code_project(tmp_path)
+    markdown = ProjectWiki().generate(str(tmp_path), depth=1)
+    assert "Dependencies" not in markdown
+    assert "requests" not in markdown
+    assert "depth: 1" in markdown
+
+
+def test_project_wiki_depth_2_matches_default(tmp_path):
+    _make_code_project(tmp_path)
+    default_md = ProjectWiki().generate(str(tmp_path))
+    depth2_md = ProjectWiki().generate(str(tmp_path), depth=2)
+    assert default_md == depth2_md
+
+
+def test_project_wiki_higher_depth_expands_key_components(tmp_path):
+    _make_code_project(tmp_path, n_files=3, n_funcs_each=8)
+    shallow = ProjectWiki().generate(str(tmp_path), depth=1)
+    deep = ProjectWiki().generate(str(tmp_path), depth=3)
+    # depth 3 lists more symbols per file (10) than depth 1 (3) — the "+N more"
+    # tail should shrink or disappear as more symbols are shown inline.
+    assert deep.count("func_0_") > shallow.count("func_0_")
+
+
+def test_project_wiki_depth_4_adds_code_excerpts(tmp_path):
+    _make_code_project(tmp_path)
+    md3 = ProjectWiki().generate(str(tmp_path), depth=3)
+    md4 = ProjectWiki().generate(str(tmp_path), depth=4)
+    assert "Code Excerpts" not in md3
+    assert "Code Excerpts" in md4
+    assert "```python" in md4
+
+
+def test_project_wiki_depth_ignored_when_no_contents(tmp_path):
+    _make_code_project(tmp_path)
+    markdown = ProjectWiki().generate(str(tmp_path), include_contents=False, depth=4)
+    assert "Key Components" not in markdown
+    assert "Code Excerpts" not in markdown

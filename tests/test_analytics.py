@@ -111,6 +111,46 @@ class TestSavingsLedger:
         ledger.reset()
         assert ledger.all_records() == []
 
+    def test_prune_older_than_removes_old_records(self, ledger, tmp_path):
+        import datetime
+        old_ts = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=40)).isoformat()
+        ledger._write_all([{
+            "ts": old_ts, "tool": "compress", "tokens_before": 100, "tokens_after": 60,
+            "tokens_saved": 40, "content_type": "", "language": "", "session_id": "old", "pid": 1,
+        }])
+        ledger.record("compress", 100, 60)  # fresh record
+        removed = ledger.prune_older_than(30)
+        assert removed == 1
+        remaining = ledger.all_records()
+        assert len(remaining) == 1
+        assert remaining[0]["session_id"] != "old"
+
+    def test_prune_older_than_keeps_records_without_ts(self, ledger):
+        ledger._write_all([{"tool": "compress", "tokens_before": 100, "tokens_after": 60}])
+        removed = ledger.prune_older_than(1)
+        assert removed == 0
+        assert len(ledger.all_records()) == 1
+
+    def test_delete_session_removes_only_that_session(self, ledger):
+        ledger.record("compress", 100, 60)
+        records = ledger.all_records()
+        target_session = records[0]["session_id"]
+        ledger._write_all(records + [{
+            "ts": records[0]["ts"], "tool": "compress", "tokens_before": 10, "tokens_after": 5,
+            "tokens_saved": 5, "content_type": "", "language": "", "session_id": "other-session", "pid": 2,
+        }])
+        removed = ledger.delete_session(target_session)
+        assert removed == 1
+        remaining = ledger.all_records()
+        assert len(remaining) == 1
+        assert remaining[0]["session_id"] == "other-session"
+
+    def test_delete_session_unknown_id_removes_nothing(self, ledger):
+        ledger.record("compress", 100, 60)
+        removed = ledger.delete_session("does-not-exist")
+        assert removed == 0
+        assert len(ledger.all_records()) == 1
+
     def test_persists_to_disk_and_reloads(self, tmp_path):
         from synthelion.analytics.ledger import SavingsLedger
         l1 = SavingsLedger(directory=tmp_path)
@@ -249,6 +289,26 @@ class TestSessionDB:
 
     def test_backend_returns_lexical(self, db):
         assert db.backend() == "lexical"
+
+    def test_prune_older_than_removes_old_decisions(self, db):
+        db.record_decision("Old decision")
+        old_ts = time.time() - 40 * 86400
+        decisions = db._load_fallback()
+        decisions[0]["ts"] = old_ts
+        db._write_fallback(decisions)
+        db.record_decision("Fresh decision")
+
+        removed = db.prune_older_than(30)
+        assert removed == 1
+        remaining = db.list_decisions(limit=10)
+        assert len(remaining) == 1
+        assert remaining[0]["text"] == "Fresh decision"
+
+    def test_prune_older_than_nothing_to_remove(self, db):
+        db.record_decision("Fresh decision")
+        removed = db.prune_older_than(30)
+        assert removed == 0
+        assert len(db.list_decisions(limit=10)) == 1
 
     def test_fallback_persists_to_disk(self, tmp_path):
         from synthelion.analytics.session_db import SessionDB

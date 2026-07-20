@@ -1,34 +1,92 @@
-body {
-  background-color: #0f1115;
+/* Card/background colors now come from Material Dashboard's .dark-version
+   class (see vendor/material-dashboard/) — only the bits that class doesn't
+   cover live here. */
+
+.range-btn.active {
+  pointer-events: none;
 }
 
-.kpi-card {
-  background-color: #1a1d24;
-  border-color: #2a2e37;
+/* Material Dashboard's own .navbar-vertical .navbar-brand-img rule caps the
+   logo at max-height: 2rem (32px) regardless of the <img> width/height
+   attributes — needs an explicit, higher-priority override to actually show
+   at 52px. */
+#sidenav-main .navbar-brand-img {
+  max-height: 64px !important;
+  width: 64px !important;
+  height: 64px !important;
 }
 
-.card {
-  background-color: #14161c;
-  border-color: #2a2e37;
+.nav-icon {
+  vertical-align: -3px;
+  margin-right: 2px;
+  flex-shrink: 0;
 }
 
-.card-header {
-  background-color: #1a1d24;
-  border-color: #2a2e37;
+/* Material Dashboard's own .icon-shape i { color: #fff } only targets <i>
+   icon-font glyphs — our KPI icons are inline <svg stroke="currentColor">,
+   so they need the same white forced explicitly or they inherit whatever
+   ambient text color the card header has. */
+.icon-shape svg {
+  color: #fff;
+  opacity: 0.9;
 }
 
-.table {
-  --bs-table-color: #dcdfe4;
-  --bs-table-bg: transparent;
+/* Material Dashboard centers icon-font glyphs inside .icon-shape via a fixed
+   `top: 11px` offset that assumes the glyph's own line-height — that doesn't
+   center a raw <svg>, so it needs real flex centering instead. */
+.icon-shape {
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 #decisions-list .list-group-item {
   background-color: transparent;
-  border-color: #2a2e37;
 }
 
-.range-btn.active {
-  pointer-events: none;
+/* dark-version only re-colors .form-control text/border inside
+   .input-group-outline (see login.html's own comment on this) — plain
+   .form-control elements (our Settings <select>s) need the same fix, or the
+   text is the near-black default #404040 on a #1d1d1d card. */
+.dark-version .form-control {
+  color: #fff;
+  background-color: #1a1d24;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+.dark-version .form-control:focus {
+  color: #fff;
+  background-color: #1a1d24;
+}
+.dark-version .form-control option {
+  color: #ffffff;
+  background-color: #1a1d24;
+}
+
+.dark-version .input-group.input-group-outline .form-control {
+  color: #fff;
+}
+
+/* Material Dashboard's dark-version background on the sidenav is only
+   applied via `.dark-version .sidenav` — at narrower viewports / the
+   collapsed-to-icons state (`g-sidenav-hidden`) the browser can end up
+   painting the aside's un-themed default (white) background instead, since
+   that responsive/collapsed markup wasn't part of Creative Tim's own dark
+   demo pages. Pin it directly on the element regardless of viewport or
+   collapse state so it can never flash white. */
+#sidenav-main,
+#sidenav-main.bg-white,
+.dark-version #sidenav-main {
+  background: #1d1d1d !important;
+}
+#sidenav-main .nav-link,
+#sidenav-main .navbar-brand span,
+#sidenav-main h6 {
+  color: #fff !important;
+}
+@media (max-width: 1199.98px) {
+  #sidenav-main {
+    background: #1d1d1d !important;
+  }
 }
 
 /* Fixed-height, non-growing chart container. Chart.js needs a sized parent
@@ -38,10 +96,4 @@ body {
   position: relative;
   height: 260px;
   width: 100%;
-}
-
-@media (prefers-color-scheme: light) {
-  body:not([data-bs-theme="dark"]) {
-    background-color: #f5f6f8;
-  }
 }

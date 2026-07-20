@@ -44,7 +44,6 @@ from typing import Any
 
 from synthelion.analytics._atomic_append import append_line
 
-_DEFAULT_DIR = Path.home() / ".synthelion" / "sessions"
 _COLLECTION_NAME = "synthelion_decisions"
 _FALLBACK_FILE = "decisions_fallback.jsonl"
 _LEGACY_FALLBACK_FILE = "decisions_fallback.json"
@@ -113,7 +112,9 @@ class SessionDB:
         """`backend`: "chromadb" | "qdrant" | "lexical". Defaults to reading
         `vector_store.backend` from synthelion.config (itself defaulting to
         "chromadb") when not given explicitly."""
-        self._dir = directory or _DEFAULT_DIR
+        # Path.home() re-read here, not cached at module import time — see the
+        # equivalent comment/incident in synthelion/analytics/ledger.py.
+        self._dir = directory or (Path.home() / ".synthelion" / "sessions")
         self._dir.mkdir(parents=True, exist_ok=True)
         self._collection: Any = None
         self._qdrant: Any = None
@@ -278,6 +279,50 @@ class SessionDB:
 
     def backend(self) -> str:
         return self._backend
+
+    def prune_older_than(self, days: int) -> int:
+        """Deletes decisions older than *days*. Returns the number removed.
+
+        Fully supported for the lexical/fallback JSONL store (read-all/rewrite-all,
+        same trade-off as SavingsLedger.prune_older_than — not safe to run
+        concurrently with writers, fine for a manual/scheduled cleanup action).
+        For chromadb/qdrant, delegates to that backend's own filtered delete; if it
+        raises, the caller sees a clear error instead of a silent no-op.
+        """
+        cutoff = _now_ts() - days * 86400
+        if self._backend == "chromadb" and self._collection is not None:
+            existing = self._collection.get(include=["metadatas"])
+            ids = existing.get("ids", []) or []
+            metas = existing.get("metadatas", []) or []
+            stale = [i for i, m in zip(ids, metas) if (m or {}).get("ts", 0) < cutoff]
+            if stale:
+                self._collection.delete(ids=stale)
+            return len(stale)
+        if self._backend == "qdrant" and self._qdrant is not None:
+            from qdrant_client.models import FieldCondition, Filter, Range
+            before = self._qdrant.count(collection_name=self._qdrant_collection_name).count
+            self._qdrant.delete(
+                collection_name=self._qdrant_collection_name,
+                points_selector=Filter(must=[FieldCondition(key="ts", range=Range(lt=cutoff))]),
+            )
+            after = self._qdrant.count(collection_name=self._qdrant_collection_name).count
+            return before - after
+        kept, removed = [], 0
+        for d in self._load_fallback():
+            if (d.get("ts", 0) or 0) < cutoff:
+                removed += 1
+            else:
+                kept.append(d)
+        self._write_fallback(kept)
+        return removed
+
+    def _write_fallback(self, decisions: list[dict]) -> None:
+        tmp = self._fallback_file.with_suffix(".jsonl.tmp")
+        with open(tmp, "w", encoding="utf-8") as fh:
+            for d in decisions:
+                fh.write(json.dumps(d, ensure_ascii=False) + "\n")
+        import os
+        os.replace(tmp, self._fallback_file)
 
     # ── internal ─────────────────────────────────────────────────────────────
 

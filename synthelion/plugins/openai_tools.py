@@ -37,6 +37,11 @@ _LEVEL_MAP = {
 }
 
 
+def _default_level() -> str:
+    from synthelion.config import default_compression_level
+    return default_compression_level()
+
+
 def get_tool_definitions() -> list[dict]:
     """Return the list of tool definitions in OpenAI function-calling format."""
     return [
@@ -584,6 +589,11 @@ def get_tool_definitions() -> list[dict]:
                             "type": "boolean",
                             "description": "Include compressed file contents. Default: true.",
                         },
+                        "depth": {
+                            "type": "integer",
+                            "enum": [1, 2, 3, 4],
+                            "description": "Detail level 1-4. Default: the dashboard/config-configured value (normally 2). 1=overview only, 4=adds short code excerpts.",
+                        },
                     },
                     "required": ["path"],
                 },
@@ -600,7 +610,7 @@ def execute_tool(name: str, arguments: dict) -> dict:
     """Execute a Synthelion tool by name and return a JSON-serializable result."""
     _call_timer.start = time.perf_counter()
     if name == "compress":
-        level = _LEVEL_MAP.get((arguments.get("level") or "semantic").lower(), CompressionLevel.SEMANTIC)
+        level = _LEVEL_MAP.get((arguments.get("level") or _default_level()).lower(), CompressionLevel.SEMANTIC)
         r = _svc.compress(arguments["text"], level, iso3=arguments.get("language"))
         _record_ledger("compress", r.original_tokens, r.compressed_tokens)
         return {
@@ -661,7 +671,7 @@ def execute_tool(name: str, arguments: dict) -> dict:
         }
 
     if name == "compress_batch":
-        level = _LEVEL_MAP.get((arguments.get("level") or "semantic").lower(), CompressionLevel.SEMANTIC)
+        level = _LEVEL_MAP.get((arguments.get("level") or _default_level()).lower(), CompressionLevel.SEMANTIC)
         results = _svc.compress_batch(arguments["texts"], level)
         total_before = sum(r.original_tokens for r in results)
         total_after = sum(r.compressed_tokens for r in results)
@@ -1086,10 +1096,12 @@ def _exec_review_diff(arguments: dict) -> dict:
 
 
 def _exec_generate_project_wiki(arguments: dict) -> dict:
+    from synthelion.config import default_wiki_depth
     from synthelion.devtools.wiki import ProjectWiki
     include_contents = arguments.get("include_contents", True)
+    depth = int(arguments.get("depth") or default_wiki_depth())
     try:
-        markdown = ProjectWiki().generate(arguments["path"], include_contents=include_contents)
+        markdown = ProjectWiki().generate(arguments["path"], include_contents=include_contents, depth=depth)
     except NotADirectoryError as exc:
         return {"error": str(exc)}
     return {"markdown": markdown}

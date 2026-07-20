@@ -29,7 +29,7 @@ from synthelion.cost_estimator import default_usd_per_1k_tokens, usd, eur
 from synthelion.tokenizer import ModelTokenizer, LlmModel
 from synthelion.loop_guard import LoopGuard, LoopVerdict, LoopCheckResult, PersistentLoopGuard
 
-__version__ = "1.2.0"
+__version__ = "1.2.1"
 __author__ = "Passaro Francesco Paolo"
 
 

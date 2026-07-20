@@ -101,6 +101,21 @@ def _format_size(num_bytes: int) -> str:
     return f"{size:.2g} GB"
 
 
+# Depth 1-4 controls how much the "Key Components" synthesis expands, and
+# which optional sections appear — not a different algorithm, the same
+# ranking/summarization just goes further down the tail. Depth 1 is a fast
+# orientation pass (overview + tree only); depth 4 adds short code excerpts
+# for the most symbol-dense files, which is the only depth that re-reads file
+# contents beyond what `_scan_files` already did for symbol extraction.
+_DEPTH_SETTINGS: dict[int, dict] = {
+    1: {"top_k": 10, "symbols_per_file": 3, "snippets": 0, "include_assets": False, "include_deps": False},
+    2: {"top_k": 25, "symbols_per_file": 5, "snippets": 0, "include_assets": True, "include_deps": True},
+    3: {"top_k": 60, "symbols_per_file": 10, "snippets": 0, "include_assets": True, "include_deps": True},
+    4: {"top_k": 120, "symbols_per_file": 25, "snippets": 8, "include_assets": True, "include_deps": True},
+}
+_SNIPPET_LINES = 20
+
+
 def _should_ignore(path: str, filename: str) -> bool:
     parts = path.replace("\\", "/").split("/")
     if any(p in _IGNORE_DIR_NAMES for p in parts):
@@ -134,7 +149,20 @@ class ProjectWiki:
         project_folder_path: str,
         max_file_size_bytes: int = 200 * 1024,
         include_contents: bool = True,
+        depth: int = 2,
     ) -> str:
+        """`depth` (1-4) controls how far the synthesis goes — not a different
+        algorithm at each level, the same ranking/summarization just expands
+        further down the tail:
+          1 — orientation only: overview + file tree, no dependencies/symbols
+          2 — standard (default): + dependencies, asset breakdown, top code symbols
+          3 — detailed: wider symbol ranking (more files, more symbols/file)
+          4 — exhaustive: + short code excerpts for the most symbol-dense files
+        """
+        if depth not in _DEPTH_SETTINGS:
+            raise ValueError(f"depth must be 1-4, got {depth}")
+        settings = _DEPTH_SETTINGS[depth]
+
         if not os.path.isdir(project_folder_path):
             raise NotADirectoryError(f"Directory not found: {project_folder_path}")
 
@@ -143,15 +171,19 @@ class ProjectWiki:
         readme_summary = self._summarize_readme(project_folder_path) if include_contents else None
 
         parts = [
-            self._write_header(project_folder_path, info),
+            self._write_header(project_folder_path, info, depth),
             self._write_overview(info, files, readme_summary),
-            self._write_dependencies(info.dependencies),
-            self._write_structure(files),
         ]
+        if settings["include_deps"]:
+            parts.append(self._write_dependencies(info.dependencies))
+        parts.append(self._write_structure(files))
         if include_contents:
-            parts.append(self._write_assets(files))
-            parts.append(self._write_key_components(files))
-        parts.append(self._write_summary(files))
+            if settings["include_assets"]:
+                parts.append(self._write_assets(files))
+            parts.append(self._write_key_components(files, settings["top_k"], settings["symbols_per_file"]))
+            if settings["snippets"]:
+                parts.append(self._write_snippets(project_folder_path, files, settings["snippets"]))
+        parts.append(self._write_summary(files, depth))
         return "".join(p for p in parts if p)
 
     # ------------------------------------------------------------------
@@ -281,7 +313,7 @@ class ProjectWiki:
 
     # ------------------------------------------------------------------
 
-    def _write_header(self, root_path: str, info: ProjectInfo) -> str:
+    def _write_header(self, root_path: str, info: ProjectInfo, depth: int = 2) -> str:
         lines = [
             f"# 🪨 Project Wiki: {info.name}", "",
             "```yaml", "project:",
@@ -289,6 +321,7 @@ class ProjectWiki:
             f"  type: {info.type}",
             f"  path: {root_path}",
             f"  generated: {datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}",
+            f"  depth: {depth}",
         ]
         if info.description:
             lines.append(f"  description: {info.description}")
@@ -380,33 +413,62 @@ class ProjectWiki:
         lines.append("")
         return "\n".join(lines) + "\n"
 
-    def _write_key_components(self, files: list[FileEntry]) -> str:
+    def _write_key_components(self, files: list[FileEntry], top_k: int = 25, symbols_per_file: int = 5) -> str:
         code_files = [f for f in files if f.symbols]
         if not code_files:
             return ""
 
-        top_k = 25
         ranked = sorted(code_files, key=lambda f: -len(f.symbols))
         lines = ["## 🔑 Key Components", ""]
         for f in ranked[:top_k]:
-            top_syms = ", ".join(f"{s.kind} `{s.name}`" for s in f.symbols[:5])
-            more = f" (+{len(f.symbols) - 5} more)" if len(f.symbols) > 5 else ""
+            top_syms = ", ".join(f"{s.kind} `{s.name}`" for s in f.symbols[:symbols_per_file])
+            more = f" (+{len(f.symbols) - symbols_per_file} more)" if len(f.symbols) > symbols_per_file else ""
             lines.append(f"- **`{f.relative_path}`** — {top_syms}{more}")
         if len(ranked) > top_k:
             lines.append(f"- … and {len(ranked) - top_k} more file(s) with code symbols")
         lines.append("")
         return "\n".join(lines) + "\n"
 
-    def _write_summary(self, files: list[FileEntry]) -> str:
+    def _write_snippets(self, root_path: str, files: list[FileEntry], count: int) -> str:
+        """Depth-4-only: short head excerpts for the most symbol-dense files —
+        the only section that re-reads file contents beyond what `_scan_files`
+        already read for symbol extraction, so it's gated behind the highest
+        depth rather than always paying that I/O cost."""
+        code_files = sorted((f for f in files if f.symbols), key=lambda f: -len(f.symbols))[:count]
+        if not code_files:
+            return ""
+
+        lines = ["## 📜 Code Excerpts", ""]
+        for f in code_files:
+            full = os.path.join(root_path, f.relative_path)
+            try:
+                with open(full, "r", encoding="utf-8", errors="ignore") as fh:
+                    head_lines = [next(fh) for _ in range(_SNIPPET_LINES)]
+            except (OSError, StopIteration):
+                try:
+                    with open(full, "r", encoding="utf-8", errors="ignore") as fh:
+                        head_lines = fh.readlines()[:_SNIPPET_LINES]
+                except OSError:
+                    continue
+            lang = _LANGUAGE_HINTS.get(f.extension, "")
+            snippet = "".join(head_lines).rstrip("\n")
+            more = "\n…" if f.line_count > _SNIPPET_LINES else ""
+            lines.append(f"**`{f.relative_path}`**")
+            lines.append(f"```{lang}\n{snippet}{more}\n```")
+            lines.append("")
+        return "\n".join(lines) + "\n"
+
+    def _write_summary(self, files: list[FileEntry], depth: int = 2) -> str:
         total_size = sum(f.size for f in files)
         lines = [
             "## 📊 Summary", "",
             f"- **Total Files:** {len(files)}",
             f"- **Total Size:** {_format_size(total_size)}",
+            f"- **Depth:** {depth}/4",
             "",
             "> 💡 *This wiki is a synthesis, not a raw dump: the overview is summarized from "
             "the README (or inferred from file composition), and only the most relevant code "
-            "symbols and asset categories are listed.*",
+            "symbols and asset categories are listed — pass a higher `depth` (1-4) for more.*",
         ]
         return "\n".join(lines) + "\n"
 

@@ -33,7 +33,6 @@ from synthelion.analytics._atomic_append import append_line
 _PROCESS_SESSION_ID = str(uuid.uuid4())
 _PROCESS_PID = os.getpid()
 
-_DEFAULT_DIR = Path.home() / ".synthelion"
 _LEDGER_FILE = "savings.jsonl"
 _LEGACY_LEDGER_FILE = "savings.json"  # pre-JSONL format (single JSON array)
 
@@ -47,7 +46,12 @@ _CO2_MG_PER_MWH: float = 0.4
 
 
 def _ledger_path(directory: Path | None = None) -> Path:
-    d = directory or _DEFAULT_DIR
+    # Path.home() must be re-read here, not cached in a module-level constant —
+    # a constant bakes in whatever Path.home() returns at import time, which
+    # tests patching Path.home() (monkeypatch) can never override afterwards.
+    # That exact bug once made this file's tests operate on the real
+    # ~/.synthelion/savings.jsonl instead of an isolated tmp_path.
+    d = directory or (Path.home() / ".synthelion")
     d.mkdir(parents=True, exist_ok=True)
     return d / _LEDGER_FILE
 
@@ -232,6 +236,53 @@ class SavingsLedger:
     def reset(self) -> None:
         """Clear all saved records. Not meant to run concurrently with writers."""
         self._path.write_text("", encoding="utf-8")
+
+    def prune_older_than(self, days: int) -> int:
+        """Deletes records older than *days*. Returns the number of records removed.
+
+        Unlike `record()`, this is a read-all/rewrite-all maintenance operation, not
+        a single atomic append — a writer appending during the rewrite could have its
+        record dropped if it lands between the read and the `os.replace()` below.
+        Acceptable for a manual/scheduled cleanup action (same trade-off as `reset()`),
+        not something to call from a hot path.
+        """
+        cutoff = time.time() - days * 86400
+        kept: list[dict] = []
+        removed = 0
+        for r in self._load_raw():
+            try:
+                ts = datetime.fromisoformat(r["ts"]).timestamp()
+            except (KeyError, ValueError):
+                kept.append(r)
+                continue
+            if ts >= cutoff:
+                kept.append(r)
+            else:
+                removed += 1
+        self._write_all(kept)
+        return removed
+
+    def delete_session(self, session_id: str) -> int:
+        """Deletes every record belonging to *session_id*. Returns the number removed.
+
+        Same rewrite-all trade-off as `prune_older_than()`.
+        """
+        kept = []
+        removed = 0
+        for r in self._load_raw():
+            if r.get("session_id") == session_id:
+                removed += 1
+            else:
+                kept.append(r)
+        self._write_all(kept)
+        return removed
+
+    def _write_all(self, records: list[dict]) -> None:
+        tmp = self._path.with_suffix(".jsonl.tmp")
+        with open(tmp, "w", encoding="utf-8") as fh:
+            for r in records:
+                fh.write(json.dumps(r, ensure_ascii=False) + "\n")
+        os.replace(tmp, self._path)
 
     # ── internal ─────────────────────────────────────────────────────────────
 

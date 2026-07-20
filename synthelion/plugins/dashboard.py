@@ -6,6 +6,13 @@ Serves a Bootstrap 5 page (vendored locally — no CDN, works offline) backed by
 a few read-only JSON endpoints. Binds to 127.0.0.1 by default: it is meant to
 be opened in a browser on the same machine, not exposed to a network.
 
+Protected by a login page (session cookie, see dashboard_auth.py). A default
+admin/admin login is created on first run so the dashboard works out of the
+box; change it with `synthelion dashboard-passwd`. The login page UI is built
+with Material Dashboard Free by Creative Tim (MIT License, vendored locally —
+see dashboard_assets/vendor/material-dashboard/ATTRIBUTION.md); the rest of
+the dashboard is original Synthelion code over vendored Bootstrap 5.
+
 Run:
     synthelion serve-dashboard
     synthelion serve-dashboard --port 8787 --host 0.0.0.0   # explicit opt-in to expose it
@@ -16,28 +23,75 @@ multiple browser tabs or a monitoring script can poll this concurrently.
 """
 from __future__ import annotations
 
+import hmac
 import json
 import mimetypes
+import secrets
+import threading
+import time
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
+
+from synthelion.plugins import dashboard_auth
 
 _ASSETS_DIR = Path(__file__).parent / "dashboard_assets"
 
 # Explicit allow-list of static files servable under /assets/ — avoids any
-# path-traversal surface from request paths.
+# path-traversal surface from request paths. These are public (not gated by
+# login) since none of them carry user data — the login page itself needs to
+# load its stylesheet before the user has a session.
 _STATIC_FILES = {
     "/assets/dashboard.css": _ASSETS_DIR / "dashboard.css",
     "/assets/dashboard.js": _ASSETS_DIR / "dashboard.js",
     "/assets/vendor/bootstrap/bootstrap.min.css": _ASSETS_DIR / "vendor" / "bootstrap" / "bootstrap.min.css",
     "/assets/vendor/bootstrap/bootstrap.bundle.min.js": _ASSETS_DIR / "vendor" / "bootstrap" / "bootstrap.bundle.min.js",
     "/assets/vendor/chartjs/chart.umd.min.js": _ASSETS_DIR / "vendor" / "chartjs" / "chart.umd.min.js",
+    "/assets/vendor/material-dashboard/material-dashboard.min.css": _ASSETS_DIR / "vendor" / "material-dashboard" / "material-dashboard.min.css",
+    "/assets/vendor/material-dashboard/material-dashboard.min.js": _ASSETS_DIR / "vendor" / "material-dashboard" / "material-dashboard.min.js",
+    "/assets/vendor/material-dashboard/img/synthelion-login.png": _ASSETS_DIR / "vendor" / "material-dashboard" / "img" / "synthelion-login.png",
+    "/assets/vendor/material-dashboard/css/inter.css": _ASSETS_DIR / "vendor" / "material-dashboard" / "css" / "inter.css",
+    "/assets/vendor/material-dashboard/fonts/inter-latin.woff2": _ASSETS_DIR / "vendor" / "material-dashboard" / "fonts" / "inter-latin.woff2",
+    "/assets/vendor/material-dashboard/js/perfect-scrollbar.min.js": _ASSETS_DIR / "vendor" / "material-dashboard" / "js" / "perfect-scrollbar.min.js",
+    "/assets/vendor/material-dashboard/js/smooth-scrollbar.min.js": _ASSETS_DIR / "vendor" / "material-dashboard" / "js" / "smooth-scrollbar.min.js",
     "/assets/img/logo.png": _ASSETS_DIR / "img" / "logo.png",
+    "/assets/img/synthelion-banner.png": _ASSETS_DIR / "img" / "synthelion-banner.png",
     "/assets/img/mark.png": _ASSETS_DIR / "img" / "mark.png",
     "/assets/img/apple-touch-icon.png": _ASSETS_DIR / "img" / "apple-touch-icon.png",
     "/assets/img/favicon-96x96.png": _ASSETS_DIR / "img" / "favicon-96x96.png",
     "/favicon.ico": _ASSETS_DIR / "img" / "favicon.ico",
 }
+
+# Client-side routed "pages" — every one of these serves the same index.html
+# shell; dashboard.js shows/hides the matching <section data-page="..."> based
+# on the current path and intercepts sidenav/navbar link clicks with
+# history.pushState so navigating between them doesn't reload the page.
+_PAGE_ROUTES = frozenset({
+    "/", "/index.html", "/overview", "/charts", "/sessions", "/requests",
+    "/decisions", "/settings", "/profile", "/notifications", "/cluster",
+})
+
+# Node-to-node cluster endpoints authenticate with the cluster's shared
+# token (Authorization: Bearer <token>, see _cluster_authenticated), never
+# with the browser session cookie — a joining/heartbeating node has no
+# browser and no login. Listed here so do_GET/do_POST can route them before
+# the session-cookie auth gate that applies to everything else.
+_CLUSTER_TOKEN_GET_PATHS = frozenset({"/api/cluster/self-status"})
+_CLUSTER_TOKEN_POST_PATHS = frozenset({"/api/cluster/join", "/api/cluster/heartbeat"})
+
+_SESSION_COOKIE = "synthelion_session"
+_SESSION_TTL_SECONDS = 12 * 3600
+
+# In-process session store: {token: (expiry_ts, credentials_fingerprint)}. One
+# dashboard server = one process, so a plain lock is enough (same reasoning as
+# LoopGuard's in-process history — see loop_guard.py). Storing the credentials
+# fingerprint alongside each token means a password change via `synthelion
+# dashboard-passwd` invalidates every session already issued by *this* running
+# server the next time each one is checked, without needing cross-process
+# coordination.
+_sessions_lock = threading.Lock()
+_sessions: dict[str, tuple[float, str]] = {}
 
 
 class _DashboardHandler(BaseHTTPRequestHandler):
@@ -51,11 +105,38 @@ class _DashboardHandler(BaseHTTPRequestHandler):
         path = parsed.path
         qs = parse_qs(parsed.query)
 
+        if path == "/login":
+            self._serve_file(_ASSETS_DIR / "login.html", "text/html; charset=utf-8")
+            return
+
+        if path == "/logout":
+            self._handle_logout()
+            return
+
+        if path in _STATIC_FILES:
+            self._serve_file(_STATIC_FILES[path], _guess_type(path))
+            return
+
+        if path in _CLUSTER_TOKEN_GET_PATHS:
+            if not self._cluster_authenticated():
+                self._error(401, "Unauthorized")
+                return
+            try:
+                self._serve_json(self._cluster_self_status())
+            except Exception as exc:  # noqa: BLE001
+                self._error(500, str(exc))
+            return
+
+        if not self._authenticated():
+            if path.startswith("/api/"):
+                self._error(401, "Unauthorized")
+            else:
+                self._redirect_to_login(path)
+            return
+
         try:
-            if path == "/" or path == "/index.html":
+            if path in _PAGE_ROUTES:
                 self._serve_file(_ASSETS_DIR / "index.html", "text/html; charset=utf-8")
-            elif path in _STATIC_FILES:
-                self._serve_file(_STATIC_FILES[path], _guess_type(path))
             elif path == "/api/summary":
                 self._serve_json(self._summary(qs))
             elif path == "/api/records":
@@ -66,10 +147,98 @@ class _DashboardHandler(BaseHTTPRequestHandler):
                 self._serve_json(self._decisions(qs))
             elif path == "/api/version":
                 self._serve_json(self._version())
+            elif path == "/api/config":
+                self._serve_json(self._config())
+            elif path == "/api/storage-status":
+                self._serve_json(self._storage_status())
+            elif path == "/api/notifications":
+                self._serve_json(self._notifications())
+            elif path == "/api/account":
+                self._serve_json({"username": dashboard_auth.current_username()})
+            elif path == "/api/doctor":
+                from synthelion.cli import run_doctor_checks
+                self._serve_json({"checks": run_doctor_checks()})
+            elif path == "/api/version-check":
+                from synthelion.cli import check_pypi_version
+                self._serve_json(check_pypi_version())
+            elif path == "/api/cluster/status":
+                self._serve_json(self._cluster_status())
+            elif path == "/api/cluster/compose-file":
+                from synthelion.cluster import render_docker_compose
+                nodes = int(qs.get("nodes", ["2"])[0])
+                self._serve_text(render_docker_compose(nodes), "docker-compose.cluster.yml")
+            elif path == "/api/cluster/k8s-manifest":
+                from synthelion.cluster import render_k8s_manifest
+                nodes = int(qs.get("nodes", ["2"])[0])
+                self._serve_text(render_k8s_manifest(nodes), "synthelion-cluster.k8s.yaml")
             else:
                 self._error(404, "Not found")
         except Exception as exc:  # noqa: BLE001 - never let one bad request kill the server
             self._error(500, str(exc))
+
+    def do_POST(self) -> None:  # noqa: N802 - stdlib method name
+        path = urlparse(self.path).path
+        # Always drain the request body before writing any response, even a
+        # rejection — responding while the client still has unsent/unacked
+        # body bytes in flight can make the OS reset the connection instead
+        # of closing it cleanly (observed as a flaky ConnectionAbortedError
+        # on Windows for the 401-before-body-read case in particular).
+        self._body = self._read_raw_body()
+
+        if path == "/login":
+            self._handle_login()
+            return
+        if path == "/logout":
+            self._handle_logout()
+            return
+
+        if path in _CLUSTER_TOKEN_POST_PATHS:
+            if not self._cluster_authenticated():
+                self._error(401, "Unauthorized")
+                return
+            try:
+                if path == "/api/cluster/join":
+                    self._serve_json(self._cluster_join())
+                else:
+                    self._serve_json(self._cluster_heartbeat())
+            except Exception as exc:  # noqa: BLE001
+                self._error(500, str(exc))
+            return
+
+        if not self._authenticated():
+            self._error(401, "Unauthorized")
+            return
+        try:
+            if path == "/api/config":
+                self._serve_json(self._update_config())
+            elif path == "/api/account":
+                self._serve_json(self._update_account())
+            elif path == "/api/sessions/prune":
+                self._serve_json(self._prune_sessions())
+            elif path == "/api/sessions/delete":
+                self._serve_json(self._delete_session())
+            elif path == "/api/decisions/prune":
+                self._serve_json(self._prune_decisions())
+            elif path == "/api/upgrade":
+                self._serve_json(self._run_upgrade())
+            elif path == "/api/cluster/action":
+                self._serve_json(self._cluster_action())
+            else:
+                self._error(404, "Not found")
+        except Exception as exc:  # noqa: BLE001 - never let one bad request kill the server
+            self._error(500, str(exc))
+
+    def _read_raw_body(self) -> bytes:
+        length = int(self.headers.get("Content-Length", 0) or 0)
+        return self.rfile.read(length) if length else b""
+
+    def _read_json_body(self) -> dict:
+        if not self._body:
+            raise ValueError("empty request body")
+        data = json.loads(self._body.decode("utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError("request body must be a JSON object")
+        return data
 
     # ── read-only data endpoints ─────────────────────────────────────────────
 
@@ -121,6 +290,352 @@ class _DashboardHandler(BaseHTTPRequestHandler):
 
         return {"version": synthelion.__version__}
 
+    @staticmethod
+    def _config() -> dict:
+        from synthelion.config import config_path, load_config
+
+        path = config_path()
+        return {"config": load_config(), "path": str(path) if path else None}
+
+    def _update_config(self) -> dict:
+        from synthelion.config import load_config, merge_config, save_config
+
+        partial = self._read_json_body()
+        current = load_config()
+        merged = merge_config(current, partial)
+        save_config(merged)
+        return {"config": merged, "status": "saved"}
+
+    @staticmethod
+    def _storage_status() -> dict:
+        from synthelion.analytics.ledger import get_ledger
+        from synthelion.analytics.session_db import get_session_db
+
+        ledger = get_ledger()
+        records = ledger.all_records()
+        sessions = ledger.sessions_summary(records)
+        db = get_session_db()
+        decisions = db.list_decisions(limit=10_000)
+        return {
+            "sessions": len(sessions),
+            "decisions": len(decisions),
+            "ledger_records": len(records),
+            "vector_backend": db.backend(),
+        }
+
+    @staticmethod
+    def _notifications() -> dict:
+        """Real, locally-computable health signals — never fabricated demo content.
+
+        Currently: a security warning if the dashboard still has the default
+        admin/admin login, and one warning per configured backend (session_store
+        / vector_store) whose Python package isn't installed, so it's silently
+        falling back to the local/lexical default instead of what's configured.
+        """
+        import importlib.util
+
+        from synthelion.config import load_config
+
+        items = []
+        if dashboard_auth.is_using_default_password():
+            items.append({
+                "level": "warning",
+                "title": "Default login in use",
+                "message": "The dashboard still uses the default admin/admin password. Change it with `synthelion dashboard-passwd`.",
+            })
+
+        cfg = load_config()
+        backend_packages = {
+            "redis": ("redis", cfg["session_store"]["backend"] == "redis"),
+            "psycopg": ("psycopg", cfg["session_store"]["backend"] == "postgres"),
+            "chromadb": ("chromadb", cfg["vector_store"]["backend"] == "chromadb"),
+            "qdrant_client": ("qdrant_client", cfg["vector_store"]["backend"] == "qdrant"),
+        }
+        for module_name, (label, selected) in backend_packages.items():
+            if selected and importlib.util.find_spec(module_name) is None:
+                items.append({
+                    "level": "error",
+                    "title": f"Missing package for '{label}' backend",
+                    "message": f"Configured backend requires the '{module_name}' package (pip install 'synthelion[{label}]') — falling back to the local default until installed.",
+                })
+
+        return {"notifications": items, "count": len(items)}
+
+    def _update_account(self) -> dict:
+        data = self._read_json_body()
+        current_password = data.get("current_password") or ""
+        new_username = (data.get("new_username") or "").strip() or dashboard_auth.current_username()
+        new_password = data.get("new_password") or ""
+
+        if not dashboard_auth.verify(dashboard_auth.current_username(), current_password):
+            raise ValueError("current password is incorrect")
+        if not new_password:
+            raise ValueError("new password must not be empty")
+
+        dashboard_auth.set_credentials(new_username, new_password)
+        return {"username": new_username, "status": "saved"}
+
+    def _prune_sessions(self) -> dict:
+        from synthelion.analytics.ledger import get_ledger
+
+        data = self._read_json_body()
+        days = int(data.get("days", 30))
+        if days < 1:
+            raise ValueError("days must be >= 1")
+        removed = get_ledger().prune_older_than(days)
+        return {"removed": removed, "days": days}
+
+    def _delete_session(self) -> dict:
+        from synthelion.analytics.ledger import get_ledger
+
+        data = self._read_json_body()
+        session_id = data.get("session_id")
+        if not session_id:
+            raise ValueError("session_id is required")
+        removed = get_ledger().delete_session(session_id)
+        return {"removed": removed, "session_id": session_id}
+
+    def _prune_decisions(self) -> dict:
+        from synthelion.analytics.session_db import get_session_db
+
+        data = self._read_json_body()
+        days = int(data.get("days", 30))
+        if days < 1:
+            raise ValueError("days must be >= 1")
+        removed = get_session_db().prune_older_than(days)
+        return {"removed": removed, "days": days}
+
+    @staticmethod
+    def _run_upgrade() -> dict:
+        """`pip install --upgrade synthelion`, run synchronously from a user click
+        (Settings > System > Upgrade now). Blocks the request until pip finishes —
+        acceptable here since it's an explicit, infrequent admin action, not
+        something on any hot path."""
+        import subprocess
+        import sys
+
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--upgrade", "synthelion"],
+            capture_output=True, text=True, timeout=120,
+        )
+        return {
+            "success": result.returncode == 0,
+            "output": (result.stdout or "") + (result.stderr or ""),
+        }
+
+    # ── cluster (master/slave) ──────────────────────────────────────────────
+    #
+    # Two auth schemes coexist here: the endpoints under _CLUSTER_TOKEN_*_PATHS
+    # (join/heartbeat/self-status) use the cluster's shared token, since the
+    # caller is another node's process, not a browser with a session cookie.
+    # Everything else below (status/action) uses the normal session cookie,
+    # since those are the dashboard UI's own Cluster page talking to its own
+    # backend.
+
+    def _cluster_authenticated(self) -> bool:
+        from synthelion.config import load_config
+        token = load_config().get("cluster", {}).get("node_token", "")
+        if not token:
+            return False
+        header = self.headers.get("Authorization", "")
+        if not header.startswith("Bearer "):
+            return False
+        return hmac.compare_digest(header[len("Bearer "):], token)
+
+    @staticmethod
+    def _cluster_self_status() -> dict:
+        import synthelion
+        from synthelion.analytics.ledger import get_ledger
+        from synthelion.config import load_config
+
+        cfg = load_config()["cluster"]
+        summary = get_ledger().summary()
+        return {
+            "node_id": cfg["node_id"],
+            "role": cfg["role"],
+            "version": synthelion.__version__,
+            "total_calls": summary["total_calls"],
+            "tokens_saved": summary["tokens_saved"],
+        }
+
+    def _cluster_join(self) -> dict:
+        from synthelion.analytics.cluster_registry import get_cluster_registry
+        from synthelion.config import load_config
+
+        cfg = load_config()
+        if cfg["cluster"]["role"] != "master":
+            raise ValueError("this node is not a cluster master")
+
+        data = self._read_json_body()
+        node_id = data.get("node_id")
+        url = data.get("url")
+        if not node_id or not url:
+            raise ValueError("node_id and url are required")
+
+        get_cluster_registry().register(node_id, url)
+        # Deliberately narrow: propagate only the settings that should behave
+        # identically across the whole cluster (compression/wiki defaults).
+        # session_store/vector_store are NOT propagated — those often differ
+        # per node/region (e.g. each node's own local Redis), and silently
+        # overwriting a joining node's storage config on join would be a much
+        # more disruptive default than the operator likely expects.
+        shareable = {"compression": cfg["compression"], "wiki": cfg["wiki"]}
+        return {"config": shareable, "master_node_id": cfg["cluster"]["node_id"]}
+
+    def _cluster_heartbeat(self) -> dict:
+        from synthelion.analytics.cluster_registry import get_cluster_registry
+
+        data = self._read_json_body()
+        node_id = data.get("node_id")
+        if not node_id:
+            raise ValueError("node_id is required")
+        ok = get_cluster_registry().heartbeat(node_id, stats=data.get("stats"))
+        if not ok:
+            raise ValueError(f"node '{node_id}' is not registered with this master — re-join required")
+        return {"status": "ok"}
+
+    @staticmethod
+    def _cluster_status() -> dict:
+        from synthelion.analytics.cluster_registry import get_cluster_registry
+        from synthelion.config import load_config
+
+        cfg = load_config()["cluster"]
+        nodes = get_cluster_registry().list_nodes() if cfg["role"] == "master" else []
+        return {
+            "role": cfg["role"],
+            "node_id": cfg["node_id"],
+            "node_token": cfg["node_token"],
+            "master_url": cfg["master_url"],
+            "self_url": cfg["self_url"],
+            "nodes": nodes,
+        }
+
+    def _cluster_action(self) -> dict:
+        from synthelion.cluster import ClusterJoinError, join_master
+        from synthelion.config import load_config, new_cluster_token, new_node_id, save_config
+
+        data = self._read_json_body()
+        action = data.get("action")
+        cfg = load_config()
+
+        if action == "become_master":
+            cfg["cluster"]["role"] = "master"
+            cfg["cluster"]["node_id"] = cfg["cluster"]["node_id"] or new_node_id()
+            cfg["cluster"]["node_token"] = cfg["cluster"]["node_token"] or new_cluster_token()
+            cfg["cluster"]["master_url"] = ""
+            save_config(cfg)
+            return {"cluster": cfg["cluster"]}
+
+        if action == "join":
+            master_url = (data.get("master_url") or "").rstrip("/")
+            token = data.get("token") or ""
+            self_url = data.get("self_url") or cfg["cluster"].get("self_url", "")
+            node_id = data.get("node_id") or cfg["cluster"]["node_id"] or new_node_id()
+            if not master_url or not token:
+                raise ValueError("master_url and token are required")
+            try:
+                result = join_master(master_url, token, node_id, self_url)
+            except ClusterJoinError as exc:
+                raise ValueError(str(exc)) from exc
+
+            cfg["cluster"]["role"] = "slave"
+            cfg["cluster"]["node_id"] = node_id
+            cfg["cluster"]["node_token"] = token
+            cfg["cluster"]["master_url"] = master_url
+            cfg["cluster"]["self_url"] = self_url
+            shared = result.get("config") or {}
+            if "compression" in shared:
+                cfg["compression"] = shared["compression"]
+            if "wiki" in shared:
+                cfg["wiki"] = shared["wiki"]
+            save_config(cfg)
+            return {"cluster": cfg["cluster"], "joined_master": result.get("master_node_id")}
+
+        if action == "leave":
+            cfg["cluster"]["role"] = "standalone"
+            cfg["cluster"]["master_url"] = ""
+            save_config(cfg)
+            return {"cluster": cfg["cluster"]}
+
+        if action == "rotate_token":
+            if cfg["cluster"]["role"] != "master":
+                raise ValueError("only a master node can rotate the cluster token")
+            cfg["cluster"]["node_token"] = new_cluster_token()
+            save_config(cfg)
+            return {"cluster": cfg["cluster"]}
+
+        raise ValueError(f"unknown action: {action}")
+
+    # ── auth ─────────────────────────────────────────────────────────────────
+
+    def _session_token(self) -> str | None:
+        cookie_header = self.headers.get("Cookie")
+        if not cookie_header:
+            return None
+        jar: SimpleCookie = SimpleCookie()
+        jar.load(cookie_header)
+        morsel = jar.get(_SESSION_COOKIE)
+        return morsel.value if morsel else None
+
+    def _authenticated(self) -> bool:
+        token = self._session_token()
+        if not token:
+            return False
+        with _sessions_lock:
+            entry = _sessions.get(token)
+        if entry is None:
+            return False
+        expiry, fingerprint = entry
+        valid = time.time() <= expiry and fingerprint == dashboard_auth.credentials_fingerprint()
+        if not valid:
+            with _sessions_lock:
+                _sessions.pop(token, None)
+        return valid
+
+    def _redirect_to_login(self, next_path: str) -> None:
+        self.send_response(302)
+        self.send_header("Location", f"/login?next={quote(next_path, safe='')}")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def _handle_login(self) -> None:
+        fields = parse_qs(self._body.decode("utf-8"))
+        username = fields.get("username", [""])[0]
+        password = fields.get("password", [""])[0]
+        next_path = fields.get("next", ["/"])[0]
+        if not next_path.startswith("/") or next_path.startswith("//"):
+            next_path = "/"  # only ever redirect within this app
+
+        if not dashboard_auth.verify(username, password):
+            self.send_response(302)
+            self.send_header("Location", "/login?error=1")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+
+        token = secrets.token_urlsafe(32)
+        with _sessions_lock:
+            _sessions[token] = (time.time() + _SESSION_TTL_SECONDS, dashboard_auth.credentials_fingerprint())
+        self.send_response(302)
+        self.send_header("Location", next_path)
+        self.send_header(
+            "Set-Cookie",
+            f"{_SESSION_COOKIE}={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={_SESSION_TTL_SECONDS}",
+        )
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def _handle_logout(self) -> None:
+        token = self._session_token()
+        if token:
+            with _sessions_lock:
+                _sessions.pop(token, None)
+        self.send_response(302)
+        self.send_header("Location", "/login")
+        self.send_header("Set-Cookie", f"{_SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
     # ── plumbing ─────────────────────────────────────────────────────────────
 
     def _serve_file(self, path: Path, content_type: str) -> None:
@@ -144,6 +659,16 @@ class _DashboardHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _serve_text(self, text: str, download_filename: str) -> None:
+        data = text.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Disposition", f'attachment; filename="{download_filename}"')
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
+
     def _error(self, code: int, message: str) -> None:
         data = json.dumps({"error": message}).encode("utf-8")
         self.send_response(code)
@@ -158,11 +683,64 @@ def _guess_type(path: str) -> str:
     return ctype or "application/octet-stream"
 
 
+def _cluster_heartbeat_loop() -> None:
+    """Background thread for a slave node: on startup, join the configured
+    master (retrying — in Docker/k8s the master and slaves typically start at
+    the same time, so the master may not be reachable yet), then heartbeat
+    every 30s. This is what makes `SYNTHELION_ROLE=slave` +
+    `SYNTHELION_MASTER_URL=...` env vars (see the generated compose/k8s
+    templates) actually self-register, instead of just sitting there
+    configured-but-disconnected."""
+    import time as _time
+
+    from synthelion.cluster import ClusterJoinError, join_master, send_heartbeat
+    from synthelion.config import load_config, new_node_id, save_config
+
+    cfg = load_config()
+    if cfg["cluster"]["role"] != "slave" or not cfg["cluster"]["master_url"]:
+        return
+
+    if not cfg["cluster"]["node_id"]:
+        cfg["cluster"]["node_id"] = new_node_id()
+        save_config(cfg)
+
+    node_id = cfg["cluster"]["node_id"]
+    master_url = cfg["cluster"]["master_url"]
+    token = cfg["cluster"]["node_token"]
+    self_url = cfg["cluster"]["self_url"]
+
+    joined = False
+    delay = 3
+    while not joined:
+        try:
+            join_master(master_url, token, node_id, self_url)
+            joined = True
+            print(f"[cluster] joined master at {master_url} as '{node_id}'")
+        except ClusterJoinError as exc:
+            print(f"[cluster] could not join master yet ({exc}); retrying in {delay}s")
+            _time.sleep(delay)
+            delay = min(delay * 2, 60)
+
+    while True:
+        _time.sleep(30)
+        try:
+            stats = _DashboardHandler._cluster_self_status()
+            send_heartbeat(master_url, token, node_id, stats=stats)
+        except ClusterJoinError as exc:
+            print(f"[cluster] heartbeat failed: {exc}")
+
+
 def run_dashboard(host: str = "127.0.0.1", port: int = 8787) -> None:
     """Start the dashboard HTTP server and block until interrupted."""
+    dashboard_auth.ensure_default_credentials()
+    threading.Thread(target=_cluster_heartbeat_loop, daemon=True).start()
     server = ThreadingHTTPServer((host, port), _DashboardHandler)
     url = f"http://{host}:{port}/"
     print(f"Synthelion dashboard — {url}  (Ctrl+C to stop)")
+    if dashboard_auth.is_using_default_password():
+        print("Login page: default credentials admin / admin. Change with `synthelion dashboard-passwd`.")
+    else:
+        print(f"Login page — username: {dashboard_auth.current_username()}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
