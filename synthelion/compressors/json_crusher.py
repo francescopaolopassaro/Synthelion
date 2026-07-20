@@ -7,6 +7,8 @@ import json
 import math
 from collections import Counter
 
+from synthelion.ccr_store import get_instance as _ccr_instance
+
 MAX_ITEMS_DEFAULT = 15
 MAX_KEYS_MARKDOWN = 6
 MAX_ROWS_MARKDOWN = 50
@@ -81,6 +83,7 @@ class JsonCrusher:
             kept, dropped = _bm25_select(rows, query or "", self._max_items)
             dropped_text = json.dumps(dropped, ensure_ascii=False)
             ccr_hash = hashlib.sha256(dropped_text.encode()).hexdigest()[:12]
+            _ccr_instance().store(ccr_hash, dropped_text)
             compressed = json.dumps(kept, ensure_ascii=False, indent=None)
             compressed += f"\n<!-- CCR:{ccr_hash} {len(dropped)} rows dropped -->"
             return {

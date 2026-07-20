@@ -107,6 +107,23 @@ def main() -> None:
     p_conf.add_argument("--output", "-o", help="Config file path (default: ~/.synthelion/config.json)")
     p_conf.add_argument("--show", action="store_true", help="Print the effective config and exit (no changes written)")
 
+    # commit — generate commit message from a diff
+    p_commit = sub.add_parser("commit", help="Generate a conventional commit message from a git diff")
+    p_commit.add_argument("--diff", help="Diff text (or use stdin, e.g. `git diff | synthelion commit`)")
+    p_commit.add_argument("--json", action="store_true")
+
+    # review — generate PR review comments from a diff
+    p_review = sub.add_parser("review", help="Generate single-line review comments from a git diff")
+    p_review.add_argument("--diff", help="Diff text (or use stdin, e.g. `git diff | synthelion review`)")
+    p_review.add_argument("--json", action="store_true")
+
+    # wiki — generate AI-friendly project documentation
+    p_wiki = sub.add_parser("wiki", help="Generate AI-friendly, compressed project documentation")
+    p_wiki.add_argument("path", help="Project folder to scan")
+    p_wiki.add_argument("--output", "-o", help="Output file path (stdout if omitted)")
+    p_wiki.add_argument("--no-contents", action="store_true", help="Metadata/structure only, skip file contents")
+    p_wiki.add_argument("--max-file-size", type=int, default=100 * 1024, help="Max file size in bytes (default: 100KB)")
+
     args = parser.parse_args()
 
     if args.cmd == "compress":
@@ -139,6 +156,12 @@ def main() -> None:
         _cmd_export(args)
     elif args.cmd == "configure":
         _cmd_configure(args)
+    elif args.cmd == "commit":
+        _cmd_commit(args)
+    elif args.cmd == "review":
+        _cmd_review(args)
+    elif args.cmd == "wiki":
+        _cmd_wiki(args)
 
 
 def _read_input(args) -> str:
@@ -714,6 +737,57 @@ def _cmd_configure(args) -> None:
     print("\nSet SYNTHELION_CONFIG=<path> on every node to point them all at a shared "
           "config file (e.g. a mounted Kubernetes ConfigMap) if you'd rather not rely on "
           "each node writing its own ~/.synthelion/config.json.")
+
+
+def _read_diff_input(args) -> str:
+    if getattr(args, "diff", None):
+        return args.diff
+    if not sys.stdin.isatty():
+        return sys.stdin.read()
+    print("ERROR: provide --diff or pipe a diff via stdin, e.g. `git diff | synthelion commit`", file=sys.stderr)
+    raise SystemExit(1)
+
+
+def _cmd_commit(args) -> None:
+    from synthelion.devtools.commit_generator import CommitGenerator
+    diff = _read_diff_input(args)
+    s = CommitGenerator().generate_from_diff(diff)
+    if args.json:
+        print(json.dumps({"message": s.full_message, "type": s.type, "scope": s.scope, "subject": s.subject}))
+    else:
+        print(s.full_message)
+
+
+def _cmd_review(args) -> None:
+    from synthelion.devtools.review_service import ReviewService
+    diff = _read_diff_input(args)
+    r = ReviewService().review_diff(diff)
+    if args.json:
+        print(json.dumps({
+            "changed_files": r.changed_files, "additions": r.additions, "deletions": r.deletions,
+            "total_issues": r.total_issues,
+            "comments": [{"line": c.line, "severity": c.severity, "message": c.message} for c in r.comments],
+        }, ensure_ascii=False))
+        return
+    print(f"Reviewed diff: {r.changed_files} file(s), +{r.additions}/-{r.deletions}, {r.total_issues} issue(s)")
+    for c in r.comments:
+        print(f"  {c}")
+
+
+def _cmd_wiki(args) -> None:
+    from synthelion.devtools.wiki import ProjectWiki
+    wiki = ProjectWiki()
+    markdown = wiki.generate(
+        args.path,
+        max_file_size_bytes=args.max_file_size,
+        include_contents=not args.no_contents,
+    )
+    if args.output:
+        with open(args.output, "w", encoding="utf-8") as fh:
+            fh.write(markdown)
+        print(f"[OK] Wrote project wiki to {args.output}")
+    else:
+        print(markdown)
 
 
 if __name__ == "__main__":

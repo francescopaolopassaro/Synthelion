@@ -380,6 +380,160 @@ def get_tool_definitions() -> list[dict]:
                 },
             },
         },
+        # ── ported from Caveman C# 1.4.0 ──────────────────────────────────────
+        {
+            "type": "function",
+            "function": {
+                "name": "safety_check",
+                "description": (
+                    "Check whether a message contains security-critical or destructive-command "
+                    "patterns before compressing it. Returns Normal/Warning/Critical."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {"message": {"type": "string", "description": "Text to check."}},
+                    "required": ["message"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "analyze_waste",
+                "description": (
+                    "Detect token waste in content: HTML noise, base64 blobs, excessive "
+                    "whitespace, large inline JSON blocks. Read-only — does not modify content."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {"content": {"type": "string", "description": "Content to analyze."}},
+                    "required": ["content"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "check_cache_alignment",
+                "description": (
+                    "Scan a system prompt for volatile tokens (UUIDs, ISO-8601 timestamps, JWTs, "
+                    "hex hashes) that would invalidate the LLM provider's KV-cache prefix reuse."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {"system_prompt": {"type": "string", "description": "System prompt to scan."}},
+                    "required": ["system_prompt"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "shape_output",
+                "description": (
+                    "Append verbosity-steering instructions to a system prompt to reduce the "
+                    "model's OUTPUT tokens (skip ceremony/restatement/reasoning). Idempotent."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "system_prompt": {"type": "string", "description": "System prompt to shape."},
+                        "level": {
+                            "type": "string",
+                            "enum": ["off", "skip_ceremony", "no_restatement", "conclusions_only", "minimum_tokens"],
+                            "description": "Verbosity level. Default: no_restatement.",
+                        },
+                    },
+                    "required": ["system_prompt"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "focus_relevant",
+                "description": (
+                    "Query-focused context shaping: split text into blocks and keep only the "
+                    "top-K most relevant to a query (lexical overlap, embedding-free)."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "text": {"type": "string", "description": "Text to filter."},
+                        "query": {"type": "string", "description": "Query to score blocks against."},
+                        "top_k": {"type": "integer", "description": "Number of blocks to keep. Default: 3."},
+                    },
+                    "required": ["text", "query"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "estimate_cost",
+                "description": "Estimate the USD/EUR monetary value of a token count for a given model.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "tokens": {"type": "integer", "description": "Token count."},
+                        "model": {
+                            "type": "string",
+                            "enum": ["gpt4", "gpt3_5_turbo", "llama3", "gemma3", "claude3"],
+                            "description": "Model to price against. Default: gpt4.",
+                        },
+                    },
+                    "required": ["tokens"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "generate_commit_message",
+                "description": "Generate an ultra-compact conventional commit message from a git diff.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"diff": {"type": "string", "description": "Unified git diff text."}},
+                    "required": ["diff"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "review_diff",
+                "description": (
+                    "Generate single-line PR review comments from a git diff: flags likely bugs, "
+                    "security-sensitive lines, perf-relevant constructs, and TODOs."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {"diff": {"type": "string", "description": "Unified git diff text."}},
+                    "required": ["diff"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "generate_project_wiki",
+                "description": (
+                    "Recursively scan a project folder and produce AI-friendly, semantically "
+                    "compressed Markdown documentation (structure, dependencies, file contents)."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string", "description": "Project folder to scan."},
+                        "include_contents": {
+                            "type": "boolean",
+                            "description": "Include compressed file contents. Default: true.",
+                        },
+                    },
+                    "required": ["path"],
+                },
+            },
+        },
     ]
 
 
@@ -521,6 +675,33 @@ def execute_tool(name: str, arguments: dict) -> dict:
         days = arguments.get("days")
         records = ledger.records_since(int(days)) if days else ledger.all_records()
         return ledger.summary(records)
+
+    if name == "safety_check":
+        return _exec_safety_check(arguments)
+
+    if name == "analyze_waste":
+        return _exec_analyze_waste(arguments)
+
+    if name == "check_cache_alignment":
+        return _exec_check_cache_alignment(arguments)
+
+    if name == "shape_output":
+        return _exec_shape_output(arguments)
+
+    if name == "focus_relevant":
+        return _exec_focus_relevant(arguments)
+
+    if name == "estimate_cost":
+        return _exec_estimate_cost(arguments)
+
+    if name == "generate_commit_message":
+        return _exec_generate_commit_message(arguments)
+
+    if name == "review_diff":
+        return _exec_review_diff(arguments)
+
+    if name == "generate_project_wiki":
+        return _exec_generate_project_wiki(arguments)
 
     return {"error": f"Unknown tool: {name}"}
 
@@ -738,3 +919,107 @@ def _exec_deduplicate(arguments: dict) -> dict:
         "tokens_after": tokens_after,
         "synthelion_metrics": _fmt_metrics(tokens_before, tokens_after),
     }
+
+
+# ── ported from Caveman C# 1.4.0 ──────────────────────────────────────────────
+
+def _exec_safety_check(arguments: dict) -> dict:
+    from synthelion.safety_guard import SafetyGuard
+    verdict = SafetyGuard().check(arguments["message"])
+    return {"level": verdict.level.value, "reason": verdict.reason, "should_compress": verdict.should_compress}
+
+
+def _exec_analyze_waste(arguments: dict) -> dict:
+    from synthelion.waste_analyzer import WasteAnalyzer
+    a = WasteAnalyzer().analyze(arguments["content"])
+    return {
+        "html_noise_tokens": a.html_noise_tokens,
+        "base64_tokens": a.base64_tokens,
+        "whitespace_tokens": a.whitespace_tokens,
+        "json_bloat_tokens": a.json_bloat_tokens,
+        "total_waste_tokens": a.total_waste_tokens,
+    }
+
+
+def _exec_check_cache_alignment(arguments: dict) -> dict:
+    from synthelion.cache_aligner import CacheAligner
+    findings = CacheAligner().scan(arguments["system_prompt"])
+    return {
+        "has_volatile_tokens": len(findings) > 0,
+        "findings": [{"label": f.label, "sample": f.sample} for f in findings],
+    }
+
+
+_VERBOSITY_MAP = None
+
+
+def _exec_shape_output(arguments: dict) -> dict:
+    global _VERBOSITY_MAP
+    from synthelion.models import VerbosityLevel
+    from synthelion.output_shaper import OutputShaper
+    if _VERBOSITY_MAP is None:
+        _VERBOSITY_MAP = {
+            "off": VerbosityLevel.OFF,
+            "skip_ceremony": VerbosityLevel.SKIP_CEREMONY,
+            "no_restatement": VerbosityLevel.NO_RESTATEMENT,
+            "conclusions_only": VerbosityLevel.CONCLUSIONS_ONLY,
+            "minimum_tokens": VerbosityLevel.MINIMUM_TOKENS,
+        }
+    level = _VERBOSITY_MAP.get((arguments.get("level") or "no_restatement").lower(), VerbosityLevel.NO_RESTATEMENT)
+    shaped = OutputShaper().shape_system_prompt(arguments["system_prompt"], level)
+    return {"system_prompt": shaped}
+
+
+def _exec_focus_relevant(arguments: dict) -> dict:
+    from synthelion.relevance_filter import RelevanceFilter
+    top_k = int(arguments.get("top_k") or 3)
+    focused = RelevanceFilter().focus(arguments["text"], arguments["query"], top_k)
+    return {"focused": focused}
+
+
+_LLM_MODEL_MAP = None
+
+
+def _exec_estimate_cost(arguments: dict) -> dict:
+    global _LLM_MODEL_MAP
+    from synthelion.cost_estimator import default_usd_per_1k_tokens, eur, usd
+    from synthelion.tokenizer import LlmModel
+    if _LLM_MODEL_MAP is None:
+        _LLM_MODEL_MAP = {
+            "gpt4": LlmModel.GPT4, "gpt3_5_turbo": LlmModel.GPT3_5_TURBO,
+            "llama3": LlmModel.LLAMA3, "gemma3": LlmModel.GEMMA3, "claude3": LlmModel.CLAUDE3,
+        }
+    model = _LLM_MODEL_MAP.get((arguments.get("model") or "gpt4").lower(), LlmModel.GPT4)
+    tokens = int(arguments["tokens"])
+    price = default_usd_per_1k_tokens(model)
+    return {"usd": round(usd(tokens, price), 6), "eur": round(eur(tokens, price), 6), "usd_per_1k_tokens": price}
+
+
+def _exec_generate_commit_message(arguments: dict) -> dict:
+    from synthelion.devtools.commit_generator import CommitGenerator
+    s = CommitGenerator().generate_from_diff(arguments["diff"])
+    return {"message": s.full_message, "type": s.type, "scope": s.scope, "subject": s.subject}
+
+
+def _exec_review_diff(arguments: dict) -> dict:
+    from synthelion.devtools.review_service import ReviewService
+    r = ReviewService().review_diff(arguments["diff"])
+    return {
+        "changed_files": r.changed_files,
+        "additions": r.additions,
+        "deletions": r.deletions,
+        "total_issues": r.total_issues,
+        "comments": [
+            {"line": c.line, "severity": c.severity, "message": c.message} for c in r.comments
+        ],
+    }
+
+
+def _exec_generate_project_wiki(arguments: dict) -> dict:
+    from synthelion.devtools.wiki import ProjectWiki
+    include_contents = arguments.get("include_contents", True)
+    try:
+        markdown = ProjectWiki().generate(arguments["path"], include_contents=include_contents)
+    except NotADirectoryError as exc:
+        return {"error": str(exc)}
+    return {"markdown": markdown}

@@ -18,6 +18,15 @@ from synthelion.detector import LanguageDetector
 from synthelion.core import CompressionFilter, CompressionService
 from synthelion.content_detector import ContentDetector
 from synthelion.content_router import ContentRouter
+from synthelion.cache_aligner import CacheAligner, VolatileFinding
+from synthelion.safety_guard import SafetyGuard, SafetyLevel, SafetyVerdict
+from synthelion.waste_analyzer import WasteAnalyzer, WasteAnalysis
+from synthelion.relevance_filter import RelevanceFilter, RelevanceHit
+from synthelion.shared_context import SharedContext, SharedContextEntry
+from synthelion.output_shaper import OutputShaper
+from synthelion.ccr_store import CcrStore
+from synthelion.cost_estimator import default_usd_per_1k_tokens, usd, eur
+from synthelion.tokenizer import ModelTokenizer, LlmModel
 
 __version__ = "1.2.0"
 __author__ = "Passaro Francesco Paolo"
@@ -50,4 +59,22 @@ __all__ = [
     "ContentDetector",
     "ContentRouter",
     "count_tokens",
+    "CacheAligner",
+    "VolatileFinding",
+    "SafetyGuard",
+    "SafetyLevel",
+    "SafetyVerdict",
+    "WasteAnalyzer",
+    "WasteAnalysis",
+    "RelevanceFilter",
+    "RelevanceHit",
+    "SharedContext",
+    "SharedContextEntry",
+    "OutputShaper",
+    "CcrStore",
+    "default_usd_per_1k_tokens",
+    "usd",
+    "eur",
+    "ModelTokenizer",
+    "LlmModel",
 ]
