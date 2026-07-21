@@ -1136,6 +1136,163 @@ class TestOpenAIAdapter:
 
 
 # ---------------------------------------------------------------------------
+# 23b. CrewAIAdapter (mocked crewai)
+# ---------------------------------------------------------------------------
+class TestCrewAIAdapter:
+
+    @pytest.fixture()
+    def mock_crewai(self):
+        mock_output = MagicMock()
+        mock_output.raw = "Mocked CrewAI response"
+        mock_crew = MagicMock()
+        mock_crew.kickoff.return_value = mock_output
+        mock_mod = MagicMock()
+        mock_mod.Crew.return_value = mock_crew
+        return mock_mod, mock_crew
+
+    @pytest.fixture(autouse=True)
+    def _isolated(self, tmp_path):
+        from synthelion.analytics import session_db as sdb_mod, ledger as led_mod
+        from synthelion.analytics.session_db import SessionDB
+        from synthelion.analytics.ledger import SavingsLedger
+        orig_db = sdb_mod._db
+        orig_led = led_mod._ledger
+        with patch.dict("sys.modules", {"chromadb": None}):
+            sdb_mod._db = SessionDB(directory=tmp_path)
+        led_mod._ledger = SavingsLedger(directory=tmp_path)
+        yield
+        sdb_mod._db = orig_db
+        led_mod._ledger = orig_led
+
+    def test_chat_returns_response(self, mock_crewai):
+        mock_mod, _ = mock_crewai
+        with patch.dict("sys.modules", {"crewai": mock_mod}):
+            from synthelion.integrations.crewai_adapter import CrewAIAdapter
+            adapter = CrewAIAdapter(model="gpt-4o")
+            r = adapter.chat("What is JWT?")
+        assert r.content == "Mocked CrewAI response"
+        assert r.tokens_saved >= 0
+
+    def test_chat_with_system_prompt(self, mock_crewai):
+        mock_mod, _ = mock_crewai
+        with patch.dict("sys.modules", {"crewai": mock_mod}):
+            from synthelion.integrations.crewai_adapter import CrewAIAdapter
+            adapter = CrewAIAdapter()
+            r = adapter.chat("Hello", system="You are a helpful assistant.")
+        assert r.content
+
+    def test_chat_with_recall_context(self, mock_crewai):
+        mock_mod, _ = mock_crewai
+        with patch.dict("sys.modules", {"crewai": mock_mod}):
+            from synthelion.integrations.crewai_adapter import CrewAIAdapter
+            adapter = CrewAIAdapter()
+            adapter.store("JWT used for authentication")
+            r = adapter.chat("Explain auth", inject_recall=True)
+        assert isinstance(r.recalled_context, list)
+
+    def test_chat_no_inject_recall(self, mock_crewai):
+        mock_mod, _ = mock_crewai
+        with patch.dict("sys.modules", {"crewai": mock_mod}):
+            from synthelion.integrations.crewai_adapter import CrewAIAdapter
+            adapter = CrewAIAdapter()
+            r = adapter.chat("Hello", inject_recall=False)
+        assert r.content
+
+    def test_store_and_recall(self, mock_crewai):
+        mock_mod, _ = mock_crewai
+        with patch.dict("sys.modules", {"crewai": mock_mod}):
+            from synthelion.integrations.crewai_adapter import CrewAIAdapter
+            adapter = CrewAIAdapter()
+            adapter.store("Use Redis for caching")
+            hits = adapter.recall("Redis")
+        assert isinstance(hits, list)
+
+    def test_status(self, mock_crewai):
+        mock_mod, _ = mock_crewai
+        with patch.dict("sys.modules", {"crewai": mock_mod}):
+            from synthelion.integrations.crewai_adapter import CrewAIAdapter
+            adapter = CrewAIAdapter()
+            s = adapter.status()
+        assert "total_calls" in s
+
+    def test_reset(self, mock_crewai):
+        mock_mod, _ = mock_crewai
+        with patch.dict("sys.modules", {"crewai": mock_mod}):
+            from synthelion.integrations.crewai_adapter import CrewAIAdapter
+            adapter = CrewAIAdapter()
+            adapter.chat("Hello")
+            adapter.reset()
+        assert True  # must not raise
+
+    def test_import_error_without_crewai(self):
+        with patch.dict("sys.modules", {"crewai": None}):
+            with pytest.raises(ImportError, match="crewai"):
+                from synthelion.integrations.crewai_adapter import CrewAIAdapter
+                CrewAIAdapter()
+
+    def test_chat_empty_output(self, mock_crewai):
+        mock_mod, mock_crew = mock_crewai
+        mock_output = MagicMock()
+        mock_output.raw = ""
+        mock_crew.kickoff.return_value = mock_output
+        with patch.dict("sys.modules", {"crewai": mock_mod}):
+            from synthelion.integrations.crewai_adapter import CrewAIAdapter
+            adapter = CrewAIAdapter()
+            r = adapter.chat("Hello")
+        assert r.content == ""
+
+
+# ---------------------------------------------------------------------------
+# 23c. CrewAI tools (real crewai required — BaseTool cannot be mocked)
+# ---------------------------------------------------------------------------
+try:
+    from synthelion.integrations.crewai_adapter import get_tools as _crewai_get_tools
+    import crewai as _crewai_mod  # noqa: F401 — ensure real package present
+    HAS_CREWAI = True
+except ImportError:
+    HAS_CREWAI = False
+
+
+@pytest.mark.skipif(not HAS_CREWAI, reason="crewai not installed")
+class TestCrewAITools:
+
+    @pytest.fixture(autouse=True)
+    def _isolated(self, tmp_path):
+        from synthelion.analytics import session_db as sdb_mod, ledger as led_mod
+        from synthelion.analytics.session_db import SessionDB
+        from synthelion.analytics.ledger import SavingsLedger
+        orig_db = sdb_mod._db
+        orig_led = led_mod._ledger
+        with patch.dict("sys.modules", {"chromadb": None}):
+            sdb_mod._db = SessionDB(directory=tmp_path)
+        led_mod._ledger = SavingsLedger(directory=tmp_path)
+        yield
+        sdb_mod._db = orig_db
+        led_mod._ledger = orig_led
+
+    def test_get_tools_returns_list(self):
+        tools = _crewai_get_tools()
+        assert len(tools) >= 5
+        names = {t.name for t in tools}
+        assert "synthelion_compress" in names
+
+    def test_compress_tool_runs(self):
+        tools = {t.name: t for t in _crewai_get_tools()}
+        result = tools["synthelion_compress"].run(
+            {"text": "I would like to know if it is possible to receive information."}
+        )
+        assert "Compressed:" in result
+
+    def test_route_content_tool_runs(self):
+        tools = {t.name: t for t in _crewai_get_tools()}
+        result = tools["synthelion_route_content"].run(
+            {"content": "Rome is a beautiful city with a very long and ancient history."}
+        )
+        assert isinstance(result, str)
+        assert "Strategy:" in result
+
+
+# ---------------------------------------------------------------------------
 # 24. LangChain new tools (session / status / SynthelionMemory)
 # ---------------------------------------------------------------------------
 try:

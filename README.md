@@ -639,6 +639,39 @@ chain.predict(input="What are the best restaurants there?")
 
 ---
 
+### CrewAI — auto-compression for agents and crews
+
+```bash
+pip install "synthelion[crewai]"
+```
+
+```python
+from synthelion.integrations.crewai_adapter import CrewAIAdapter
+
+# Mirrors ClaudeAdapter/OpenAIAdapter — compresses every message, recalls past
+# decisions, and runs a one-shot CrewAI agent + task under the hood.
+adapter = CrewAIAdapter(model="gpt-4o")
+reply = adapter.chat("Explain how the Renaissance shaped modern science in detail...")
+print(reply.content)          # crew answer
+print(reply.tokens_saved)     # tokens saved on the compressed prompt
+```
+
+Or give your own agents Synthelion as native CrewAI tools:
+
+```python
+from crewai import Agent
+from synthelion.integrations.crewai_adapter import get_tools
+
+agent = Agent(
+    role="Researcher",
+    goal="Summarize long documents without wasting tokens",
+    backstory="Uses Synthelion to compress context on the fly.",
+    tools=get_tools(),   # compress, route_content, session_record, deduplicate, ...
+)
+```
+
+---
+
 ### Claude & OpenAI Adapters — auto-compression with one import
 
 ```bash
@@ -1403,6 +1436,7 @@ pip install "synthelion[chromadb]"
 | `synthelion[langchain]` | `langchain-core` | `get_tools()`, `SynthelionMemory` |
 | `synthelion[openai]` | `openai` | `OpenAIAdapter` |
 | `synthelion[claude]` | `anthropic` | `ClaudeAdapter` |
+| `synthelion[crewai]` | `crewai` | `CrewAIAdapter`, `get_tools()` |
 | `synthelion[chromadb]` | `chromadb` | Vector session recall in `session_record` / `session_recall` |
 | `synthelion[all]` | everything above | Full stack |
 
