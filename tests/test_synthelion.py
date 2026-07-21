@@ -936,6 +936,61 @@ class TestRewriteCommandTool:
         assert "rewrite_command" in _READ_ONLY_TOOLS
 
 
+class TestResponseStyleGuidanceTool:
+    def test_tool_in_definitions(self):
+        names = {t["function"]["name"] for t in get_tool_definitions()}
+        assert "get_response_style_guidance" in names
+
+    def test_execute_default_level(self):
+        r = execute_tool("get_response_style_guidance", {})
+        assert "guidance" in r
+        assert "no opening pleasantries" in r["guidance"]
+
+    def test_execute_with_level_and_language(self):
+        r = execute_tool("get_response_style_guidance", {"level": "ultra", "language": "zho"})
+        assert "CJK" in r["guidance"]
+        assert "shorter synonym" in r["guidance"]
+
+    def test_marked_read_only(self):
+        from synthelion.plugins.mcp_server import _READ_ONLY_TOOLS
+        assert "get_response_style_guidance" in _READ_ONLY_TOOLS
+
+
+class TestReadLifecycleTools:
+    def test_tools_in_definitions(self):
+        names = {t["function"]["name"] for t in get_tool_definitions()}
+        assert {"track_file_read", "track_file_write", "check_read_maturity"}.issubset(names)
+
+    def test_track_file_read_first_call_fresh(self):
+        session = "test-read-lifecycle-1"
+        r = execute_tool("track_file_read", {"path": "a.py", "turn": 1, "session_id": session})
+        assert r == {"status": "fresh", "read_count": 1}
+
+    def test_track_file_write_then_read_stale(self):
+        session = "test-read-lifecycle-2"
+        execute_tool("track_file_read", {"path": "a.py", "turn": 1, "session_id": session})
+        execute_tool("track_file_write", {"path": "a.py", "turn": 2, "session_id": session})
+        r = execute_tool("check_read_maturity", {"path": "a.py", "turn": 2, "session_id": session})
+        assert r["status"] == "stale"
+
+    def test_check_read_maturity_waits_for_quiescence(self):
+        session = "test-read-lifecycle-3"
+        execute_tool("track_file_read", {"path": "a.py", "turn": 1, "session_id": session})
+        execute_tool("track_file_write", {"path": "a.py", "turn": 2, "session_id": session})
+        soon = execute_tool("check_read_maturity", {"path": "a.py", "turn": 2, "session_id": session})
+        assert soon["should_mature"] is False
+        assert soon["marker"] is None
+
+    def test_track_file_read_write_not_read_only(self):
+        from synthelion.plugins.mcp_server import _READ_ONLY_TOOLS
+        assert "track_file_read" not in _READ_ONLY_TOOLS
+        assert "track_file_write" not in _READ_ONLY_TOOLS
+
+    def test_check_read_maturity_marked_read_only(self):
+        from synthelion.plugins.mcp_server import _READ_ONLY_TOOLS
+        assert "check_read_maturity" in _READ_ONLY_TOOLS
+
+
 class TestDiffToolOutputTool:
     def test_tool_in_definitions(self):
         names = {t["function"]["name"] for t in get_tool_definitions()}
