@@ -4,6 +4,27 @@ All notable changes to Synthelion are documented here.
 
 ---
 
+## [Unreleased]
+
+### Added — CrewAI integration
+- **`synthelion.integrations.crewai_adapter.CrewAIAdapter`** — a CrewAI helper
+  mirroring `ClaudeAdapter`/`OpenAIAdapter` (`chat`/`store`/`recall`/`status`/
+  `reset`). Each `chat()` call compresses the outgoing message through the
+  `ContentRouter`, injects recalled decisions from the session DB, and runs a
+  one-shot CrewAI Agent + Task + Crew (`crew.kickoff()`), returning a
+  `CrewAIResponse` with `content`/`tokens_saved`/`savings_pct`. Delegates all
+  memory to the shared `RagAgent`, so savings land in the same ledger as every
+  other integration.
+- **`synthelion.integrations.crewai_adapter.get_tools()`** — CrewAI-native
+  `crewai.tools.BaseTool` wrappers (compress, detect_language, route_content,
+  summarize, session_record, session_recall, status, compress_for_context,
+  deduplicate, compress_file) so a CrewAI agent/crew can compress messages or
+  tool output on the fly, mirroring the LangChain tool wrappers.
+- New optional extra **`synthelion[crewai]`** (adds `crewai>=1.15,<2`), also
+  folded into `synthelion[all]`.
+
+---
+
 ## [1.2.2] — 2026-07-21
 
 A comparative audit against several other prompt/context-compression projects
