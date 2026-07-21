@@ -42,14 +42,15 @@ Repository = "https://github.com/francescopaolopassaro/synthelion"
 openai = ["openai>=1.0"]
 langchain = ["langchain-core>=0.1"]
 claude = ["anthropic>=0.25"]
+crewai = ["crewai>=1.15,<2"]
 chromadb = ["chromadb>=0.4"]
 qdrant = ["qdrant-client>=1.9"]
 redis = ["redis>=5.0"]
 postgres = ["psycopg[binary]>=3.1"]
 cluster = ["redis>=5.0", "psycopg[binary]>=3.1", "qdrant-client>=1.9"]
 all = [
-    "openai>=1.0", "langchain-core>=0.1", "anthropic>=0.25", "chromadb>=0.4",
-    "qdrant-client>=1.9", "redis>=5.0", "psycopg[binary]>=3.1",
+    "openai>=1.0", "langchain-core>=0.1", "anthropic>=0.25", "crewai>=1.15,<2",
+    "chromadb>=0.4", "qdrant-client>=1.9", "redis>=5.0", "psycopg[binary]>=3.1",
 ]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
 

@@ -42,6 +42,9 @@ test classes (e.g. `TestDiffCompressor`) as a template.
 
 ## 2. Add support for CrewAI agent integration
 
+**Status:** Done — shipped as `synthelion/integrations/crewai_adapter.py`
+(`CrewAIAdapter` + `get_tools()`).
+
 **Labels:** `help wanted`, `integration`
 
 Synthelion already ships integrations for LangChain (`synthelion/plugins/langchain_tools.py`),
