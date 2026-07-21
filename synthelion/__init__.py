@@ -21,6 +21,8 @@ from synthelion.content_router import ContentRouter
 from synthelion.cache_aligner import CacheAligner, VolatileFinding
 from synthelion.safety_guard import SafetyGuard, SafetyLevel, SafetyVerdict
 from synthelion.sensitive_guard import find_sensitive
+from synthelion.terminal_noise import strip_ansi_noise
+from synthelion.success_collapse import collapse as collapse_success, is_known_low_signal
 from synthelion.waste_analyzer import WasteAnalyzer, WasteAnalysis
 from synthelion.relevance_filter import RelevanceFilter, RelevanceHit
 from synthelion.shared_context import SharedContext, SharedContextEntry
@@ -67,6 +69,9 @@ __all__ = [
     "SafetyLevel",
     "SafetyVerdict",
     "find_sensitive",
+    "strip_ansi_noise",
+    "collapse_success",
+    "is_known_low_signal",
     "WasteAnalyzer",
     "WasteAnalysis",
     "RelevanceFilter",

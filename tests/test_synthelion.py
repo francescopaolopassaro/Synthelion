@@ -398,6 +398,49 @@ class TestContentRouter:
         assert r.tokens_after == r.tokens_before
         assert "no-gain" in r.strategy_used
 
+    # ── terminal noise stripping ──────────────────────────────────────────────
+
+    def test_route_strips_ansi_before_log_compression(self):
+        router = ContentRouter.from_profile(CompressionProfile.BALANCED)
+        noisy_log = (
+            "\x1b[31mERROR\x1b[0m something failed at line 1\n"
+            "\x1b[31mERROR\x1b[0m something failed at line 1\n"
+            "  at Object.<anonymous> (/app/index.js:10:5)\n"
+            "  at Object.<anonymous> (/app/index.js:10:5)\n"
+        )
+        r = router.route(noisy_log)
+        assert "\x1b" not in r.compressed
+        assert r.tokens_before > r.tokens_after
+
+    # ── success collapse ──────────────────────────────────────────────────────
+
+    def test_route_success_collapse_for_known_command(self):
+        router = ContentRouter.from_profile(CompressionProfile.BALANCED)
+        output = "npm WARN deprecated foo@1.0.0\n" + "added 42 packages in 3s\n" * 1 + \
+            "2 vulnerabilities (1 moderate, 1 high)\n" + ("noise line\n" * 50)
+        r = router.route(output, command="npm install", exit_code=0)
+        assert r.strategy_used == "SuccessCollapse"
+        assert "added 42 packages in 3s" in r.compressed
+        assert len(r.compressed) < len(output)
+
+    def test_route_success_collapse_not_triggered_on_failure_exit_code(self):
+        router = ContentRouter.from_profile(CompressionProfile.BALANCED)
+        output = "added 42 packages in 3s\n"
+        r = router.route(output, command="npm install", exit_code=1)
+        assert r.strategy_used != "SuccessCollapse"
+
+    def test_route_success_collapse_not_triggered_for_unknown_command(self):
+        router = ContentRouter.from_profile(CompressionProfile.BALANCED)
+        output = "added 42 packages in 3s\n"
+        r = router.route(output, command="python manage.py migrate", exit_code=0)
+        assert r.strategy_used != "SuccessCollapse"
+
+    def test_route_without_command_args_is_unaffected(self):
+        """Backwards compatibility: omitting command/exit_code behaves exactly as before."""
+        router = ContentRouter.from_profile(CompressionProfile.BALANCED)
+        r = router.route("I would like to know if it is possible to receive information.")
+        assert r.strategy_used == "NlpCompression"
+
 
 # ---------------------------------------------------------------------------
 # 6. Summarizers

@@ -671,6 +671,16 @@ class TestNewMcpTools:
         r = execute_tool("route_content", {"content": "I would like to know if it is possible."})
         assert "synthelion_metrics" in r
 
+    def test_route_content_success_collapse_via_command_and_exit_code(self):
+        from synthelion.plugins.openai_tools import execute_tool
+        r = execute_tool("route_content", {
+            "content": "added 42 packages in 3s\n2 vulnerabilities (1 moderate, 1 high)\n" + "noise\n" * 30,
+            "command": "npm install",
+            "exit_code": 0,
+        })
+        assert r["strategy_used"] == "SuccessCollapse"
+        assert "added 42 packages in 3s" in r["compressed"]
+
     def test_summarize_returns_metrics(self):
         from synthelion.plugins.openai_tools import execute_tool
         text = "Rome is the capital of Italy. It is very old. Many tourists visit."

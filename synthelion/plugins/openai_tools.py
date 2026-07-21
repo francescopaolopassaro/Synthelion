@@ -111,6 +111,19 @@ def get_tool_definitions() -> list[dict]:
                             "type": "string",
                             "description": "Optional relevance query for JSON BM25 row selection.",
                         },
+                        "command": {
+                            "type": "string",
+                            "description": (
+                                "Optional: the shell command that produced this content (e.g. "
+                                "'npm install'). Combined with exit_code=0, known low-signal "
+                                "commands (git push, npm install, docker build, terraform apply, "
+                                "etc.) get collapsed to 1-3 salient facts instead of full compression."
+                            ),
+                        },
+                        "exit_code": {
+                            "type": "integer",
+                            "description": "Optional: exit code of `command`. Only 0 enables success collapse.",
+                        },
                     },
                     "required": ["content"],
                 },
@@ -654,7 +667,10 @@ def execute_tool(name: str, arguments: dict) -> dict:
         }
         profile = profile_map.get((arguments.get("profile") or "balanced").lower(), CompressionProfile.BALANCED)
         router = ContentRouter.from_profile(profile)
-        r = router.route(arguments["content"], arguments.get("query"))
+        r = router.route(
+            arguments["content"], arguments.get("query"),
+            command=arguments.get("command"), exit_code=arguments.get("exit_code"),
+        )
         _record_ledger("route_content", r.tokens_before, r.tokens_after, r.detected_type.value)
         return {
             "compressed": r.compressed,
