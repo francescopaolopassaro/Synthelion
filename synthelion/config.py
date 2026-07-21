@@ -71,6 +71,39 @@ _DEFAULT_CONFIG: dict[str, Any] = {
         # company support email that's fine to see in plaintext logs).
         "whitelist": [],
     },
+    "waf": {
+        # Master switch — set to False to disable request inspection entirely.
+        "enabled": True,
+        # False (default) = detect-only: log matches but never block. Matches the
+        # safe default of the original Caveman.Digitalsolutions WAF this was
+        # ported from — flipping this on is an explicit, informed opt-in.
+        "block_mode": False,
+        "rule_sql_injection": True,
+        "rule_xss": True,
+        "rule_path_traversal": True,
+        "rule_command_injection": True,
+        "rule_bad_user_agent": True,
+        "rule_scanner_probe": True,
+        # Inspect small JSON POST bodies too (off by default — most false
+        # positives come from legitimate JSON payloads containing SQL-ish or
+        # script-ish substrings, e.g. a saved decision note).
+        "inspect_body": False,
+        # Requests from an already-authenticated dashboard session skip content
+        # inspection (trusted operator, avoids false positives on the editor).
+        "skip_authenticated": True,
+        "auto_ban_enabled": True,
+        "auto_ban_threshold": 8,
+        "auto_ban_window_minutes": 10,
+        "auto_ban_duration_minutes": 120,
+        "rate_limit_enabled": True,
+        "rate_limit_requests_per_minute": 120,
+        "rate_limit_ban_minutes": 15,
+        "block_status_code": 403,
+        "block_message": "Request blocked by Synthelion firewall.",
+        "log_retention_days": 30,
+        # Path prefixes exempt from inspection (one per line in the UI).
+        "excluded_paths": [],
+    },
     "cluster": {
         # "standalone" (default) | "master" | "slave"
         "role": "standalone",
@@ -215,6 +248,16 @@ def privacy_config(config: dict[str, Any] | None = None) -> dict[str, Any]:
     cfg = config if config is not None else load_config()
     defaults = _DEFAULT_CONFIG["privacy"]
     return {**defaults, **cfg.get("privacy", {})}
+
+
+def waf_config(config: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The effective `waf.*` settings (request inspection, IP allow/block,
+    auto-ban, rate limiting) — see `_DEFAULT_CONFIG["waf"]` for defaults.
+    `waf.enabled = False` disables the whole gate; `waf.block_mode = False`
+    (the default) still inspects and logs but never actually blocks."""
+    cfg = config if config is not None else load_config()
+    defaults = _DEFAULT_CONFIG["waf"]
+    return {**defaults, **cfg.get("waf", {})}
 
 
 def new_node_id() -> str:

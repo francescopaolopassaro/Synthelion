@@ -106,6 +106,9 @@ class _DashboardHandler(BaseHTTPRequestHandler):
         path = parsed.path
         qs = parse_qs(parsed.query)
 
+        if not self._waf_gate(path, parsed.query, ""):
+            return
+
         if path == "/login":
             self._serve_file(_ASSETS_DIR / "login.html", "text/html; charset=utf-8")
             return
@@ -338,6 +341,47 @@ class _DashboardHandler(BaseHTTPRequestHandler):
                 "is_clean": injection.is_clean,
             },
         }
+
+    @staticmethod
+    def _waf_events(qs: dict) -> dict:
+        from synthelion.waf_guard import get_waf_engine
+
+        limit = int(qs.get("limit", [200])[0])
+        since_days = qs.get("since_days", [None])[0]
+        events = get_waf_engine().all_events(limit=limit, since_days=float(since_days) if since_days else None)
+        return {"events": events}
+
+    @staticmethod
+    def _waf_ip_rules() -> dict:
+        from synthelion.waf_guard import get_waf_engine
+
+        rules = get_waf_engine().list_ip_rules()
+        return {"rules": [r.to_dict() for r in rules]}
+
+    def _waf_add_ip_rule(self) -> dict:
+        from synthelion.waf_guard import get_waf_engine
+
+        data = self._read_json_body()
+        ip = (data.get("ip") or "").strip()
+        kind = data.get("kind") or "Block"
+        if not ip:
+            raise ValueError("ip is required")
+        if kind not in ("Block", "Allow"):
+            raise ValueError("kind must be Block or Allow")
+        minutes = data.get("minutes")
+        get_waf_engine().add_ip_rule(ip, kind, reason=data.get("reason") or "Manual", minutes=minutes)
+        return {"status": "added", "ip": ip, "kind": kind}
+
+    def _waf_delete_ip_rule(self) -> dict:
+        from synthelion.waf_guard import get_waf_engine
+
+        data = self._read_json_body()
+        ip = (data.get("ip") or "").strip()
+        kind = data.get("kind") or "Block"
+        if not ip:
+            raise ValueError("ip is required")
+        get_waf_engine().delete_ip_rule(ip, kind)
+        return {"status": "deleted", "ip": ip, "kind": kind}
 
     @staticmethod
     def _storage_status() -> dict:
