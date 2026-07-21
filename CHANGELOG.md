@@ -4,6 +4,130 @@ All notable changes to Synthelion are documented here.
 
 ---
 
+## [1.2.2] — 2026-07-21
+
+A comparative audit against several other prompt/context-compression projects
+surfaced techniques Synthelion didn't have yet. Everything below was
+reimplemented from scratch in Python, consistent with Synthelion's existing
+zero-ML-models, zero-network-call design — nothing here pulls in an embedding
+model or an external service. **7 new MCP tools, 33 total.**
+
+### Added — credential-shape detection before persisting to disk
+- **`synthelion.sensitive_guard.find_sensitive(text)`** — regex-based detector
+  for AWS access keys, GitHub/Slack tokens, PEM private-key blocks, Bearer
+  auth headers, and bulk `.env`-style secret dumps (3+ `KEY=value` lines whose
+  key mentions SECRET/TOKEN/PASSWORD/APIKEY). `SessionDB.record_decision()`
+  now scans `text` before it reaches any backend (ChromaDB/Qdrant/lexical
+  JSONL) and replaces a match with a redaction placeholder instead of
+  persisting it verbatim — the only path in Synthelion that writes arbitrary
+  agent-supplied text to disk indefinitely. New MCP tool
+  **`check_sensitive_content`**.
+
+### Added — terminal noise cleanup and low-signal command collapsing
+- **`synthelion.terminal_noise.strip_ansi_noise(text)`** — strips ANSI escape
+  codes, isolated braille-spinner-frame lines (npm/yarn/vite/cargo style),
+  Unicode/ASCII progress-bar lines, and collapses `\r`-driven in-place
+  terminal overwrites to what a real terminal would actually be showing.
+  Runs in `ContentRouter` before content-type detection, so detection itself
+  isn't thrown off by escape sequences.
+- **`synthelion.success_collapse`** — for a small registry of known low-signal
+  commands (`git push`/`pull`, `npm install`/`ci`, `yarn install`,
+  `pip install`, `docker build`/`push`, `terraform apply`/`plan`) that
+  completed with exit code 0, collapses the (often long) output to 1-3
+  salient facts ("added 42 packages in 3s, 2 vulnerabilities") instead of
+  routing it through generic compression. Returns `None` when nothing
+  recognizable is found — never fabricates a summary. `ContentRouter.route()`
+  gained optional `command`/`exit_code` parameters (default `None`, fully
+  backward-compatible) to opt in.
+
+### Added — tool-list relevance pruning
+- **`filter_relevant_tools(query, top_k=10)`** — scores each tool's
+  name+description against a task/query using the existing lexical
+  `RelevanceFilter` (no new ranking algorithm) and keeps only the `top_k` most
+  relevant, in stable original order. For orchestrators that build their own
+  per-turn `tools=[...]` array for an LLM — this MCP server's own `tools/list`
+  has no per-turn query in the protocol, so this is exposed as a library
+  function plus a standalone tool an agent can call explicitly. New MCP tool
+  **`list_relevant_tools`**.
+
+### Added — masking of old tool output, with an Artifact Index
+- **`synthelion.output_mask`** — `mask_old_outputs(outputs, keep_last=3)`
+  replaces all but the most recent tool-call outputs in a chronological list
+  with a short placeholder, storing the original verbatim in a hash-keyed,
+  TTL'd store (`OutputMaskStore`) for later exact recall — unlike
+  `SharedContext`, never rewrites/compresses the content, only decides
+  whether a caller sees it or a stand-in. The store also keeps a lightweight
+  **Artifact Index**: a catalog of everything masked so far, grouped by tool,
+  rendered as a text block meant to be re-injected into context so the model
+  knows what was hidden and can ask for it back by hash — returned
+  automatically alongside `mask_old_tool_output`'s response, and available
+  on demand. New MCP tools **`mask_old_tool_output`**,
+  **`expand_masked_output`**, **`get_artifact_index`**.
+
+### Added — diff-on-repeat for identical tool calls
+- **`synthelion.repeat_diff.RepeatOutputDiffer`** — when the same tool is
+  called again with identical arguments (the same fingerprint `LoopGuard`
+  already computes to decide whether to block a retry loop), returns a
+  unified diff against the previous call's output instead of the full text
+  again — but only when the diff is actually shorter; a separate module from
+  `LoopGuard` itself (that one decides *whether* to block, this one decides
+  *how* to render a repeat), reusing its fingerprint function so both agree
+  on what counts as "the same call". New MCP tool **`diff_tool_output`**.
+
+### Added — chain-depth collapsing for single JSON objects
+- `JsonCrusher` used to be a complete no-op on a single JSON object (only
+  arrays got structural compression) — a nested config object fell all the
+  way through to generic NLP compression. Now collapses chains of
+  single-key nested objects into dot-path lines (`{"a":{"b":{"c":"x"}}}` →
+  `a.b.c: x`), with a guard that leaves anything shaped like a real
+  JSON-Schema object (`type`/`enum`/`minimum`/`maximum`/`pattern` alongside
+  `properties`, at any level) untouched. `ContentRouter` now has a
+  `ContentType.JSON_OBJECT` branch that tries this before falling back to
+  NLP compression.
+
+### Added — adaptive compression scaling by content size
+- `ContentRouter` now scales itself automatically for very large input: past
+  ~5,000 estimated tokens, NLP compression escalates one level more
+  aggressive (capped at `AGGRESSIVE` — never overrides an explicit
+  `STATISTICAL`/`SYNTACTIC` choice) and `JsonCrusher`'s row-keep cap tightens
+  to 60%; past ~25,000 tokens, two levels more aggressive and the cap
+  tightens to 35%. Computed per-call from local values, never mutates shared
+  instance state, so concurrent calls of different sizes never interfere.
+
+### Added — advisory command-rewrite suggestions
+- **`synthelion.command_rewrite.rewrite_command(command)`** — for a small
+  registry of known commands, suggests a less verbose variant with identical
+  semantics and exit code (`git log` → `git --no-pager log`, `npm install` →
+  adds `--no-fund --no-audit`, `pip install` → adds `--quiet`) — purely
+  advisory, Synthelion never executes anything itself anywhere in this
+  codebase and this is no exception. Refuses to rewrite any composite/
+  non-attestable command (`&&`, `|`, `;`, backticks, `$()`, redirects). New
+  MCP tool **`rewrite_command`**.
+
+### Dashboard
+- **Settings**: new "Dashboard" card exposing `dashboard.{host,port,realtime,
+  websocket_port}` (previously the only config section not editable from the
+  UI) — with an explicit note that a restart is required to take effect,
+  since the running server doesn't rebind itself.
+- **4 new KPIs on the Overview page** (15 total): Cost saved, Energy saved,
+  Tokens processed, and Decisions stored — all from data `ledger.summary()`/
+  `storage-status` already computed but never surfaced.
+- **Tooltips** on every KPI card (existing and new) — Bootstrap's own
+  tooltip component was already vendored and loaded but never initialized.
+- **Doctor and Version split into their own pages** (same banner-header style
+  as Settings), each with a dedicated sidenav entry, instead of being two
+  cards buried at the bottom of Settings.
+- **Fixed**: Settings' text-input labels visually overlapped their value
+  whenever populated via `loadSettings()` — Material Dashboard's floating
+  label only activates on manual blur (`is-filled` class), which JS-set
+  `.value` never triggers. Now applied programmatically right after
+  populating each field.
+- **Fixed**: wide content (the Settings card grid, wide tables) was only
+  reachable by Tab-focusing through it — no visible, usable scrollbar.
+  `overflow: scroll` (not `auto`) on `html`/`body`/`.main-content`, plus a
+  slim, always-visible "modern" scrollbar styled site-wide (Windows' overlay
+  scrollbars otherwise hide an `auto` scrollbar until mid-interaction).
+
 ## [1.2.1] — 2026-07-20
 
 ### Dashboard — full rewrite: login, multi-page admin panel, cluster

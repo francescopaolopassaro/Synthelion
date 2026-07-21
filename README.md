@@ -1,23 +1,48 @@
 # Synthelion — Universal Token Compressor and Prompt Manager for AI Agents
 ![Synthelion Logo](Synthelion.png)
 
-## Technology Partnership
-
-<img src="https://www.digitalsolutions.it/img/partners/novaroutelogo.png" alt="NovaRouteAI" height="180" style="max-width: 100%; height: auto; min-height: 180px; max-height: 190px;">
-
-**[NovaRouteAI](https://novarouteai.com/?ref=synthelion)** — Build with Chinese AI models through one simple API.
-
-NovaRouteAI helps developers and AI SaaS teams test, compare, and run models like DeepSeek, Qwen, Doubao, Kimi, and GLM without managing multiple provider accounts. Start with test credits and optimize your cost per successful task.
-
-[Click here to know NovaRouteAI](https://novarouteai.com/?ref=synthelion)
-
----
+[![PyPI version](https://badge.fury.io/py/synthelion.svg)](https://pypi.org/project/synthelion/)
+[![Python Versions](https://img.shields.io/pypi/pyversions/synthelion.svg)](https://pypi.org/project/synthelion/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![GitHub stars](https://img.shields.io/github/stars/francescopaolopassaro/synthelion)](https://github.com/francescopaolopassaro/synthelion/stargazers)
+[![MCP Compatible](https://img.shields.io/badge/MCP-Compatible-blue)](https://modelcontextprotocol.io)
 
 Synthelion compresses prompts before they reach any AI model — cutting token usage by up to 70%, reducing API costs, and speeding up responses. It works with **any agent or framework**: Claude Code, OpenAI, LangChain, OpenCode, Cursor, and more.
 
 Supports 50+ languages out of the box. No AI model required. No configuration.
 
 > "Why use many tokens when few tokens do trick?" — A caveman (and your wallet).
+
+<!--
+  Demo GIF goes here — record ~5-10s of a terminal running Claude Code: a long
+  prompt goes in, the Synthelion hook fires, and "[Synthelion NN% saved]" shows
+  up in the systemMessage. Save it as docs/demo.gif and uncomment the line below.
+  ![Synthelion in action](docs/demo.gif)
+-->
+
+---
+
+## Table of contents
+
+- [Why Synthelion?](#why-synthelion)
+- [Quick install — one command](#quick-install--one-command)
+- [Install (manual)](#install-manual)
+- [Update](#update)
+- [Set up on Claude Code](#set-up-on-claude-code)
+- [Automatic prompt compression — Claude Code hook](#automatic-prompt-compression--claude-code-hook)
+- [Using Synthelion with all agents](#using-synthelion-with-all-agents--automatic-compression)
+- [Integrations](#integrations) (OpenAI, LangChain, Claude/OpenAI adapters, Python API, CLI)
+- [Web dashboard](#web-dashboard)
+- [Cluster deployment](#cluster-deployment)
+- [Tools](#tools) (33 MCP tools)
+- [Code examples](#code-examples)
+- [Compression levels](#compression-levels)
+- [Supported languages](#supported-languages-50)
+- [Troubleshooting](#troubleshooting)
+- [Optional extras](#optional-extras)
+- [Contributing](#contributing)
+- [Sponsors](#sponsors)
+- [Links](#links)
 
 ---
 
@@ -870,35 +895,42 @@ lands on.
 
 ## Tools
 
-26 MCP tools — the compression/read tools are marked `readOnlyHint: true` so Claude Code and other MCP clients can call them safely in parallel; the handful that mutate state (session recording, the loop guard) are not.
+33 MCP tools — the compression/read tools are marked `readOnlyHint: true` so Claude Code and other MCP clients can call them safely in parallel; the handful that mutate state (session recording, the loop guard, output masking) are not.
 
 | Tool | What it does |
 |---|---|
 | **compress** | Removes stop words, lemmatizes content words. Up to 70% token reduction. |
 | **detect_language** | Identifies language of any text. Returns ISO 639-3 code. |
-| **route_content** | Auto-detects JSON, HTML, diff, log, code or prose and applies the best algorithm. |
+| **route_content** | Auto-detects JSON, HTML, diff, log, code or prose and applies the best algorithm — also collapses low-signal command output to 1-3 facts when `command`/`exit_code` are passed. |
 | **summarize** | Extractive summarization — keeps the most important sentences (TF-IDF or TextRank). |
 | **compress_batch** | Compresses a list of texts in one call. |
 | **compress_for_context** | Compresses content to fit a token budget. Chains routing → NLP → TextRank until budget met. |
 | **compress_conversation** | Compresses a messages list. Keeps last N verbatim, summarizes/collapses older turns. |
 | **deduplicate** | Removes near-duplicate texts using cosine bag-of-words similarity. Configurable threshold. |
-| **session_record** | Persists a decision or context note across sessions (ChromaDB or lexical fallback). |
+| **session_record** | Persists a decision or context note across sessions (ChromaDB or lexical fallback) — credential-shaped text (AWS/GitHub/Slack tokens, PEM blocks, `.env` dumps) is redacted before it ever touches disk. |
 | **session_recall** | Retrieves past decisions by semantic or keyword similarity. |
 | **session_start / session_end** | Track session boundaries and emit summaries. |
 | **compress_file** | Read a file by path and return only the compressed content. Avoids loading raw files into context. |
 | **synthelion_status** | Returns aggregate token savings and estimated cost as structured JSON. |
 | **safety_check** | Flags security-critical or destructive-command text before it gets compressed away. |
+| **check_sensitive_content** | Scans text for credential-shaped content (AWS/GitHub/Slack tokens, PEM blocks, Bearer headers, `.env` dumps) before persisting it. |
 | **analyze_waste** | Detects HTML noise, base64 blobs, excess whitespace, inline JSON bloat — read-only. |
 | **check_cache_alignment** | Scans a system prompt for volatile tokens (UUIDs, timestamps, JWTs, hashes) that break provider KV-cache prefix reuse. |
 | **align_cache_prompt** | Rewrites a system prompt so volatile blocks sink to the end, keeping the cacheable prefix stable call-to-call. |
 | **shape_output** | Appends verbosity-steering instructions to a system prompt to cut the model's *output* tokens. |
 | **focus_relevant** | Query-focused context shaping: keeps only the top-K most relevant blocks of a text. |
+| **list_relevant_tools** | Filters the full tool list down to the ones most relevant to a task/query, for orchestrators building their own per-turn `tools=[...]` array. |
 | **estimate_cost** | Estimates the USD/EUR value of a token count for a given model. |
 | **generate_commit_message** | Generates a conventional commit message from a git diff. |
 | **review_diff** | Generates single-line PR review comments from a git diff (bugs, security, perf, TODOs). |
 | **generate_project_wiki** | Scans a project folder into an AI-synthesized Markdown wiki — `depth` 1-4 controls detail (see [Web dashboard](#web-dashboard) Settings for the default). |
 | **check_tool_loop** | Pre-tool guardrail: blocks a tool call that would repeat an identical prior call too many times in a row (agent stuck retrying). |
 | **reset_tool_loop** | Clears the loop-guard history for a session after a genuine change of approach. |
+| **mask_old_tool_output** | Replaces all but the most recent N entries in a chronological tool-output list with a placeholder, storing originals for later retrieval. Returns an Artifact Index alongside the masked list. |
+| **expand_masked_output** | Retrieves the original text behind a `mask_old_tool_output` placeholder, by its hash. |
+| **get_artifact_index** | Returns the catalog of everything masked so far, grouped by tool — meant to be re-injected into context so the model knows what was hidden. |
+| **rewrite_command** | Suggests a less verbose variant of a known shell command (same semantics/exit code) — advisory only, never executed. Refuses composite commands. |
+| **diff_tool_output** | For a tool called again with identical arguments, returns a unified diff against the previous call's output instead of the full text again, when that's actually shorter. |
 
 Two more ship as CLI-only, meant for shell hooks rather than an agent calling them directly: `synthelion loop-check` / `synthelion loop-reset` — same loop guard, but persisted across process invocations (`~/.synthelion/loop_guard.jsonl`) for use as an external `PreToolUse`-style hook, since a hook script is a fresh process every call and can't keep the MCP tools' in-memory history.
 
@@ -1318,6 +1350,29 @@ pip install "synthelion[chromadb]"
 | `synthelion[claude]` | `anthropic` | `ClaudeAdapter` |
 | `synthelion[chromadb]` | `chromadb` | Vector session recall in `session_record` / `session_recall` |
 | `synthelion[all]` | everything above | Full stack |
+
+---
+
+## Contributing
+
+Contributions are welcome — new language data, new content-router strategies,
+framework adapters, bug reports, or a good first issue. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for the local dev setup and PR guidelines.
+
+If Synthelion is saving you tokens, a ⭐ on the repo helps other people find it:
+[github.com/francescopaolopassaro/synthelion](https://github.com/francescopaolopassaro/synthelion)
+
+---
+
+## Sponsors
+
+<img src="https://www.digitalsolutions.it/img/partners/novaroutelogo.png" alt="NovaRouteAI" height="180" style="max-width: 100%; height: auto; min-height: 180px; max-height: 190px;">
+
+**[NovaRouteAI](https://novarouteai.com/?ref=synthelion)** — Build with Chinese AI models through one simple API.
+
+NovaRouteAI helps developers and AI SaaS teams test, compare, and run models like DeepSeek, Qwen, Doubao, Kimi, and GLM without managing multiple provider accounts. Start with test credits and optimize your cost per successful task.
+
+[Click here to know NovaRouteAI](https://novarouteai.com/?ref=synthelion)
 
 ---
 
