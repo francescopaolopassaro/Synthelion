@@ -105,6 +105,7 @@ class SavingsLedger:
         content_type: str = "",
         language: str = "",
         duration_ms: float = 0.0,
+        pii_masked_count: int = 0,
     ) -> None:
         """Append one compression event to the ledger. Lock-free, non-blocking."""
         saved = max(0, tokens_before - tokens_after)
@@ -120,6 +121,7 @@ class SavingsLedger:
             "session_id": _PROCESS_SESSION_ID,
             "pid": _PROCESS_PID,
             "duration_ms": round(duration_ms, 2),
+            "pii_masked_count": pii_masked_count,
         }
         _append_json_line(self._path, entry)
 
@@ -157,6 +159,7 @@ class SavingsLedger:
                 "max_latency_ms": 0.0,
                 "energy_mwh_saved": 0.0,
                 "co2_mg_saved": 0.0,
+                "pii_masked_count": 0,
             }
 
         total_before = sum(r.get("tokens_before", 0) for r in data)
@@ -195,6 +198,7 @@ class SavingsLedger:
             "avg_latency_ms": round(avg_latency, 1),
             "p95_latency_ms": round(p95_latency, 1),
             "max_latency_ms": round(max_latency, 1),
+            "pii_masked_count": sum(r.get("pii_masked_count", 0) for r in data),
         }
 
     def sessions_summary(self, records: list[dict] | None = None) -> list[dict]:

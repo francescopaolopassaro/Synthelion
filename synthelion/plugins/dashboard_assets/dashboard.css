@@ -66,6 +66,44 @@
   color: #fff;
 }
 
+/* Bootstrap's default checked-switch blue is too close to the unchecked gray
+   against this dark theme to tell "on" from "off" at a glance (Settings'
+   Privacy & Security toggles) — bump the contrast explicitly. */
+.form-check-input {
+  background-color: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+.form-check-input:checked {
+  background-color: #17c1e8;
+  border-color: #17c1e8;
+}
+
+/* Material Dashboard's ".input-group-outline" only floats the <label> above
+   the border — instead of centered on top of the input's own text/placeholder
+   — once JS adds ".is-filled" (on blur, with a value) or the field is
+   focused. Every such field starts life with neither: on first render the
+   label and any `placeholder` text sit stacked on top of each other,
+   unreadable, until the user happens to click in and back out. Apply this
+   ".always-floated" class (see index.html) on every input-group-outline field
+   at the markup level, independent of value/focus state, so this can't
+   silently recur the next time one is added — reproduces the same notched
+   label MD draws for ".is-filled"/".is-focused", just in a neutral color
+   instead of the "has a real value" pink accent. */
+.input-group-outline.always-floated .form-label {
+  width: 100%;
+  height: 100%;
+  font-size: .6875rem !important;
+  color: #8891a0;
+  display: flex;
+  line-height: 1.25 !important;
+}
+.input-group-outline.always-floated .form-label:before,
+.input-group-outline.always-floated .form-label:after {
+  opacity: 1;
+  border-top-color: rgba(255, 255, 255, .2);
+}
+
+
 /* Material Dashboard's dark-version background on the sidenav is only
    applied via `.dark-version .sidenav` — at narrower viewports / the
    collapsed-to-icons state (`g-sidenav-hidden`) the browser can end up

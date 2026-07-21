@@ -41,6 +41,7 @@ _READ_ONLY_TOOLS = frozenset({
     "generate_project_wiki", "list_relevant_tools", "expand_masked_output",
     "get_artifact_index", "rewrite_command",
     "get_response_style_guidance", "check_read_maturity",
+    "restore_privacy_text", "check_prompt_injection", "get_ai_transparency_notice",
 })
 
 

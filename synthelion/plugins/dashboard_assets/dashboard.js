@@ -93,6 +93,7 @@
     document.getElementById("kpi-energy").textContent = fmtMwh(s.energy_mwh_saved);
     document.getElementById("kpi-tokens-before").textContent = fmtInt(s.tokens_before);
     document.getElementById("kpi-decisions").textContent = fmtInt((storageStatus || {}).decisions);
+    document.getElementById("kpi-pii-masked").textContent = fmtInt(s.pii_masked_count);
   }
 
   function fmtMs(ms) {
@@ -396,6 +397,108 @@
   document.getElementById("settings-session-backend").addEventListener("change", updateSessionBackendFields);
   document.getElementById("settings-vector-backend").addEventListener("change", updateVectorBackendFields);
   document.getElementById("settings-save-btn").addEventListener("click", saveSettings);
+
+  // ── privacy & security ───────────────────────────────────────────────────
+
+  let privacyWhitelist = [];
+
+  function renderWhitelist() {
+    const list = document.getElementById("privacy-whitelist-list");
+    if (!privacyWhitelist.length) {
+      list.innerHTML = '<li class="list-group-item border-0 px-0 text-sm text-secondary">No whitelisted values yet.</li>';
+      return;
+    }
+    list.innerHTML = privacyWhitelist.map((v, i) => `
+      <li class="list-group-item border-0 px-0 d-flex justify-content-between align-items-center text-sm">
+        <span>${escapeHtml(v)}</span>
+        <button type="button" class="btn btn-sm btn-outline-danger mb-0 py-0 px-2 privacy-whitelist-remove" data-index="${i}">Remove</button>
+      </li>`).join("");
+    list.querySelectorAll(".privacy-whitelist-remove").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        privacyWhitelist.splice(Number(btn.dataset.index), 1);
+        renderWhitelist();
+      });
+    });
+  }
+
+  async function loadPrivacySettings() {
+    try {
+      const { config } = await fetchJson("/api/config");
+      document.getElementById("privacy-enabled").checked = config.privacy.enabled;
+      document.getElementById("privacy-auto-masking").checked = config.privacy.auto_masking;
+      document.getElementById("privacy-injection-guard").checked = config.privacy.prompt_injection_guard;
+      document.getElementById("privacy-transparency-notice").checked = config.privacy.ai_transparency_notice;
+      document.getElementById("privacy-language").value = config.privacy.language;
+      document.getElementById("privacy-transparency-custom").value = config.privacy.transparency_custom_message || "";
+      markFilled("privacy-transparency-custom");
+      privacyWhitelist = (config.privacy.whitelist || []).slice();
+      renderWhitelist();
+    } catch (err) {
+      // non-critical — form just keeps its blank/default values
+    }
+  }
+
+  async function savePrivacySettings() {
+    const btn = document.getElementById("privacy-save-btn");
+    const status = document.getElementById("privacy-save-status");
+    btn.disabled = true;
+    status.textContent = "Saving…";
+    status.className = "text-sm text-secondary";
+    const payload = {
+      privacy: {
+        enabled: document.getElementById("privacy-enabled").checked,
+        auto_masking: document.getElementById("privacy-auto-masking").checked,
+        prompt_injection_guard: document.getElementById("privacy-injection-guard").checked,
+        ai_transparency_notice: document.getElementById("privacy-transparency-notice").checked,
+        language: document.getElementById("privacy-language").value,
+        transparency_custom_message: document.getElementById("privacy-transparency-custom").value,
+        whitelist: privacyWhitelist,
+      },
+    };
+    try {
+      await postJson("/api/config", payload);
+      status.textContent = "Saved.";
+      status.className = "text-sm text-success";
+    } catch (err) {
+      status.textContent = "Error: " + err.message;
+      status.className = "text-sm text-danger";
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  document.getElementById("privacy-save-btn").addEventListener("click", savePrivacySettings);
+
+  document.getElementById("privacy-whitelist-add-btn").addEventListener("click", () => {
+    const input = document.getElementById("privacy-whitelist-input");
+    const value = input.value.trim();
+    if (value && !privacyWhitelist.includes(value)) {
+      privacyWhitelist.push(value);
+      renderWhitelist();
+    }
+    input.value = "";
+  });
+
+  document.getElementById("privacy-test-btn").addEventListener("click", async () => {
+    const text = document.getElementById("privacy-test-input").value;
+    const language = document.getElementById("privacy-language").value;
+    try {
+      const r = await postJson("/api/privacy-test", { text, language });
+      document.getElementById("privacy-test-score").textContent = r.privacy.score;
+      document.getElementById("privacy-test-risk").textContent = r.privacy.risk_level;
+      document.getElementById("privacy-test-categories").textContent =
+        r.privacy.detected_categories.length ? r.privacy.detected_categories.join(", ") : "none";
+      document.getElementById("privacy-test-compliance").textContent =
+        r.privacy.compliance_flags.length ? r.privacy.compliance_flags.join(", ") : "none";
+      document.getElementById("privacy-test-masked").textContent = r.privacy.masked_text || "(no PII detected)";
+      document.getElementById("privacy-test-injection-score").textContent = r.prompt_injection.score;
+      document.getElementById("privacy-test-injection-risk").textContent = r.prompt_injection.risk_level;
+      document.getElementById("privacy-test-injection-categories").textContent =
+        r.prompt_injection.detected_categories.length ? r.prompt_injection.detected_categories.join(", ") : "none";
+    } catch (err) {
+      document.getElementById("privacy-test-risk").textContent = "Error: " + err.message;
+    }
+  });
 
   // ── doctor / version / upgrade ───────────────────────────────────────────
 
@@ -763,7 +866,7 @@
   const PAGE_TITLES = {
     overview: "Overview", charts: "Charts", sessions: "Sessions", requests: "Recent requests",
     decisions: "Decisions", settings: "Settings", profile: "Profile", notifications: "Notifications",
-    cluster: "Cluster", doctor: "Doctor", version: "Version",
+    cluster: "Cluster", doctor: "Doctor", version: "Version", privacy: "Privacy",
   };
 
   function pageForPath(path) {
@@ -807,6 +910,7 @@
   refresh();
   loadVersion();
   loadSettings();
+  loadPrivacySettings();
   loadStorageStatus();
   loadProfile();
   loadNotifications();

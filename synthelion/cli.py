@@ -220,7 +220,10 @@ def _read_input(args) -> str:
     raise SystemExit(1)
 
 
-def _record_ledger(tool: str, before: int, after: int, content_type: str = "", language: str = "", duration_ms: float = 0.0) -> None:
+def _record_ledger(
+    tool: str, before: int, after: int, content_type: str = "", language: str = "",
+    duration_ms: float = 0.0, pii_masked_count: int = 0,
+) -> None:
     """Log a CLI compression event to the same ledger the MCP server and dashboard read.
 
     Every user-facing command that actually compresses something (compress,
@@ -229,7 +232,10 @@ def _record_ledger(tool: str, before: int, after: int, content_type: str = "", l
     """
     try:
         from synthelion.analytics.ledger import get_ledger
-        get_ledger().record(tool, before, after, content_type=content_type, language=language, duration_ms=duration_ms)
+        get_ledger().record(
+            tool, before, after, content_type=content_type, language=language,
+            duration_ms=duration_ms, pii_masked_count=pii_masked_count,
+        )
     except Exception:
         pass
 
@@ -250,21 +256,69 @@ def _cmd_compress(args) -> None:
         from synthelion.config import default_compression_level
         args.level = default_compression_level()
     text = _read_input(args)
+
+    # Privacy pre-pass: this is the exact command the UserPromptSubmit hook calls
+    # (see install_claude.py/.ps1/.sh) — masking PII here means it's active for
+    # every hook-driven prompt from the moment it's installed, not an opt-in a user
+    # has to discover. [PG_n] placeholders survive NLP compression untouched (they
+    # match no stopword list in any language). `privacy.enabled = False` restores
+    # exactly the pre-1.2.2 behavior.
+    from synthelion.config import privacy_config
+    pcfg = privacy_config()
+    privacy_masked = False
+    privacy_masked_count = 0
+    privacy_score = None
+    privacy_risk_level = None
+    privacy_categories: list[str] = []
+    privacy_compliance: list[str] = []
+    injection_score = None
+    if pcfg["enabled"]:
+        from synthelion.privacy_analyzer import PrivacyAnalyzer
+        from synthelion.privacy_session import PrivacySession
+        analyzer = PrivacyAnalyzer()
+        if pcfg.get("whitelist"):
+            analyzer.add_to_whitelist(*pcfg["whitelist"])
+        session = PrivacySession() if pcfg["auto_masking"] else None
+        presult = analyzer.analyze(text, pcfg["language"], session=session, auto_masking=pcfg["auto_masking"])
+        privacy_score = presult.score
+        privacy_risk_level = presult.risk_level
+        privacy_categories = presult.detected_categories
+        privacy_compliance = presult.compliance_flags
+        if pcfg["auto_masking"] and presult.masked_text:
+            text = presult.masked_text
+            if presult.match_count > 0:
+                privacy_masked = True
+                privacy_masked_count = presult.match_count
+        if pcfg["prompt_injection_guard"]:
+            from synthelion.prompt_injection_guard import PromptInjectionGuard
+            injection_score = PromptInjectionGuard().analyze(text).score
+
     svc = CompressionService()
     start = time.perf_counter()
     r = svc.compress(text, level_map[args.level], iso3=args.language)
     duration_ms = (time.perf_counter() - start) * 1000
-    _record_ledger("cli_compress", r.original_tokens, r.compressed_tokens, language=args.language or "", duration_ms=duration_ms)
+    _record_ledger(
+        "cli_compress", r.original_tokens, r.compressed_tokens, language=args.language or "",
+        duration_ms=duration_ms, pii_masked_count=privacy_masked_count,
+    )
     if args.json:
         print(json.dumps({
             "compressed": r.compressed_text,
             "efficiency_pct": round(r.efficiency_pct, 2),
             "energy_mwh": round(r.estimated_energy_saved_mwh, 3),
             "co2_mg": round(r.estimated_co2_saved_mg, 3),
+            "privacy_masked": privacy_masked,
+            "privacy_masked_count": privacy_masked_count,
+            "privacy_score": privacy_score,
+            "privacy_risk_level": privacy_risk_level,
+            "privacy_categories": privacy_categories,
+            "privacy_compliance": privacy_compliance,
+            "prompt_injection_score": injection_score,
         }))
     else:
         print(r.compressed_text)
-        print(f"\n[{r.efficiency_pct:.1f}% saved — {r.original_tokens} → {r.compressed_tokens} tokens]", file=sys.stderr)
+        suffix = f" — {privacy_masked_count} sensitive item(s) masked" if privacy_masked else ""
+        print(f"\n[{r.efficiency_pct:.1f}% saved — {r.original_tokens} → {r.compressed_tokens} tokens{suffix}]", file=sys.stderr)
 
 
 def _cmd_detect(args) -> None:

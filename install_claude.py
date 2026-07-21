@@ -23,7 +23,7 @@ from pathlib import Path
 # ──────────────────────────────────────────────────────────────────────────────
 PACKAGE = "synthelion"
 MIN_PYTHON = (3, 11)
-HOOK_MIN_LEN = 200   # chars — shorter prompts are skipped
+HOOK_MIN_LEN = 0     # chars — shorter prompts are skipped (0 = scan every prompt, incl. PII/injection checks)
 HOOK_MIN_EFF = 15    # % — skip injection if savings below this threshold
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -141,6 +141,9 @@ def _hook_command_windows(cli: str) -> str:
         f"if($r -and $r.efficiency_pct -gt {HOOK_MIN_EFF})"
         f"{{$pct=[Math]::Round($r.efficiency_pct);"
         f"$label='[Synthelion '+$pct+'% saved - '+$r.energy_mwh+' mWh - '+$r.co2_mg+' mg CO2 saved]';"
+        f"if($r.privacy_categories -and $r.privacy_categories.Count -gt 0)"
+        f"{{$cats=($r.privacy_categories -join ', ');$comp=($r.privacy_compliance -join ', ');"
+        f"$label=$label+\"`n`nPII / Privacy`nScore: $($r.privacy_score) - Risk: $($r.privacy_risk_level)`n`nCategories: $cats`n`nCompliance: $comp`n`nMasked: [$cats]\"}}"
         f"@{{systemMessage=$label;hookSpecificOutput=@{{hookEventName='UserPromptSubmit';additionalContext=$r.compressed}}}}|ConvertTo-Json -Compress}}}}"
     )
 
@@ -154,6 +157,8 @@ def _hook_command_unix(cli: str) -> str:
         f"out=$(printf '%s' \"$r\" | python3 -c \""
         f"import sys,json; d=json.load(sys.stdin); eff=int(d.get('efficiency_pct',0)); "
         f"label='[Synthelion '+str(eff)+'% saved - '+str(d.get('energy_mwh',0))+' mWh - '+str(d.get('co2_mg',0))+' mg CO2 saved]'; "
+        f"cats=d.get('privacy_categories') or []; "
+        f"label=label+'\\n\\nPII / Privacy\\nScore: '+str(d.get('privacy_score'))+' - Risk: '+str(d.get('privacy_risk_level'))+'\\n\\nCategories: '+', '.join(cats)+'\\n\\nCompliance: '+', '.join(d.get('privacy_compliance') or [])+'\\n\\nMasked: ['+', '.join(cats)+']' if cats else label; "
         f"print(json.dumps({{'systemMessage':label,'hookSpecificOutput':{{'hookEventName':'UserPromptSubmit','additionalContext':d.get('compressed','')}}}})) if eff>{HOOK_MIN_EFF} else None\"); "
         f"[ -n \"$out\" ] && printf '%s' \"$out\"; fi; fi"
     )
@@ -390,7 +395,7 @@ def main() -> None:
     print("  Next steps:")
     print("  1. Restart Claude Code (or open /hooks to reload config)")
     print("  2. In Claude Code, type: 'Use Synthelion to compress this text'")
-    print("  3. Prompts longer than 200 chars will be auto-compressed")
+    print("  3. Every prompt is auto-compressed and scanned for PII/prompt-injection")
     print()
     print("  To update Synthelion later:")
     print(f"    python {Path(__file__).name} --upgrade")

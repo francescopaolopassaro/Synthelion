@@ -103,7 +103,7 @@ build_hook_command() {
   # goes into hookSpecificOutput.additionalContext, which Claude reads but
   # the terminal never displays — still doing its job, just invisibly.
   cat <<EOF
-prompt=\$(cat | $PY -c "import sys,json; print(json.load(sys.stdin).get('prompt',''))"); if [ \${#prompt} -gt 200 ]; then r=\$(printf '%s' "\$prompt" | "$cli" compress --json 2>/dev/null); if [ -n "\$r" ]; then out=\$(printf '%s' "\$r" | $PY -c "import sys,json; d=json.load(sys.stdin); eff=int(d.get('efficiency_pct',0)); label='[Synthelion '+str(eff)+'% saved - '+str(d.get('energy_mwh',0))+' mWh - '+str(d.get('co2_mg',0))+' mg CO2 saved]'; print(json.dumps({'systemMessage':label,'hookSpecificOutput':{'hookEventName':'UserPromptSubmit','additionalContext':d.get('compressed','')}})) if eff>15 else None"); [ -n "\$out" ] && printf '%s' "\$out"; fi; fi
+prompt=\$(cat | $PY -c "import sys,json; print(json.load(sys.stdin).get('prompt',''))"); if [ -n "\$prompt" ]; then r=\$(printf '%s' "\$prompt" | "$cli" compress --json 2>/dev/null); if [ -n "\$r" ]; then out=\$(printf '%s' "\$r" | $PY -c "import sys,json; d=json.load(sys.stdin); eff=int(d.get('efficiency_pct',0)); label='[Synthelion '+str(eff)+'% saved - '+str(d.get('energy_mwh',0))+' mWh - '+str(d.get('co2_mg',0))+' mg CO2 saved]'; cats=d.get('privacy_categories') or []; label=label+'\n\nPII / Privacy\nScore: '+str(d.get('privacy_score'))+' - Risk: '+str(d.get('privacy_risk_level'))+'\n\nCategories: '+', '.join(cats)+'\n\nCompliance: '+', '.join(d.get('privacy_compliance') or [])+'\n\nMasked: ['+', '.join(cats)+']' if cats else label; print(json.dumps({'systemMessage':label,'hookSpecificOutput':{'hookEventName':'UserPromptSubmit','additionalContext':d.get('compressed','')}})) if eff>15 else None"); [ -n "\$out" ] && printf '%s' "\$out"; fi; fi
 EOF
 }
 
@@ -300,7 +300,7 @@ echo ""
 echo "  Next steps:"
 echo "  1. Restart Claude Code (or open /hooks to reload)"
 echo "  2. Ask Claude: 'Use Synthelion to compress this text'"
-echo "  3. Prompts > 200 chars are auto-compressed"
+echo "  3. Every prompt is auto-compressed and scanned for PII/prompt-injection"
 echo "  4. MCP tools available: compress, route_content, summarize,"
 echo "     session_record, session_recall, synthelion_status"
 echo ""

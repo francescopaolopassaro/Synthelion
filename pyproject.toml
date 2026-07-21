@@ -30,6 +30,7 @@ dependencies = [
     "brotli>=1.1",
     "regex>=2024.1",
     "mcp>=1.0",
+    "pyyaml>=6.0",
 ]
 
 [project.urls]
@@ -64,6 +65,7 @@ include = ["synthelion*"]
 [tool.setuptools.package-data]
 synthelion = [
     "worddata/*.br",
+    "privacy_rules.yaml",
     "py.typed",
     "plugins/dashboard_assets/*.html",
     "plugins/dashboard_assets/*.css",

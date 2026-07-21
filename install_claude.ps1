@@ -93,7 +93,7 @@ function Build-HookCommand($cliBin) {
     # Claude reads but the terminal never displays — still doing its job,
     # just invisibly.
     return @"
-`$j=[Console]::In.ReadToEnd()|ConvertFrom-Json;`$p=`$j.prompt;if(`$p -and `$p.Length -gt 200){`$r=(`$p| & "$cli" compress --json 2>`$null)|ConvertFrom-Json;if(`$r -and `$r.efficiency_pct -gt 15){`$pct=[Math]::Round(`$r.efficiency_pct);`$label='[Synthelion '+`$pct+'% saved - '+`$r.energy_mwh+' mWh - '+`$r.co2_mg+' mg CO2 saved]';@{systemMessage=`$label;hookSpecificOutput=@{hookEventName='UserPromptSubmit';additionalContext=`$r.compressed}}|ConvertTo-Json -Compress}}
+`$j=[Console]::In.ReadToEnd()|ConvertFrom-Json;`$p=`$j.prompt;if(`$p){`$r=(`$p| & "$cli" compress --json 2>`$null)|ConvertFrom-Json;if(`$r -and `$r.efficiency_pct -gt 15){`$pct=[Math]::Round(`$r.efficiency_pct);`$label='[Synthelion '+`$pct+'% saved - '+`$r.energy_mwh+' mWh - '+`$r.co2_mg+' mg CO2 saved]';if(`$r.privacy_categories -and `$r.privacy_categories.Count -gt 0){`$cats=(`$r.privacy_categories -join ', ');`$comp=(`$r.privacy_compliance -join ', ');`$label=`$label+"``n``nPII / Privacy``nScore: `$(`$r.privacy_score) - Risk: `$(`$r.privacy_risk_level)``n``nCategories: `$cats``n``nCompliance: `$comp``n``nMasked: [`$cats]"}@{systemMessage=`$label;hookSpecificOutput=@{hookEventName='UserPromptSubmit';additionalContext=`$r.compressed}}|ConvertTo-Json -Compress}}
 "@
 }
 
@@ -261,7 +261,7 @@ Write-Host ""
 Write-Host "  Next steps:"
 Write-Host "  1. Restart Claude Code (or open /hooks to reload)"
 Write-Host "  2. Ask Claude: 'Use Synthelion to compress this text'"
-Write-Host "  3. Prompts > 200 chars are auto-compressed"
+Write-Host "  3. Every prompt is auto-compressed and scanned for PII/prompt-injection"
 Write-Host "  4. MCP tools available: compress, route_content, summarize,"
 Write-Host "     session_record, session_recall, synthelion_status"
 Write-Host ""

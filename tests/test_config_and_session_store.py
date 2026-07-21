@@ -22,7 +22,7 @@ from synthelion.analytics.session_store import (
 )
 from synthelion.config import (
     default_compression_level, default_config, default_wiki_depth, load_config, merge_config,
-    new_cluster_token, new_node_id, save_config,
+    new_cluster_token, new_node_id, privacy_config, save_config,
 )
 
 
@@ -88,6 +88,34 @@ class TestConfig:
         cfg = default_config()
         cfg["wiki"]["default_depth"] = 7
         assert default_wiki_depth(cfg) == 2
+
+    def test_privacy_config_defaults(self):
+        pcfg = privacy_config(default_config())
+        assert pcfg["enabled"] is True
+        assert pcfg["auto_masking"] is True
+        assert pcfg["prompt_injection_guard"] is True
+        assert pcfg["ai_transparency_notice"] is False
+        assert pcfg["transparency_custom_message"] == ""
+        assert pcfg["whitelist"] == []
+
+    def test_privacy_config_whitelist_roundtrip(self, tmp_path: Path):
+        cfg = default_config()
+        cfg["privacy"]["whitelist"] = ["support@company.com"]
+        path = save_config(cfg, tmp_path / "config.json")
+        loaded = load_config(path)
+        assert privacy_config(loaded)["whitelist"] == ["support@company.com"]
+
+    def test_privacy_config_can_be_disabled(self):
+        cfg = default_config()
+        cfg["privacy"]["enabled"] = False
+        assert privacy_config(cfg)["enabled"] is False
+
+    def test_privacy_config_partial_override_keeps_other_defaults(self):
+        cfg = default_config()
+        cfg["privacy"] = {"auto_masking": False}
+        pcfg = privacy_config(cfg)
+        assert pcfg["auto_masking"] is False
+        assert pcfg["enabled"] is True  # untouched default preserved
 
     def test_merge_config_overrides_only_given_keys(self):
         base = default_config()

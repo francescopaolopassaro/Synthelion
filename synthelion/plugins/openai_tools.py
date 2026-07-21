@@ -793,6 +793,81 @@ def get_tool_definitions() -> list[dict]:
         {
             "type": "function",
             "function": {
+                "name": "analyze_privacy",
+                "description": (
+                    "Detects PII/sensitive data in text across 33 country/region rule sets (email, "
+                    "IBAN, credit cards, national tax/ID numbers with real checksum validation, GPS "
+                    "coordinates, etc.), scores it 0-100 with a risk level, maps GDPR/EU AI "
+                    "Act/NIS2/PCI-DSS/NIST compliance flags, and optionally masks detected values with "
+                    "recoverable placeholders (use restore_privacy_text with the returned session_id "
+                    "to get the original text back)."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "text": {"type": "string", "description": "Text to analyze."},
+                        "language": {"type": "string", "description": "Message language: en/it/de/fr/es. Default: en."},
+                        "auto_masking": {"type": "boolean", "description": "Mask detected PII with placeholders. Default: false."},
+                        "session_id": {"type": "string", "description": "Reuse an existing masking session (dedupes placeholders across calls). Default: new session."},
+                    },
+                    "required": ["text"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "restore_privacy_text",
+                "description": "Replaces [PG_n] placeholders in text with the original values from a session created by analyze_privacy(auto_masking=true).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "text": {"type": "string", "description": "Text containing [PG_n] placeholders."},
+                        "session_id": {"type": "string", "description": "The session_id returned by analyze_privacy."},
+                    },
+                    "required": ["text", "session_id"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "check_prompt_injection",
+                "description": (
+                    "Heuristic screening of untrusted text (user messages, tool output, retrieved "
+                    "documents) for prompt-injection/jailbreak attempts before it reaches an LLM's "
+                    "context — instruction override, system-prompt exfiltration, role hijack, "
+                    "delimiter injection, encoded payloads, exfiltration coercion."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {"text": {"type": "string", "description": "Text to screen."}},
+                    "required": ["text"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_ai_transparency_notice",
+                "description": (
+                    "Returns a user-facing disclosure message that the user is interacting with an AI "
+                    "system whose input is screened/masked for sensitive data (supports EU AI Act "
+                    "Art.50 transparency obligations — confirm applicability/wording with legal counsel)."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "language": {"type": "string", "description": "en/it/de/fr/es. Default: en."},
+                        "custom_message": {"type": "string", "description": "Override the built-in message entirely."},
+                    },
+                    "required": [],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
                 "name": "generate_project_wiki",
                 "description": (
                     "Recursively scan a project folder and produce AI-friendly, semantically "
@@ -1029,6 +1104,18 @@ def execute_tool(name: str, arguments: dict) -> dict:
 
     if name == "check_read_maturity":
         return _exec_check_read_maturity(arguments)
+
+    if name == "analyze_privacy":
+        return _exec_analyze_privacy(arguments)
+
+    if name == "restore_privacy_text":
+        return _exec_restore_privacy_text(arguments)
+
+    if name == "check_prompt_injection":
+        return _exec_check_prompt_injection(arguments)
+
+    if name == "get_ai_transparency_notice":
+        return _exec_get_ai_transparency_notice(arguments)
 
     return {"error": f"Unknown tool: {name}"}
 
@@ -1504,3 +1591,83 @@ def _exec_diff_tool_output(arguments: dict) -> dict:
         session_id=arguments.get("session_id") or "default",
     )
     return {"output": output, "was_diffed": was_diffed}
+
+
+# ── Privacy / PII detection (Caveman.PrivacyGuard port) ────────────────────────
+
+_privacy_analyzer = None
+_privacy_analyzer_lock = threading.Lock()
+_privacy_sessions: dict = {}
+_privacy_sessions_lock = threading.Lock()
+
+
+def _get_privacy_analyzer():
+    global _privacy_analyzer
+    if _privacy_analyzer is None:
+        with _privacy_analyzer_lock:
+            if _privacy_analyzer is None:
+                from synthelion.privacy_analyzer import PrivacyAnalyzer
+                _privacy_analyzer = PrivacyAnalyzer()
+    return _privacy_analyzer
+
+
+def _get_or_create_privacy_session(session_id: str | None):
+    import uuid
+
+    from synthelion.privacy_session import PrivacySession
+    with _privacy_sessions_lock:
+        if session_id and session_id in _privacy_sessions:
+            return session_id, _privacy_sessions[session_id]
+        sid = session_id or str(uuid.uuid4())
+        session = PrivacySession()
+        _privacy_sessions[sid] = session
+        return sid, session
+
+
+def _exec_analyze_privacy(arguments: dict) -> dict:
+    analyzer = _get_privacy_analyzer()
+    auto_masking = bool(arguments.get("auto_masking", False))
+    session = None
+    session_id = None
+    if auto_masking:
+        session_id, session = _get_or_create_privacy_session(arguments.get("session_id"))
+
+    result = analyzer.analyze(arguments["text"], arguments.get("language") or "en", session=session, auto_masking=auto_masking)
+    out = {
+        "score": result.score,
+        "risk_level": result.risk_level,
+        "detected_categories": result.detected_categories,
+        "compliance_flags": result.compliance_flags,
+        "warning_message": result.warning_message,
+        "is_safe_for_ai": result.is_safe_for_ai,
+        "match_count": result.match_count,
+        "matches_per_category": result.matches_per_category,
+    }
+    if auto_masking:
+        out["masked_text"] = result.masked_text
+        out["session_id"] = session_id
+    return out
+
+
+def _exec_restore_privacy_text(arguments: dict) -> dict:
+    with _privacy_sessions_lock:
+        session = _privacy_sessions.get(arguments["session_id"])
+    if session is None:
+        return {"error": f"Unknown session_id: {arguments['session_id']}"}
+    return {"text": session.restore(arguments["text"])}
+
+
+def _exec_check_prompt_injection(arguments: dict) -> dict:
+    from synthelion.prompt_injection_guard import PromptInjectionGuard
+    result = PromptInjectionGuard().analyze(arguments["text"])
+    return {
+        "score": result.score,
+        "risk_level": result.risk_level,
+        "detected_categories": result.detected_categories,
+        "is_clean": result.is_clean,
+    }
+
+
+def _exec_get_ai_transparency_notice(arguments: dict) -> dict:
+    from synthelion.ai_transparency_notice import get_transparency_notice
+    return {"notice": get_transparency_notice(arguments.get("language") or "en", arguments.get("custom_message"))}

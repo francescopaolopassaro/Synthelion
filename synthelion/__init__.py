@@ -34,6 +34,10 @@ from synthelion.loop_guard import LoopGuard, LoopVerdict, LoopCheckResult, Persi
 from synthelion.plugins.openai_tools import filter_relevant_tools
 from synthelion.response_style import get_style_guidance
 from synthelion.read_lifecycle import ReadLifecycleTracker, get_read_lifecycle_tracker
+from synthelion.privacy_analyzer import PrivacyAnalyzer, PrivacyAnalysisResult
+from synthelion.privacy_session import PrivacySession
+from synthelion.prompt_injection_guard import PromptInjectionGuard, PromptInjectionResult
+from synthelion.ai_transparency_notice import get_transparency_notice
 
 __version__ = "1.2.2"
 __author__ = "Passaro Francesco Paolo"
@@ -96,4 +100,10 @@ __all__ = [
     "get_style_guidance",
     "ReadLifecycleTracker",
     "get_read_lifecycle_tracker",
+    "PrivacyAnalyzer",
+    "PrivacyAnalysisResult",
+    "PrivacySession",
+    "PromptInjectionGuard",
+    "PromptInjectionResult",
+    "get_transparency_notice",
 ]

@@ -10,7 +10,50 @@ A comparative audit against several other prompt/context-compression projects
 surfaced techniques Synthelion didn't have yet. Everything below was
 reimplemented from scratch in Python, consistent with Synthelion's existing
 zero-ML-models, zero-network-call design — nothing here pulls in an embedding
-model or an external service. **11 new MCP tools, 37 total.**
+model or an external service. **15 new MCP tools, 41 total.**
+
+### Added — PrivacyGuard: PII detection, masking, prompt-injection guard
+A direct Python port of [Caveman.PrivacyGuard](https://github.com/francescopaolopassaro/Caveman.PrivacyGuard)
+(C#) — same rule set, same scoring formula, same ~30 checksum validators, not a
+thinner reimplementation.
+- **`synthelion.privacy_analyzer.PrivacyAnalyzer`** — detects PII across 33
+  country/region rule sets (27 EU + UK, Switzerland, China, Russia, Ukraine),
+  51 detection rules (email, phone, IBAN, credit cards, national tax/ID
+  numbers, GPS coordinates, vehicle plates, JWTs/secrets, ...). Real
+  algorithmic checksum validation for ~30 categories (`synthelion.privacy_validators`
+  — IBAN, Luhn, Italian CF/P.IVA, French NIR, Polish PESEL, German Steuer-ID,
+  UK NINO, Swiss AHV, Chinese ID, Russian INN, and more), not just format
+  regexes. Scores 0-100 with a risk level, maps GDPR/EU AI Act/NIS2/PCI-DSS/
+  NIST compliance flags, optionally masks detected values.
+- **`synthelion.privacy_session.PrivacySession`** — session-based masking with
+  recoverable `[PG_n]` placeholders: mask PII before it reaches a model,
+  restore the originals client-side once the response comes back.
+- **`synthelion.prompt_injection_guard.PromptInjectionGuard`** — heuristic
+  screening for prompt-injection/jailbreak attempts (instruction override,
+  system-prompt exfiltration, role hijack, delimiter injection, encoded
+  payloads, exfiltration coercion) before untrusted text reaches an LLM.
+- **`synthelion.ai_transparency_notice`** — localized (en/it/de/fr/es)
+  "you're talking to an AI" disclosure message, supporting EU AI Act Art.50
+  transparency obligations.
+- **New `privacy.*` config section** (`enabled`, `auto_masking`,
+  `prompt_injection_guard`, `language`, `ai_transparency_notice`) — a master
+  switch plus per-feature toggles, editable from the dashboard's new
+  Settings → "Privacy & Security" card. `enabled: true`/`auto_masking: true`
+  by default.
+- **Integrated into the `compress` CLI command from the start** — the exact
+  command the `UserPromptSubmit` Claude Code hook already calls. PII is masked
+  *before* NLP compression (the `[PG_n]` placeholders survive compression
+  untouched — they match no stopword list in any language), so masking is
+  active for every hook-driven prompt the moment Synthelion is installed, not
+  an opt-in a user has to discover. `privacy.enabled: false` restores exactly
+  the pre-1.2.2 behavior.
+- New MCP tools **`analyze_privacy`**, **`restore_privacy_text`**,
+  **`check_prompt_injection`**, **`get_ai_transparency_notice`**.
+- New dashboard KPI **"PII items masked"** (cumulative, from the same ledger
+  `synthelion status`/`gain` already read).
+- New dependency: `pyyaml` (parses the copied `privacy_rules.yaml` — the
+  hand-rolled mini-parser already in `word_provider.py` is purpose-built for
+  the much simpler worddata schema and doesn't handle nested rule documents).
 
 ### Added — credential-shape detection before persisting to disk
 - **`synthelion.sensitive_guard.find_sensitive(text)`** — regex-based detector

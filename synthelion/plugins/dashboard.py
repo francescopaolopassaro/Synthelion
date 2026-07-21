@@ -70,6 +70,7 @@ _STATIC_FILES = {
 _PAGE_ROUTES = frozenset({
     "/", "/index.html", "/overview", "/charts", "/sessions", "/requests",
     "/decisions", "/settings", "/doctor", "/version", "/profile", "/notifications", "/cluster",
+    "/privacy",
 })
 
 # Node-to-node cluster endpoints authenticate with the cluster's shared
@@ -223,6 +224,8 @@ class _DashboardHandler(BaseHTTPRequestHandler):
                 self._serve_json(self._run_upgrade())
             elif path == "/api/cluster/action":
                 self._serve_json(self._cluster_action())
+            elif path == "/api/privacy-test":
+                self._serve_json(self._privacy_test())
             else:
                 self._error(404, "Not found")
         except Exception as exc:  # noqa: BLE001 - never let one bad request kill the server
@@ -305,6 +308,36 @@ class _DashboardHandler(BaseHTTPRequestHandler):
         merged = merge_config(current, partial)
         save_config(merged)
         return {"config": merged, "status": "saved"}
+
+    def _privacy_test(self) -> dict:
+        """Live PrivacyGuard tester for the Privacy & Security page — runs both
+        PII detection and prompt-injection screening on submitted text. Never
+        persists the submitted text anywhere."""
+        from synthelion.privacy_analyzer import PrivacyAnalyzer
+        from synthelion.prompt_injection_guard import PromptInjectionGuard
+
+        body = self._read_json_body()
+        text = body.get("text", "")
+        language = body.get("language") or "en"
+
+        privacy = PrivacyAnalyzer().analyze(text, language, auto_masking=True)
+        injection = PromptInjectionGuard().analyze(text)
+        return {
+            "privacy": {
+                "score": privacy.score,
+                "risk_level": privacy.risk_level,
+                "detected_categories": privacy.detected_categories,
+                "compliance_flags": privacy.compliance_flags,
+                "masked_text": privacy.masked_text,
+                "match_count": privacy.match_count,
+            },
+            "prompt_injection": {
+                "score": injection.score,
+                "risk_level": injection.risk_level,
+                "detected_categories": injection.detected_categories,
+                "is_clean": injection.is_clean,
+            },
+        }
 
     @staticmethod
     def _storage_status() -> dict:

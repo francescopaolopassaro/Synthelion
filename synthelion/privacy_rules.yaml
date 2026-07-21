@@ -1,0 +1,461 @@
+version: "2.0"
+global_context_keywords:
+  - confidential
+  - riservato
+  - vertraulich
+  - confidentiel
+  - confidencial
+  - poufne
+  - password
+  - passwd
+  - pwd
+  - secret
+  - geheim
+  - token
+  - api_key
+  - apikey
+  - bearer
+  - patient
+  - paziente
+  - patienten
+  - diagnose
+  - referto
+  - medical
+  - santé
+  - gdpr
+  - dsgvo
+  - rgpd
+  - rodo
+  - avg
+  - privacy
+  - datenschutz
+  - protezione
+  - dados
+
+countries:
+  - code: "EU"
+    language: "multi"
+    rules:
+      - category: "Email"
+        pattern: '\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b'
+        base_weight: 8
+        context_keywords: ["email", "mail", "contatto", "indirizzo", "posta", "adresse", "correo"]
+        compliance_tags: ["GDPR Art.4(1)"]
+      - category: "Phone E.164"
+        pattern: '\b\+?[1-9]\d{6,14}\b'
+        base_weight: 10
+        context_keywords: ["tel", "phone", "cell", "mobile", "fisso", "nummer", "téléphone", "teléfono", "telefon"]
+        compliance_tags: ["GDPR Art.4(1)"]
+      - category: "IBAN"
+        pattern: '\b[A-Z]{2}\d{2}[A-Z0-9]{4,30}\b'
+        base_weight: 22
+        validator_name: "IBAN"
+        context_keywords: ["iban", "conto", "bank", "compte", "cuenta", "konto", "rachunek"]
+        compliance_tags: ["PCI-DSS", "SEPA"]
+      - category: "Credit Card"
+        pattern: '\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13}|6(?:011|5[0-9]{2})[0-9]{12})\b'
+        base_weight: 25
+        validator_name: "LUHN"
+        context_keywords: ["card", "credit", "debit", "tarjeta", "carte", "karta", "pago"]
+        compliance_tags: ["PCI-DSS"]
+      - category: "JWT/Token"
+        pattern: '\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b'
+        base_weight: 28
+        is_high_confidence: true
+        context_keywords: ["token", "jwt", "auth", "bearer"]
+        compliance_tags: ["NIST 800-53"]
+      - category: "Password/Secret"
+        pattern: '\b(?:password|passwd|pwd|secret|token|api_key|apikey|bearer)[\s:=]+\S{8,}\b'
+        base_weight: 24
+        compliance_tags: ["NIST 800-53"]
+      - category: "GPS Coordinates"
+        pattern: '\b[-+]?([1-8]?\d(\.\d+)?|90(\.0+)?),\s*[-+]?(180(\.0+)?|((1[0-7]\d)|([1-9]?\d))(\.\d+)?)\b'
+        base_weight: 10
+        context_keywords: ["gps", "location", "posizione", "ubicación", "ortung", "coordonnées", "współrzędne", "locatie", "localização", "lat", "lon", "plus code", "what3words", "geolokacja", "standort"]
+        compliance_tags: ["GDPR Art.4(1) - Location Data"]
+      - category: "EU Vehicle License Plate"
+        pattern: '(?i)(?:targa|kennzeichen|license plate|placa|rejestracja|kenteken|immatriculation)\s*[:=]?\s*[A-Z0-9]{1,4}[-\s.]*[A-Z0-9]{1,4}[-\s.]*[A-Z0-9]{1,4}\b'
+        base_weight: 12
+        context_keywords: ["auto", "veicolo", "car", "vehicle", "kfz", "wozidlo", "samochód"]
+        compliance_tags: ["GDPR Art.4(1) - Indirect Identifiers"]
+      - category: "PNR / Booking Code"
+        pattern: '(?i)(?:pnr|booking code|prenotazione|codice prenotazione|reservation code|codice viaggio|buchungscode|code de réservation|código de reserva|nr rezerwacji|boekingscode)\s*[:=]?\s*[A-Z0-9]{6}\b'
+        base_weight: 8
+        context_keywords: ["volo", "treno", "hotel", "aereo", "flight", "train", "flug", "vlucht", "pociąg", "tren", "amadeus", "sabre", "galileo", "viaje", "reise"]
+        compliance_tags: ["GDPR Art.4(1) - Mobility Data"]
+      - category: "Social / Messenger Handle"
+        pattern: '(?i)(?:@|t\.me\/|instagram\.com\/|x\.com\/|tiktok\.com\/|discord\.gg\/|telegram\.me\/|linkedin\.com\/in\/)[a-zA-Z0-9_\.]{3,32}\b'
+        base_weight: 6
+        context_keywords: ["contattami", "scrivimi", "contact me", "kontakt", "contactez-moi", "contáctame", "skontaktuj się", "neem contact op", "profile", "profil", "perfil", "canale", "channel", "grupo", "group"]
+        compliance_tags: ["GDPR Art.4(1) - Digital Identity"]
+      - category: "Minor Data (<16)"
+        pattern: '(?i)\b(?:minore di|bambino di|ragazzo di|under\s*|minderj[aä]hrig unter|mineur de|menor de|małoletni poniżej)\s*\d{1,2}\s*(?:anni|years|ans|años|lat|jahr|let)\b'
+        base_weight: 18
+        context_keywords: ["scuola", "asilo", "genitore", "tutore", "autorizzazione", "consenso genitori", "pediatra", "école", "crèche", "parent", "guardian", "einverständnis", "consentimiento", "zgoda rodziców", "toestemming ouder"]
+        compliance_tags: ["GDPR Art.8 - Enhanced Minor Protection"]
+      - category: "Legal Case / File Number"
+        pattern: '(?i)(?:rg|r\.g\.|proc\.|fasc\.|causa|sentenza|decreto|verbale|denuncia|aktenzeichen|dossier judiciaire|expediente|nr sprawy|zaaknummer)\s*(?:n\.?)?\s*\d{3,6}[\/-]\d{2,4}\b'
+        base_weight: 15
+        context_keywords: ["avvocato", "tribunale", "causa", "processo", "polizia", "carabinieri", "questura", "procura", "avocat", "tribunal", "police", "gendarmerie", "abogado", "juzgado", "adwokat", "sąd", "advocaat", "rechtbank"]
+        compliance_tags: ["GDPR Art.10 - Judicial Data", "ePrivacy Directive"]
+      - category: "Employee / Badge ID"
+        pattern: '(?i)(?:matricola|badge|dipendente|studente|employee id|personalnummer|numéro d''employé|número de empleado|nr pracownika|werknemersnummer|código de funcionário|kennung|identyfikator)\s*[:=]?\s*[A-Z0-9\-]{4,12}\b'
+        base_weight: 9
+        context_keywords: ["azienda", "ufficio", "badge", "timbratura", "turno", "hr", "personale", "tesserino", "entreprise", "bureau", "ressources humaines", "empresa", "oficina", "rrhh", "firma", "biuro", "karty", "zmiana", "werkgever", "kantoor"]
+        compliance_tags: ["GDPR Art.4(1) - Employment Data", "EU Directive 2019/1152"]
+
+  - code: "IT"
+    language: "it"
+    rules:
+      - category: "Italian Tax Code (CF)"
+        pattern: '\b[A-Z]{6}[0-9LMNPQRSTUV]{2}[ABCDEHLMPRST][0-9LMNPQRSTUV]{2}[A-Z][0-9LMNPQRSTUV]{3}[A-Z]\b'
+        base_weight: 18
+        validator_name: "CF_IT"
+        is_high_confidence: true
+        context_keywords: ["cf", "codice fiscale", "tessera", "sostituto imposta"]
+        compliance_tags: ["GDPR", "Italian D.Lgs 196/2003"]
+      - category: "Italian VAT Number"
+        pattern: '\bIT?\d{11}\b'
+        base_weight: 16
+        validator_name: "PIVA_IT"
+        context_keywords: ["piva", "partita", "iva", "vat"]
+        compliance_tags: ["GDPR", "Italian Revenue Agency"]
+
+  - code: "DE"
+    language: "de"
+    rules:
+      - category: "German Tax ID (Steuer-Id)"
+        pattern: '\b\d{11}\b'
+        base_weight: 19
+        validator_name: "STEUER_ID_DE"
+        is_high_confidence: true
+        context_keywords: ["steuer-id", "steueridentifikationsnummer", "steuernummer"]
+        compliance_tags: ["DSGVO", "BfDI"]
+      - category: "German ID Card"
+        # Real Personalausweis shape: 1 letter (from a restricted set, excludes vowels/
+        # ambiguous letters) + 8 digits (the last one is the check digit). Deliberately
+        # different from other 9-character IDs (e.g. Spanish NIF = 8 digits + letter,
+        # UK NINO = 2 letters + 6 digits + letter) to avoid cross-country false positives.
+        pattern: '(?-i)\b[CFGHJKLMNPRTVWXYZ]\d{8}\b'
+        base_weight: 14
+        validator_name: "IDCARD_DE"
+        context_keywords: ["ausweis", "personalausweis", "reisepass", "id-karte"]
+        compliance_tags: ["DSGVO"]
+
+  - code: "FR"
+    language: "fr"
+    rules:
+      - category: "French Social Security (NIR)"
+        pattern: '\b[12]\s?\d{2}\s?[0-9]{2}\s?[0-9]{2}\s?[0-9]{3}\s?[0-9]{3}\s?[0-9]{2}\b'
+        base_weight: 19
+        validator_name: "NIR_FR"
+        is_high_confidence: true
+        context_keywords: ["nir", "ssn", "sécu", "sécurité sociale", "numéro sécurité"]
+        compliance_tags: ["RGPD", "CNIL"]
+      - category: "French Business ID (SIREN/SIRET)"
+        pattern: '\b\d{3}\s?\d{3}\s?\d{3}\b|\b\d{3}\s?\d{3}\s?\d{3}\s?00\d{2}\b'
+        base_weight: 13
+        context_keywords: ["siren", "siret", "entreprise", "société"]
+        compliance_tags: ["RGPD", "INSEE"]
+
+  - code: "ES"
+    language: "es"
+    rules:
+      - category: "Spanish Tax/ID Number (NIF/NIE)"
+        pattern: '\b[XYZ]\d{7}[A-Z]\b|\b\d{8}[A-Z]\b'
+        base_weight: 18
+        validator_name: "NIF_ES"
+        is_high_confidence: true
+        context_keywords: ["nif", "nie", "dni", "identificación", "cif"]
+        compliance_tags: ["RGPD", "AEPD"]
+
+  - code: "PL"
+    language: "pl"
+    rules:
+      - category: "Polish PESEL"
+        pattern: '\b\d{11}\b'
+        base_weight: 17
+        validator_name: "PESEL_PL"
+        is_high_confidence: true
+        context_keywords: ["pesel", "dowód", "identyfikacja", "nr osobisty"]
+        compliance_tags: ["RODO", "UODO"]
+      - category: "Polish VAT (NIP)"
+        pattern: '\b\d{2}-\d{3}-\d{2}-\d{2}-\d{1}\b|\b\d{10}\b'
+        base_weight: 15
+        context_keywords: ["nip", "vat", "podatek", "firma"]
+        compliance_tags: ["RODO"]
+
+  - code: "NL"
+    language: "nl"
+    rules:
+      - category: "Dutch BSN"
+        pattern: '\b\d{9}\b'
+        base_weight: 18
+        validator_name: "BSN_NL"
+        context_keywords: ["bsn", "sofinummer", "identificatienummer", "persoonsnummer"]
+        compliance_tags: ["AVG", "AP"]
+
+  - code: "SE"
+    language: "sv"
+    rules:
+      - category: "Swedish Personal ID"
+        pattern: '\b\d{8}-?\d{4}\b'
+        base_weight: 19
+        validator_name: "PERSONNUMMER_SE"
+        context_keywords: ["personnummer", "pnr", "identitet", "folkbokföring"]
+        compliance_tags: ["GDPR", "IMY"]
+
+  - code: "FI"
+    language: "fi"
+    rules:
+      - category: "Finnish Personal ID (Hetu)"
+        pattern: '\b\d{6}[A\+\-BCDFGHJKLMNPRSTVWXY]\d{3}[0-9A-Z]\b'
+        base_weight: 20
+        validator_name: "HETU_FI"
+        is_high_confidence: true
+        context_keywords: ["hetu", "henkilötunnus", "sotu", "identiteetti"]
+        compliance_tags: ["GDPR", "Finnish DPO"]
+
+  - code: "DK"
+    language: "da"
+    rules:
+      - category: "Danish CPR Number"
+        pattern: '\b\d{6}-?\d{4}\b'
+        base_weight: 19
+        validator_name: "CPR_DK"
+        context_keywords: ["cpr", "cpr-nummer", "personnummer", "id"]
+        compliance_tags: ["GDPR", "Datatilsynet"]
+
+  - code: "AT"
+    language: "de"
+    rules:
+      - category: "Austrian Social Insurance"
+        pattern: '\b\d{4}\s?\d{5}\b'
+        base_weight: 17
+        context_keywords: ["sv-nummer", "sozialversicherung", "versichertennummer"]
+        compliance_tags: ["DSGVO", "DSB"]
+      - category: "Austrian VAT (UID)"
+        pattern: '\bATU\d{8}\b'
+        base_weight: 15
+        context_keywords: ["uid", "steuer-id", "ust-id"]
+        compliance_tags: ["DSGVO"]
+
+  - code: "BE"
+    language: "fr/nl"
+    rules:
+      - category: "Belgian National Registry"
+        pattern: '\b\d{11}\b'
+        base_weight: 18
+        validator_name: "NN_BE"
+        context_keywords: ["numéro national", "rijksregisternummer", "nn", "id"]
+        compliance_tags: ["GDPR", "APD"]
+
+  - code: "PT"
+    language: "pt"
+    rules:
+      - category: "Portuguese Tax Number (NIF)"
+        pattern: '\b\d{9}\b'
+        base_weight: 16
+        validator_name: "NIF_PT"
+        context_keywords: ["nif", "número contribuinte", "fiscal", "contribuinte"]
+        compliance_tags: ["RGPD", "CNPD"]
+
+  - code: "IE"
+    language: "en"
+    rules:
+      - category: "Irish PPSN"
+        pattern: '\b\d{7}[A-W][A-WX]?\b'
+        base_weight: 19
+        validator_name: "PPSN_IE"
+        context_keywords: ["ppsn", "pps number", "social insurance", "id"]
+        compliance_tags: ["GDPR", "DPC"]
+
+  - code: "GR"
+    language: "el"
+    rules:
+      - category: "Greek Tax Number (AFM)"
+        pattern: '\b\d{9}\b'
+        base_weight: 16
+        validator_name: "AFM_GR"
+        context_keywords: ["afm", "αφμ", "tax", "fiscale"]
+        compliance_tags: ["GDPR", "HDPA"]
+      - category: "Greek Social Security (AMKA)"
+        pattern: '\b\d{11}\b'
+        base_weight: 18
+        context_keywords: ["amka", "αμκα", "ασφάλιση", "υγεία"]
+        compliance_tags: ["GDPR"]
+
+  - code: "CZ"
+    language: "cs"
+    rules:
+      - category: "Czech Birth Number"
+        pattern: '\b\d{6}/\d{4}\b'
+        base_weight: 18
+        validator_name: "RC_CZ"
+        context_keywords: ["rodné číslo", "rc", "identifikace"]
+        compliance_tags: ["GDPR", "ÚOOÚ"]
+
+  - code: "RO"
+    language: "ro"
+    rules:
+      - category: "Romanian Personal Code (CNP)"
+        pattern: '\b[1-8]\d{12}\b'
+        base_weight: 19
+        validator_name: "CNP_RO"
+        context_keywords: ["cnp", "cod numeric personal", "identificare"]
+        compliance_tags: ["GDPR", "ANSPDCP"]
+
+  - code: "HU"
+    language: "hu"
+    rules:
+      - category: "Hungarian Tax ID"
+        pattern: '\b\d{10}\b'
+        base_weight: 15
+        context_keywords: ["adóazonosító", "taj", "adózás", "azonosító"]
+        compliance_tags: ["GDPR", "NAIH"]
+
+  - code: "BG"
+    language: "bg"
+    rules:
+      - category: "Bulgarian EGN"
+        pattern: '\b\d{10}\b'
+        base_weight: 18
+        validator_name: "EGN_BG"
+        context_keywords: ["egn", "егн", "идентификация", "граждан"]
+        compliance_tags: ["GDPR", "CPDP"]
+
+  - code: "HR"
+    language: "hr"
+    rules:
+      - category: "Croatian OIB"
+        pattern: '\b\d{11}\b'
+        base_weight: 16
+        validator_name: "OIB_HR"
+        context_keywords: ["oib", "identifikacijski broj", "porezni broj"]
+        compliance_tags: ["GDPR", "AZOP"]
+
+  - code: "SK"
+    language: "sk"
+    rules:
+      - category: "Slovak Birth Number"
+        pattern: '\b\d{6}/\d{4}\b'
+        base_weight: 18
+        context_keywords: ["rodné číslo", "rc", "identifikácia"]
+        compliance_tags: ["GDPR", "ÚOOÚ"]
+
+  - code: "SI"
+    language: "sl"
+    rules:
+      - category: "Slovenian EMSO"
+        pattern: '\b\d{13}\b'
+        base_weight: 18
+        validator_name: "EMSO_SI"
+        context_keywords: ["emšo", "ems", "matična številka"]
+        compliance_tags: ["GDPR", "IP"]
+
+  - code: "LT"
+    language: "lt"
+    rules:
+      - category: "Lithuanian Personal Code"
+        pattern: '\b[1-6]\d{10}\b'
+        base_weight: 17
+        validator_name: "AK_LT"
+        context_keywords: ["asmens kodas", "ak", "identifikacija"]
+        compliance_tags: ["GDPR", "VDAI"]
+
+  - code: "LV"
+    language: "lv"
+    rules:
+      - category: "Latvian Personal Code"
+        pattern: '\b\d{6}-\d{5}\b|\b\d{11}\b'
+        base_weight: 17
+        validator_name: "PK_LV"
+        context_keywords: ["personas kods", "pk", "identifikācija"]
+        compliance_tags: ["GDPR", "DVI"]
+
+  - code: "EE"
+    language: "et"
+    rules:
+      - category: "Estonian Personal ID"
+        pattern: '\b[1-6]\d{10}\b'
+        base_weight: 17
+        validator_name: "IK_EE"
+        context_keywords: ["isikukood", "ik", "identifitseerimine"]
+        compliance_tags: ["GDPR", "AKI"]
+
+  - code: "CY"
+    language: "el/en"
+    rules:
+      - category: "Cypriot ID Number"
+        pattern: '\b[A-Z]\d{6}[A-Z]\b'
+        base_weight: 16
+        context_keywords: ["id number", "identity", "ταυτότητα"]
+        compliance_tags: ["GDPR", "CIPD"]
+
+  - code: "MT"
+    language: "en/mt"
+    rules:
+      - category: "Maltese ID Number"
+        pattern: '\b\d{7}[A-Z0-9]\b'
+        base_weight: 15
+        context_keywords: ["id number", "identity card", "karta tal-identità"]
+        compliance_tags: ["GDPR", "IDPC"]
+
+  - code: "LU"
+    language: "fr/de/lb"
+    rules:
+      - category: "Luxembourg National ID"
+        pattern: '\b\d{13}\b'
+        base_weight: 16
+        context_keywords: ["numero", "identifikation", "numéro d'identification", "matricule"]
+        compliance_tags: ["GDPR", "CNPD"]
+
+  - code: "GB"
+    language: "en"
+    rules:
+      - category: "UK National Insurance Number (NINO)"
+        pattern: '\b[A-CEGHJ-PR-TW-Z][A-CEGHJ-NPR-TW-Z]\d{6}[A-D]\b'
+        base_weight: 17
+        validator_name: "NINO_GB"
+        context_keywords: ["national insurance", "nino", "ni number"]
+        compliance_tags: ["UK GDPR", "Data Protection Act 2018"]
+
+  - code: "CH"
+    language: "de/fr/it"
+    rules:
+      - category: "Swiss AHV/AVS Number"
+        pattern: '\b756\.\d{4}\.\d{4}\.\d{2}\b'
+        base_weight: 18
+        validator_name: "AHV_CH"
+        context_keywords: ["ahv-nummer", "no avs", "sozialversicherungsnummer", "numero avs"]
+        compliance_tags: ["FADP", "nLPD"]
+
+  - code: "CN"
+    language: "zh"
+    rules:
+      - category: "Chinese Resident ID Number"
+        pattern: '\b[1-9]\d{5}(?:19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{3}[\dX]\b'
+        base_weight: 20
+        validator_name: "ID_CN"
+        context_keywords: ["身份证", "居民身份证", "id number"]
+        compliance_tags: ["PIPL"]
+
+  - code: "RU"
+    language: "ru"
+    rules:
+      - category: "Russian Taxpayer ID (INN)"
+        pattern: '\b\d{12}\b'
+        base_weight: 17
+        validator_name: "INN_RU"
+        context_keywords: ["инн", "налогоплательщик", "taxpayer id"]
+        compliance_tags: ["152-FZ"]
+
+  - code: "UA"
+    language: "uk"
+    rules:
+      - category: "Ukrainian Taxpayer Number (RNOKPP)"
+        pattern: '\b\d{10}\b'
+        base_weight: 17
+        validator_name: "RNOKPP_UA"
+        context_keywords: ["рнокпп", "ідентифікаційний номер", "taxpayer number"]
+        compliance_tags: ["Law of Ukraine No.2297-VI"]

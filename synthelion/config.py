@@ -51,6 +51,26 @@ _DEFAULT_CONFIG: dict[str, Any] = {
         "realtime": "websocket",
         "websocket_port": 8788,
     },
+    "privacy": {
+        # Master switch — set to False to disable PII detection/masking entirely
+        # and fall back to today's pre-1.2.2 behavior (no privacy pre-pass at all).
+        "enabled": True,
+        # Mask detected PII (email, IBAN, national tax/ID numbers, credit cards, ...)
+        # with recoverable [PG_n] placeholders before the text is compressed/sent.
+        "auto_masking": True,
+        # Heuristic screening for prompt-injection/jailbreak attempts.
+        "prompt_injection_guard": True,
+        "language": "en",
+        # EU AI Act Art.50 "you're talking to an AI" disclosure — off by default,
+        # since whether/how to show it is an application-level, not library-level,
+        # decision.
+        "ai_transparency_notice": False,
+        # Overrides the built-in localized transparency message when set.
+        "transparency_custom_message": "",
+        # Exact-match values PrivacyAnalyzer should never flag/mask (e.g. a
+        # company support email that's fine to see in plaintext logs).
+        "whitelist": [],
+    },
     "cluster": {
         # "standalone" (default) | "master" | "slave"
         "role": "standalone",
@@ -185,6 +205,16 @@ def default_wiki_depth(config: dict[str, Any] | None = None) -> int:
     cfg = config if config is not None else load_config()
     depth = cfg.get("wiki", {}).get("default_depth", 2)
     return depth if depth in (1, 2, 3, 4) else 2
+
+
+def privacy_config(config: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The effective `privacy.*` settings (PII detection/masking, prompt-injection
+    guard, AI transparency notice) — see `_DEFAULT_CONFIG["privacy"]` for defaults.
+    `privacy.enabled = False` is the one master switch that disables the whole
+    pre-pass, restoring pre-1.2.2 behavior exactly."""
+    cfg = config if config is not None else load_config()
+    defaults = _DEFAULT_CONFIG["privacy"]
+    return {**defaults, **cfg.get("privacy", {})}
 
 
 def new_node_id() -> str:

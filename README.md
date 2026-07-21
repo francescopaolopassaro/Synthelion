@@ -25,6 +25,7 @@ Supports 50+ languages out of the box. No AI model required. No configuration.
 ## Table of contents
 
 - [Why Synthelion?](#why-synthelion)
+- [Privacy & Security — PrivacyGuard](#privacy--security--privacyguard)
 - [Synthelion vs other prompt/context-compression tools](#synthelion-vs-other-promptcontext-compression-tools)
 - [Quick install — one command](#quick-install--one-command)
 - [Install (manual)](#install-manual)
@@ -35,7 +36,7 @@ Supports 50+ languages out of the box. No AI model required. No configuration.
 - [Integrations](#integrations) (OpenAI, LangChain, Claude/OpenAI adapters, Python API, CLI)
 - [Web dashboard](#web-dashboard)
 - [Cluster deployment](#cluster-deployment)
-- [Tools](#tools) (37 MCP tools)
+- [Tools](#tools) (41 MCP tools)
 - [Code examples](#code-examples)
 - [Compression levels](#compression-levels)
 - [Supported languages](#supported-languages-50)
@@ -57,8 +58,59 @@ Every token sent to a model costs money and time. Synthelion removes the words t
 - **Content-aware routing** — JSON, HTML, git diffs, logs, code, and prose each get a dedicated compression strategy instead of one generic pass; a universal anti-expansion guard means you never get back something bigger than what you sent in.
 - **Adaptive by design** — compression escalates automatically for larger inputs, results are cached by content hash, and repeated tool calls get diffed instead of resent in full.
 - **Safety-conscious by default** — credential-shaped text (API keys, tokens, PEM blocks) is redacted before it's ever persisted to disk; destructive-command text is flagged before compression could obscure it.
-- **MCP-native** — 37 tools, `readOnlyHint`-annotated where safe for parallel calls, plus first-class OpenAI/LangChain/Claude adapters and a plain Python API.
+- **MCP-native** — 41 tools, `readOnlyHint`-annotated where safe for parallel calls, plus first-class OpenAI/LangChain/Claude adapters and a plain Python API.
 - **Ops-ready** — a local multi-page dashboard, cluster/master-slave deployment, Docker/Kubernetes manifests, all included, none required.
+
+> Beyond every competitor we looked at, we care about security: Synthelion is the
+> only library that handles both security and token optimization end-to-end, in
+> one package — thanks to years of work on the Caveman C# suite, now available
+> here too.
+
+---
+
+## Privacy & Security — PrivacyGuard
+
+A direct Python port of **[Caveman.PrivacyGuard](https://github.com/francescopaolopassaro/Caveman.PrivacyGuard)** (the same C# enterprise PII analyzer used in production Caveman deployments) — not a new, thinner reimplementation, the actual rule set, scoring formula, and ~30 algorithmic checksum validators, unchanged. Same zero-ML philosophy as the rest of Synthelion: every detection is a compiled regex plus, for the categories where it matters, a real checksum algorithm — not just a format guess.
+
+- **33 country/region rule sets** (27 EU + UK, Switzerland, China, Russia, Ukraine), **51 detection rules**: email, phone (E.164), IBAN, credit cards, national tax/ID numbers (Italian CF/P.IVA, French NIR, Spanish NIF, Polish PESEL, German Steuer-ID, UK NINO, Swiss AHV, Chinese ID, Russian INN, and 20+ more), GPS coordinates, vehicle plates, JWTs/API secrets, and more.
+- **Real checksum validation, not just regex** — an IBAN, a Luhn-valid credit card, an Italian Codice Fiscale, a Polish PESEL, etc. are verified algorithmically, so a random 16-digit number doesn't get flagged as a credit card just because it matches the shape.
+- **Compliance-flag mapping** — GDPR, EU AI Act, NIS2, PCI-DSS, and NIST 800-53 flags attached automatically based on what's detected.
+- **Session-based masking with recoverable placeholders** — mask PII with `[PG_n]` placeholders before it reaches a model, then restore the originals client-side once the response comes back; the model itself never sees the real data.
+- **Prompt-injection guard** — heuristic screening for instruction override, system-prompt exfiltration, role hijack/jailbreak framing, delimiter injection, encoded payloads, and exfiltration coercion, before untrusted text reaches an LLM's context.
+- **AI transparency notice** — a ready-to-display, localized (en/it/de/fr/es) "you're talking to an AI" disclosure, supporting EU AI Act Art.50 obligations (confirm applicability/wording with legal counsel).
+- **Fully adjustable, on by default** — active on the `compress` hook path from the moment you install Synthelion (so it's not an opt-in a user has to discover), but every piece is a config toggle: turn off masking, the injection guard, or the whole thing entirely with one setting.
+
+```python
+from synthelion import PrivacyAnalyzer, PrivacySession
+
+analyzer = PrivacyAnalyzer()
+session = PrivacySession()
+result = analyzer.analyze(
+    "Contact me at mario.rossi@example.it, IBAN IT60X0542811101000000123456",
+    session=session, auto_masking=True,
+)
+print(result.masked_text)
+# Contact me at [PG_2], IBAN [PG_1]
+print(result.risk_level, result.compliance_flags)
+
+# ... later, once the model's response comes back with the placeholders intact:
+print(session.restore(result.masked_text))
+# Contact me at mario.rossi@example.it, IBAN IT60X0542811101000000123456
+```
+
+Toggle it in `~/.synthelion/config.json` (or the dashboard's Settings → Privacy & Security card):
+```json
+{
+  "privacy": {
+    "enabled": true,
+    "auto_masking": true,
+    "prompt_injection_guard": true,
+    "language": "en",
+    "ai_transparency_notice": false
+  }
+}
+```
+Setting `"enabled": false` restores exactly the pre-1.2.2 behavior — no privacy pre-pass at all.
 
 ### Before / After
 
@@ -161,10 +213,12 @@ open an issue with your methodology and we'll link it here.
 | Advisory command-rewrite (never executes) | ✅ | — | — | ⚠️ executes it (rtk wrapper) | — | n/a |
 | Local multi-page web dashboard | ✅ | ✅ | ✅ (simpler) | — | — | n/a |
 | Cluster / master-slave deployment | ✅ | — | — | — | — | n/a |
-| MCP protocol (Claude Code, etc.) | ✅ 37 tools | ✅ (CLI plugins: Claude/Codex/Gemini) | — (HTTP proxy instead) | ✅ (hooks) | — | n/a |
+| MCP protocol (Claude Code, etc.) | ✅ 41 tools | ✅ (CLI plugins: Claude/Codex/Gemini) | — (HTTP proxy instead) | ✅ (hooks) | — | n/a |
 | Vision/image token optimization | — (text-only) | ✅ (tile-aligned resize + trained router) | — | — | — | n/a |
 | Provider cache-breakpoint-aware read staleness | ✅ | ✅ (origin, `read_maturation.py`) | — | — | — | n/a |
 | Response-style compression (output-side, CJK-aware) | ✅ | — | — | — | — | ✅ (origin) |
+| PII detection + masking (33 countries, GDPR/AI Act compliance) | ✅ | — | — | — | — | — |
+| Prompt-injection guard (jailbreak/instruction-override screening) | ✅ | — | — | — | — | — |
 
 **Not in this table:** `tokensave` — a Rust code-intelligence tool (Tree-sitter knowledge graph, dead-code/cycle detection, code-health scoring) that solves a genuinely different problem (structural understanding of a codebase) rather than context/token compression, so it isn't a like-for-like comparison here.
 
@@ -422,7 +476,20 @@ Claude will call the MCP tool and return the compressed version.
 
 ## Automatic prompt compression — Claude Code hook
 
-> **How it works:** every prompt longer than 200 characters is automatically compressed by Synthelion. The compressed text is injected as `additionalContext` for Claude (invisible in the terminal — that's the part that actually does the token-saving work), while a short `systemMessage` — `[Synthelion N% saved - X mWh - Y mg CO2 saved]` — is shown visibly so you can confirm it fired.
+> **How it works:** every prompt is automatically scanned and compressed by Synthelion (no minimum length — PrivacyGuard's PII masking runs on short prompts too, since that's often where a single pasted secret or IBAN shows up). The compressed text is injected as `additionalContext` for Claude (invisible in the terminal — that's the part that actually does the token-saving work), while a `systemMessage` — `[Synthelion N% saved - X mWh - Y mg CO2 saved]` — is shown visibly so you can confirm it fired. When PrivacyGuard detects PII, the message expands with the full breakdown:
+>
+> ```
+> [Synthelion 57% saved - 0.02 mWh - 0.008 mg CO2 saved]
+>
+> PII / Privacy
+> Score: 39 - Risk: Medium (Anonymization Required)
+>
+> Categories: IBAN
+>
+> Compliance: PCI-DSS, SEPA, PCI-DSS & SEPA - Financial/Payment Data, EU AI Act Annex III(5) - Credit Scoring & Essential Services
+>
+> Masked: [IBAN]
+> ```
 
 ### Automatic setup (recommended)
 
@@ -445,7 +512,7 @@ synthelion install --local  # project-local .claude/settings.json
           {
             "type": "command",
             "shell": "powershell",
-            "command": "$j=[Console]::In.ReadToEnd()|ConvertFrom-Json;$p=$j.prompt;if($p -and $p.Length -gt 200){$r=($p| & \"synthelion\" compress --json 2>$null)|ConvertFrom-Json;if($r -and $r.efficiency_pct -gt 15){$pct=[Math]::Round($r.efficiency_pct);$label='[Synthelion '+$pct+'% saved - '+$r.energy_mwh+' mWh - '+$r.co2_mg+' mg CO2 saved]';@{systemMessage=$label;hookSpecificOutput=@{hookEventName='UserPromptSubmit';additionalContext=$r.compressed}}|ConvertTo-Json -Compress}}",
+            "command": "$j=[Console]::In.ReadToEnd()|ConvertFrom-Json;$p=$j.prompt;if($p){$r=($p| & \"synthelion\" compress --json 2>$null)|ConvertFrom-Json;if($r -and $r.efficiency_pct -gt 15){$pct=[Math]::Round($r.efficiency_pct);$label='[Synthelion '+$pct+'% saved - '+$r.energy_mwh+' mWh - '+$r.co2_mg+' mg CO2 saved]';if($r.privacy_categories -and $r.privacy_categories.Count -gt 0){$cats=($r.privacy_categories -join ', ');$comp=($r.privacy_compliance -join ', ');$label=$label+\"`n`nPII / Privacy`nScore: $($r.privacy_score) - Risk: $($r.privacy_risk_level)`n`nCategories: $cats`n`nCompliance: $comp`n`nMasked: [$cats]\"}@{systemMessage=$label;hookSpecificOutput=@{hookEventName='UserPromptSubmit';additionalContext=$r.compressed}}|ConvertTo-Json -Compress}}",
             "statusMessage": "Compressing prompt...",
             "timeout": 15
           }
@@ -946,7 +1013,7 @@ lands on.
 
 ## Tools
 
-37 MCP tools — the compression/read tools are marked `readOnlyHint: true` so Claude Code and other MCP clients can call them safely in parallel; the handful that mutate state (session recording, the loop guard, output masking) are not.
+41 MCP tools — the compression/read tools are marked `readOnlyHint: true` so Claude Code and other MCP clients can call them safely in parallel; the handful that mutate state (session recording, the loop guard, output masking) are not.
 
 | Tool | What it does |
 |---|---|
@@ -986,6 +1053,10 @@ lands on.
 | **track_file_read** | Records a file read for freshness tracking within a session — returns whether it's fresh or already stale. |
 | **track_file_write** | Records a file write — any earlier tracked reads of that path become stale. |
 | **check_read_maturity** | Checks whether a tracked file read is stale/superseded and has been quiet long enough to safely collapse into a compact marker. |
+| **analyze_privacy** | PrivacyGuard: detects PII across 33 country rule sets, scores it 0-100 with GDPR/AI Act/NIS2/PCI-DSS/NIST compliance flags, optionally masks it with recoverable placeholders. |
+| **restore_privacy_text** | Restores `[PG_n]` placeholders in text back to their original values from an `analyze_privacy` masking session. |
+| **check_prompt_injection** | Heuristic screening for prompt-injection/jailbreak attempts (instruction override, role hijack, delimiter injection, etc.) before untrusted text reaches an LLM. |
+| **get_ai_transparency_notice** | Returns a localized "you're talking to an AI" disclosure message (supports EU AI Act Art.50 transparency obligations). |
 
 Two more ship as CLI-only, meant for shell hooks rather than an agent calling them directly: `synthelion loop-check` / `synthelion loop-reset` — same loop guard, but persisted across process invocations (`~/.synthelion/loop_guard.jsonl`) for use as an external `PreToolUse`-style hook, since a hook script is a fresh process every call and can't keep the MCP tools' in-memory history.
 
