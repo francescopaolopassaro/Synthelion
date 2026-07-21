@@ -295,4 +295,9 @@ def save_config(config: dict[str, Any], path: Path | None = None) -> Path:
     with open(target, "w", encoding="utf-8") as fh:
         json.dump(config, fh, indent=2, ensure_ascii=False)
         fh.write("\n")
+    try:
+        from synthelion.integrations.opencode import install_or_update as _opencode_install
+        _opencode_install()
+    except Exception:
+        pass
     return target

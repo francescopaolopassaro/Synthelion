@@ -831,6 +831,117 @@ def _cmd_doctor(args) -> None:
         _print_star_cta()
 
 
+def _install_opencode_plugin(path: Path) -> None:
+    _PLUGIN_CODE = r"""import { type Plugin } from "@opencode-ai/plugin"
+
+const MIN_LEN = 10
+const MIN_EFF = 15
+
+async function syn($: any, subcmd: string, flags: Record<string, any> = {}): Promise<any> {
+  const args: string[] = [subcmd, "--json"]
+  for (const [k, v] of Object.entries(flags)) {
+    if (v === undefined || v === null) continue
+    const flag = k.length === 1 ? `-${k}` : `--${k.replace(/_/g, "-")}`
+    args.push(flag)
+    if (v !== true) args.push(typeof v === "string" ? v : JSON.stringify(v))
+  }
+  for (const bin of ["synthelion", "python -m synthelion.cli"]) {
+    try {
+      const out = await $`${bin} ${args}`.text()
+      const parsed = JSON.parse(out.trim())
+      if (parsed.error) continue
+      return parsed
+    } catch {}
+  }
+  return { error: "synthelion not available" }
+}
+
+export const SynthelionPlugin: Plugin = async (ctx) => {
+  const { $ } = ctx
+
+  return {
+    "chat.message": async (_input, output) => {
+      const textParts = output.parts.filter(
+        (p): p is { type: "text"; text: string } =>
+          "text" in p && typeof (p as any).text === "string",
+      )
+      if (textParts.length === 0) return
+      const fullText = textParts.map((p) => p.text).join("\n").trim()
+      if (fullText.length < MIN_LEN) return
+      try {
+        const r = await syn($, "compress", { text: fullText })
+        if (r.error || !r.compressed_text || r.efficiency_pct <= MIN_EFF) return
+        for (const p of textParts) p.text = r.compressed_text
+        output.parts.push({
+          type: "text",
+          text: `\n\n[⚡ Synthelion: ${r.original_tokens}→${r.compressed_tokens} tok, ${r.efficiency_pct}% saved]`,
+        })
+      } catch {}
+    },
+
+    "experimental.chat.system.transform": async (_input, output) => {
+      const text = output.system.join("\n")
+      if (text.length < 50) return
+      try {
+        const r = await syn($, "shape_output", { system_prompt: text, level: "no_restatement" })
+        if (r.system_prompt) output.system = [r.system_prompt]
+      } catch {}
+    },
+
+    "experimental.chat.messages.transform": async (_input, output) => {
+      const msgs = output.messages
+      if (msgs.length === 0) return
+
+      const last = msgs[msgs.length - 1]
+      if (last.info.role === "user") {
+        const text = last.parts
+          .filter((p): p is { type: "text"; text: string } => "text" in p && typeof (p as any).text === "string")
+          .map((p) => p.text)
+          .join("\n")
+          .trim()
+        if (text.length >= MIN_LEN) {
+          try {
+            const r = await syn($, "compress", { text })
+            if (!r.error && r.blocked) {
+              last.parts = [{ type: "text", text: r.notice || "[Blocked by Synthelion: PII detected]" }]
+              return
+            }
+            if (!r.error && r.privacy_masked && r.compressed_text) {
+              for (const p of last.parts) {
+                if ("text" in p && typeof (p as any).text === "string") (p as any).text = r.compressed_text
+              }
+            }
+          } catch {}
+        }
+      }
+
+      if (msgs.length < 6) return
+      const keep = Math.max(2, Math.floor(msgs.length / 2))
+      const old = msgs.slice(0, -keep)
+      if (old.length === 0) return
+      const oldText = old.map((m) => `${m.info.role}: ${m.parts.filter((p) => "text" in p).map((p: any) => p.text).join(" ")}`).join("\n")
+      if (oldText.length < 100) return
+      try {
+        const r = await syn($, "compress", { text: oldText, level: "aggressive" })
+        if (r.compressed_text && r.efficiency_pct > 20) {
+          const tail = msgs.slice(-keep)
+          output.messages = [{
+            info: { role: "system" } as any,
+            parts: [{ type: "text", text: `[Compressed conversation — ${r.original_tokens}→${r.compressed_tokens} tok, ${r.efficiency_pct}% saved]\n${r.compressed_text}` }],
+          }, ...tail]
+        }
+      } catch {}
+    },
+
+    "experimental.session.compacting": async (_input, output) => {
+      output.context.push("## Synthelion Plugin\nActive Synthelion MCP tools: compression, PII masking, summarization, and more.")
+    },
+  }
+}
+"""
+    path.write_text(_PLUGIN_CODE.strip(), encoding="utf-8")
+
+
 def _cmd_install(args) -> None:
     """Register Synthelion MCP server in an AI agent config."""
     import json as _json
@@ -911,7 +1022,24 @@ def _cmd_install(args) -> None:
         }
         config_path.write_text(_json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
         print(f"✓ Synthelion MCP registered in {config_path}")
-        print("  Restart OpenCode (or run `opencode mcp list`) to activate.")
+
+        # Install the Synthelion plugin with auto-compression + PII hook
+        if local:
+            plugin_dir = Path(".opencode") / "plugins"
+        else:
+            plugin_dir = Path.home() / ".config" / "opencode" / "plugins"
+        plugin_dir.mkdir(parents=True, exist_ok=True)
+        plugin_file = plugin_dir / "synthelion.ts"
+        if not plugin_file.exists():
+            _install_opencode_plugin(plugin_file)
+            print(f"✓ Synthelion plugin installed in {plugin_file}")
+        else:
+            print(f"  (plugin already exists at {plugin_file} — delete and re-run to reinstall)")
+        print()
+        print("  Next steps:")
+        print("  1. Restart OpenCode (or run `opencode mcp list`) to activate MCP tools.")
+        print("  2. The plugin auto-compresses every prompt and masks PII.")
+        print("  3. Run `opencode doctor` to verify everything loaded.")
 
     elif agent in ("cursor", "windsurf"):
         # Both read a plain { "mcpServers": {...} } file, same shape as Claude —

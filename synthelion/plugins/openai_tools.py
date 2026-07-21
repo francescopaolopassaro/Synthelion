@@ -800,7 +800,10 @@ def get_tool_definitions() -> list[dict]:
                     "coordinates, etc.), scores it 0-100 with a risk level, maps GDPR/EU AI "
                     "Act/NIS2/PCI-DSS/NIST compliance flags, and optionally masks detected values with "
                     "recoverable placeholders (use restore_privacy_text with the returned session_id "
-                    "to get the original text back)."
+                    "to get the original text back). "
+                    "When auto_masking=true, the result includes 'blocked' (bool): true if the message "
+                    "exceeds the configured risk threshold — agents MUST discard the original text "
+                    "and refuse to process it when blocked=true."
                 ),
                 "parameters": {
                     "type": "object",
@@ -1655,6 +1658,8 @@ def _get_or_create_privacy_session(session_id: str | None):
 
 
 def _exec_analyze_privacy(arguments: dict) -> dict:
+    from synthelion.config import privacy_config
+
     analyzer = _get_privacy_analyzer()
     auto_masking = bool(arguments.get("auto_masking", False))
     session = None
@@ -1663,6 +1668,13 @@ def _exec_analyze_privacy(arguments: dict) -> dict:
         session_id, session = _get_or_create_privacy_session(arguments.get("session_id"))
 
     result = analyzer.analyze(arguments["text"], arguments.get("language") or "en", session=session, auto_masking=auto_masking)
+
+    pcfg = privacy_config()
+    blocked = bool(
+        pcfg.get("enabled") and pcfg.get("block_on_risk")
+        and result.score >= pcfg.get("block_min_score", 61)
+    )
+
     out = {
         "score": result.score,
         "risk_level": result.risk_level,
@@ -1672,6 +1684,7 @@ def _exec_analyze_privacy(arguments: dict) -> dict:
         "is_safe_for_ai": result.is_safe_for_ai,
         "match_count": result.match_count,
         "matches_per_category": result.matches_per_category,
+        "blocked": blocked,
     }
     if auto_masking:
         out["masked_text"] = result.masked_text

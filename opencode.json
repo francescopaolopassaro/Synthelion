@@ -1,0 +1,11 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "synthelion": {
+      "type": "local",
+      "command": ["synthelion-mcp"],
+      "enabled": true,
+      "timeout": 30000
+    }
+  }
+}
