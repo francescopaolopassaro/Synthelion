@@ -737,6 +737,115 @@ class TestLoopGuardTools:
 
 
 # ---------------------------------------------------------------------------
+# 11b. Batch 3: tool-list relevance pruning, output masking, diff-on-repeat
+# ---------------------------------------------------------------------------
+class TestToolListRelevancePruning:
+    def test_filter_relevant_tools_respects_top_k(self):
+        from synthelion.plugins.openai_tools import filter_relevant_tools
+        result = filter_relevant_tools("compress this text", top_k=5)
+        assert len(result) == 5
+
+    def test_filter_relevant_tools_top_k_over_total_returns_all(self):
+        from synthelion.plugins.openai_tools import filter_relevant_tools, get_tool_definitions
+        result = filter_relevant_tools("anything", top_k=9999)
+        assert len(result) == len(get_tool_definitions())
+
+    def test_filter_relevant_tools_preserves_relative_order(self):
+        from synthelion.plugins.openai_tools import filter_relevant_tools, get_tool_definitions
+        all_defs = get_tool_definitions()
+        all_names = [td["function"]["name"] for td in all_defs]
+        result = filter_relevant_tools("compress json", top_k=8)
+        result_names = [td["function"]["name"] for td in result]
+        # kept names must appear in the same relative order as in the full list
+        indices = [all_names.index(n) for n in result_names]
+        assert indices == sorted(indices)
+
+    def test_filter_relevant_tools_ranks_compression_tools_for_json_query(self):
+        from synthelion.plugins.openai_tools import filter_relevant_tools
+        result = filter_relevant_tools("compress a JSON array of tool schemas", top_k=6)
+        names = {td["function"]["name"] for td in result}
+        assert names & {"compress", "route_content", "compress_batch", "compress_for_context"}
+
+    def test_list_relevant_tools_in_tool_definitions(self):
+        names = {t["function"]["name"] for t in get_tool_definitions()}
+        assert "list_relevant_tools" in names
+
+    def test_execute_list_relevant_tools_shape(self):
+        r = execute_tool("list_relevant_tools", {"query": "compress json", "top_k": 4})
+        assert isinstance(r["tools"], list)
+        assert len(r["tools"]) == 4
+        assert r["total_available"] == len(get_tool_definitions())
+
+    def test_list_relevant_tools_marked_read_only(self):
+        from synthelion.plugins.mcp_server import _READ_ONLY_TOOLS
+        assert "list_relevant_tools" in _READ_ONLY_TOOLS
+
+
+class TestOutputMaskingTools:
+    def test_tools_in_definitions(self):
+        names = {t["function"]["name"] for t in get_tool_definitions()}
+        assert {"mask_old_tool_output", "expand_masked_output"}.issubset(names)
+
+    def test_mask_and_expand_roundtrip(self):
+        outputs = [{"tool": "npm", "output": f"long noisy output number {i}" * 5} for i in range(5)]
+        r = execute_tool("mask_old_tool_output", {"outputs": outputs, "keep_last": 2})
+        masked = r["outputs"]
+        assert masked[-1]["output"] == outputs[-1]["output"]
+        assert "masked" in masked[0]["output"]
+
+        import re
+        h = re.search(r"hash='([0-9a-f]+)'", masked[0]["output"]).group(1)
+        expanded = execute_tool("expand_masked_output", {"hash": h})
+        assert expanded["output"] == outputs[0]["output"]
+
+    def test_expand_unknown_hash_returns_none(self):
+        r = execute_tool("expand_masked_output", {"hash": "notarealhash"})
+        assert r["output"] is None
+
+    def test_mask_old_tool_output_not_read_only(self):
+        from synthelion.plugins.mcp_server import _READ_ONLY_TOOLS
+        assert "mask_old_tool_output" not in _READ_ONLY_TOOLS
+
+    def test_expand_masked_output_marked_read_only(self):
+        from synthelion.plugins.mcp_server import _READ_ONLY_TOOLS
+        assert "expand_masked_output" in _READ_ONLY_TOOLS
+
+
+class TestDiffToolOutputTool:
+    def test_tool_in_definitions(self):
+        names = {t["function"]["name"] for t in get_tool_definitions()}
+        assert "diff_tool_output" in names
+
+    def test_first_call_not_diffed(self):
+        session = "test-diff-tool-session-1"
+        r = execute_tool("diff_tool_output", {
+            "tool": "pytest", "arguments": {"path": "tests/"},
+            "output": "line1\nline2", "session_id": session,
+        })
+        assert r["was_diffed"] is False
+        assert r["output"] == "line1\nline2"
+
+    def test_repeated_call_returns_diff(self):
+        session = "test-diff-tool-session-2"
+        long_output = "\n".join(f"line {i}" for i in range(50))
+        execute_tool("diff_tool_output", {
+            "tool": "pytest", "arguments": {"path": "tests/"},
+            "output": long_output, "session_id": session,
+        })
+        changed = long_output + "\nNEW LAST LINE"
+        r = execute_tool("diff_tool_output", {
+            "tool": "pytest", "arguments": {"path": "tests/"},
+            "output": changed, "session_id": session,
+        })
+        assert r["was_diffed"] is True
+        assert len(r["output"]) < len(changed)
+
+    def test_diff_tool_output_not_read_only(self):
+        from synthelion.plugins.mcp_server import _READ_ONLY_TOOLS
+        assert "diff_tool_output" not in _READ_ONLY_TOOLS
+
+
+# ---------------------------------------------------------------------------
 # 12. align_cache_prompt — cache-friendly prompt reordering MCP tool
 # ---------------------------------------------------------------------------
 class TestAlignCachePromptTool:
