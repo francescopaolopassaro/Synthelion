@@ -8,6 +8,8 @@
   const fmtInt = (n) => new Intl.NumberFormat("en-US").format(Math.round(n || 0));
   const fmtPct = (n) => `${(n || 0).toFixed(1)}%`;
   const fmtCo2 = (mg) => (mg || 0) >= 1000 ? `${((mg || 0) / 1000).toFixed(2)}g` : `${(mg || 0).toFixed(1)}mg`;
+  const fmtUsd = (v) => `$${(v || 0).toFixed((v || 0) < 1 ? 4 : 2)}`;
+  const fmtMwh = (v) => `${(v || 0).toFixed(3)} mWh`;
 
   Chart.defaults.color = "#8891a0";
   Chart.defaults.borderColor = "rgba(255,255,255,0.08)";
@@ -45,14 +47,15 @@
   async function refresh() {
     document.getElementById("refresh-btn").disabled = true;
     try {
-      const [summary, records, recentRequests, sessions, decisions] = await Promise.all([
+      const [summary, records, recentRequests, sessions, decisions, storageStatus] = await Promise.all([
         fetchJson(`/api/summary${daysParam()}`),
         fetchJson(`/api/records${daysParam()}`),
         fetchJson(`/api/records${daysParam()}${daysParam() ? "&" : "?"}limit=50`),
         fetchJson(`/api/sessions${daysParam()}`),
         fetchJson(`/api/decisions?limit=20`),
+        fetchJson(`/api/storage-status`),
       ]);
-      renderKpis(summary, sessions.sessions || [], records.records || []);
+      renderKpis(summary, sessions.sessions || [], records.records || [], storageStatus);
       renderToolChart(summary.by_tool || {});
       renderContentTypeTable(summary.by_content_type || {});
       renderTimeline(records.records || []);
@@ -68,7 +71,7 @@
     }
   }
 
-  function renderKpis(s, sessions, records) {
+  function renderKpis(s, sessions, records, storageStatus) {
     document.getElementById("kpi-calls").textContent = fmtInt(s.total_calls);
     document.getElementById("kpi-saved").textContent = fmtInt(s.tokens_saved);
     document.getElementById("kpi-eff").textContent = fmtPct(s.avg_efficiency_pct);
@@ -85,10 +88,21 @@
     document.getElementById("kpi-latency-avg").textContent = s.avg_latency_ms ? fmtMs(s.avg_latency_ms) : "–";
     document.getElementById("kpi-latency-p95").textContent = s.p95_latency_ms ? fmtMs(s.p95_latency_ms) : "–";
     document.getElementById("kpi-latency-max").textContent = s.max_latency_ms ? fmtMs(s.max_latency_ms) : "–";
+
+    document.getElementById("kpi-cost").textContent = fmtUsd(s.cost_usd_saved);
+    document.getElementById("kpi-energy").textContent = fmtMwh(s.energy_mwh_saved);
+    document.getElementById("kpi-tokens-before").textContent = fmtInt(s.tokens_before);
+    document.getElementById("kpi-decisions").textContent = fmtInt((storageStatus || {}).decisions);
   }
 
   function fmtMs(ms) {
     return ms >= 1000 ? `${(ms / 1000).toFixed(2)}s` : `${Math.round(ms)}ms`;
+  }
+
+  function initTooltips() {
+    // KPI card labels are static DOM nodes (only their text content is refreshed on
+    // each refresh()), so a single init at page load is enough — no re-init needed.
+    document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach((el) => new bootstrap.Tooltip(el));
   }
 
   function renderSessions(sessions) {
@@ -295,6 +309,17 @@
     document.getElementById("settings-qdrant-url-group").style.display = backend === "qdrant" ? "" : "none";
   }
 
+  // Material Dashboard's ".input-group-outline" floats the <label> out of the way
+  // only after the field's own "focusout" handler adds ".is-filled" to the parent
+  // .input-group — which never fires when we set .value from JS (as loadSettings()
+  // does), leaving the label visually stacked on top of the value/placeholder.
+  // Mirror that same class toggle here right after populating each field.
+  function markFilled(inputId) {
+    const input = document.getElementById(inputId);
+    const group = input && input.closest(".input-group");
+    if (group) group.classList.toggle("is-filled", !!input.value);
+  }
+
   async function loadSettings() {
     try {
       const { config } = await fetchJson("/api/config");
@@ -305,6 +330,13 @@
       document.getElementById("settings-postgres-dsn").value = config.session_store.postgres.dsn;
       document.getElementById("settings-vector-backend").value = config.vector_store.backend;
       document.getElementById("settings-qdrant-url").value = config.vector_store.qdrant.url;
+      document.getElementById("settings-dashboard-host").value = config.dashboard.host;
+      document.getElementById("settings-dashboard-port").value = String(config.dashboard.port);
+      document.getElementById("settings-dashboard-realtime").value = config.dashboard.realtime;
+      document.getElementById("settings-dashboard-ws-port").value = String(config.dashboard.websocket_port);
+      ["settings-redis-url", "settings-postgres-dsn", "settings-qdrant-url",
+       "settings-dashboard-host", "settings-dashboard-port", "settings-dashboard-ws-port"]
+        .forEach(markFilled);
       updateSessionBackendFields();
       updateVectorBackendFields();
     } catch (err) {
@@ -341,6 +373,12 @@
       vector_store: {
         backend: document.getElementById("settings-vector-backend").value,
         qdrant: { url: document.getElementById("settings-qdrant-url").value },
+      },
+      dashboard: {
+        host: document.getElementById("settings-dashboard-host").value,
+        port: Number(document.getElementById("settings-dashboard-port").value),
+        realtime: document.getElementById("settings-dashboard-realtime").value,
+        websocket_port: Number(document.getElementById("settings-dashboard-ws-port").value),
       },
     };
     try {
@@ -774,6 +812,7 @@
   loadNotifications();
   loadClusterStatus();
   navigate(window.location.pathname, false);
+  initTooltips();
   setInterval(refresh, 20000);
   setInterval(loadNotifications, 60000);
   setInterval(loadClusterStatus, 15000);

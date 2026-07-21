@@ -160,7 +160,7 @@
             <div class="card-header p-2 ps-3">
               <div class="d-flex justify-content-between">
                 <div>
-                  <p class="text-sm mb-0 text-capitalize">Calls</p>
+                  <p class="text-sm mb-0 text-capitalize" data-bs-toggle="tooltip" data-bs-placement="top" title="Total number of tool calls that had Synthelion compression applied, across every recorded session in the selected date range.">Calls</p>
                   <h4 class="mb-0" id="kpi-calls">–</h4>
                 </div>
                 <div class="icon icon-md icon-shape bg-gradient-info shadow text-center border-radius-lg">
@@ -179,7 +179,7 @@
             <div class="card-header p-2 ps-3">
               <div class="d-flex justify-content-between">
                 <div>
-                  <p class="text-sm mb-0 text-capitalize">Tokens saved</p>
+                  <p class="text-sm mb-0 text-capitalize" data-bs-toggle="tooltip" data-bs-placement="top" title="Sum of (tokens before − tokens after) across all recorded calls — the actual token volume avoided in requests to the model.">Tokens saved</p>
                   <h4 class="mb-0" id="kpi-saved">–</h4>
                 </div>
                 <div class="icon icon-md icon-shape bg-gradient-info shadow text-center border-radius-lg">
@@ -198,7 +198,7 @@
             <div class="card-header p-2 ps-3">
               <div class="d-flex justify-content-between">
                 <div>
-                  <p class="text-sm mb-0 text-capitalize">Avg efficiency</p>
+                  <p class="text-sm mb-0 text-capitalize" data-bs-toggle="tooltip" data-bs-placement="top" title="Average percentage reduction per call: tokens saved ÷ tokens before × 100, averaged across all recorded calls in this range.">Avg efficiency</p>
                   <h4 class="mb-0" id="kpi-eff">–</h4>
                 </div>
                 <div class="icon icon-md icon-shape bg-gradient-info shadow text-center border-radius-lg">
@@ -217,7 +217,7 @@
             <div class="card-header p-2 ps-3">
               <div class="d-flex justify-content-between">
                 <div>
-                  <p class="text-sm mb-0 text-capitalize">CO₂ saved</p>
+                  <p class="text-sm mb-0 text-capitalize" data-bs-toggle="tooltip" data-bs-placement="top" title="Estimated CO₂-equivalent avoided, derived from a fixed energy-per-token estimate applied to tokens saved — illustrative, not a precise measurement.">CO₂ saved</p>
                   <h4 class="mb-0" id="kpi-co2">–</h4>
                 </div>
                 <div class="icon icon-md icon-shape bg-gradient-info shadow text-center border-radius-lg">
@@ -239,7 +239,7 @@
             <div class="card-header p-2 ps-3">
               <div class="d-flex justify-content-between">
                 <div>
-                  <p class="text-sm mb-0 text-capitalize">Sessions</p>
+                  <p class="text-sm mb-0 text-capitalize" data-bs-toggle="tooltip" data-bs-placement="top" title="Distinct synthelion-mcp/CLI process lifetimes that recorded at least one compression call in this range.">Sessions</p>
                   <h4 class="mb-0" id="kpi-sessions">–</h4>
                 </div>
                 <div class="icon icon-md icon-shape bg-gradient-dark shadow text-center border-radius-lg">
@@ -258,7 +258,7 @@
             <div class="card-header p-2 ps-3">
               <div class="d-flex justify-content-between">
                 <div>
-                  <p class="text-sm mb-0 text-capitalize">Avg calls / session</p>
+                  <p class="text-sm mb-0 text-capitalize" data-bs-toggle="tooltip" data-bs-placement="top" title="Total calls divided by number of sessions — a rough proxy for how tool-call-heavy a typical session is.">Avg calls / session</p>
                   <h4 class="mb-0" id="kpi-avg-calls">–</h4>
                 </div>
                 <div class="icon icon-md icon-shape bg-gradient-dark shadow text-center border-radius-lg">
@@ -277,7 +277,7 @@
             <div class="card-header p-2 ps-3">
               <div class="d-flex justify-content-between">
                 <div>
-                  <p class="text-sm mb-0 text-capitalize">Tools used</p>
+                  <p class="text-sm mb-0 text-capitalize" data-bs-toggle="tooltip" data-bs-placement="top" title="Number of distinct tool names that appear across the recorded calls in this range.">Tools used</p>
                   <h4 class="mb-0" id="kpi-tools">–</h4>
                 </div>
                 <div class="icon icon-md icon-shape bg-gradient-dark shadow text-center border-radius-lg">
@@ -296,7 +296,7 @@
             <div class="card-header p-2 ps-3">
               <div class="d-flex justify-content-between">
                 <div>
-                  <p class="text-sm mb-0 text-capitalize">Best single call</p>
+                  <p class="text-sm mb-0 text-capitalize" data-bs-toggle="tooltip" data-bs-placement="top" title="The single recorded call with the highest tokens-saved value in this range.">Best single call</p>
                   <h4 class="mb-0" id="kpi-best-call">–</h4>
                 </div>
                 <div class="icon icon-md icon-shape bg-gradient-dark shadow text-center border-radius-lg">
@@ -318,7 +318,7 @@
             <div class="card-header p-2 ps-3">
               <div class="d-flex justify-content-between">
                 <div>
-                  <p class="text-sm mb-0 text-capitalize">Avg latency</p>
+                  <p class="text-sm mb-0 text-capitalize" data-bs-toggle="tooltip" data-bs-placement="top" title="Mean wall-clock duration recorded for a compression call, in milliseconds.">Avg latency</p>
                   <h4 class="mb-0" id="kpi-latency-avg">–</h4>
                 </div>
                 <div class="icon icon-md icon-shape bg-gradient-secondary shadow text-center border-radius-lg">
@@ -337,7 +337,7 @@
             <div class="card-header p-2 ps-3">
               <div class="d-flex justify-content-between">
                 <div>
-                  <p class="text-sm mb-0 text-capitalize">p95 latency</p>
+                  <p class="text-sm mb-0 text-capitalize" data-bs-toggle="tooltip" data-bs-placement="top" title="95th-percentile call duration — 95% of recorded calls finished at or below this time, in milliseconds.">p95 latency</p>
                   <h4 class="mb-0" id="kpi-latency-p95">–</h4>
                 </div>
                 <div class="icon icon-md icon-shape bg-gradient-secondary shadow text-center border-radius-lg">
@@ -356,7 +356,7 @@
             <div class="card-header p-2 ps-3">
               <div class="d-flex justify-content-between">
                 <div>
-                  <p class="text-sm mb-0 text-capitalize">Max latency</p>
+                  <p class="text-sm mb-0 text-capitalize" data-bs-toggle="tooltip" data-bs-placement="top" title="Slowest recorded call duration in this range, in milliseconds.">Max latency</p>
                   <h4 class="mb-0" id="kpi-latency-max">–</h4>
                 </div>
                 <div class="icon icon-md icon-shape bg-gradient-secondary shadow text-center border-radius-lg">
@@ -367,6 +367,85 @@
             <hr class="horizontal my-0 light">
             <div class="card-footer p-2 ps-3">
               <p class="mb-0 text-sm text-secondary">Slowest call duration</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row g-3 mb-4">
+        <div class="col-xl-3 col-sm-6">
+          <div class="card kpi-card h-100">
+            <div class="card-header p-2 ps-3">
+              <div class="d-flex justify-content-between">
+                <div>
+                  <p class="text-sm mb-0 text-capitalize" data-bs-toggle="tooltip" data-bs-placement="top" title="Estimated USD saved on model input token costs, priced at $3.00/MTok (Sonnet 4.6 input price). See the Charts page for the exact pricing note.">Cost saved</p>
+                  <h4 class="mb-0" id="kpi-cost">–</h4>
+                </div>
+                <div class="icon icon-md icon-shape bg-gradient-success shadow text-center border-radius-lg">
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 9.5c0-1.4 1.3-2.5 3-2.5s3 1 3 2.3c0 3-6 1.5-6 4.5 0 1.3 1.3 2.4 3 2.4s3-1 3-2.4"/></svg>
+                </div>
+              </div>
+            </div>
+            <hr class="horizontal my-0 light">
+            <div class="card-footer p-2 ps-3">
+              <p class="mb-0 text-sm text-secondary">Estimated, at input token price</p>
+            </div>
+          </div>
+        </div>
+        <div class="col-xl-3 col-sm-6">
+          <div class="card kpi-card h-100">
+            <div class="card-header p-2 ps-3">
+              <div class="d-flex justify-content-between">
+                <div>
+                  <p class="text-sm mb-0 text-capitalize" data-bs-toggle="tooltip" data-bs-placement="top" title="Estimated energy avoided (megawatt-hours), derived from tokens saved via a fixed per-token energy estimate — illustrative only.">Energy saved</p>
+                  <h4 class="mb-0" id="kpi-energy">–</h4>
+                </div>
+                <div class="icon icon-md icon-shape bg-gradient-success shadow text-center border-radius-lg">
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 11 14 9 22 21 10 13 10 13 2"/></svg>
+                </div>
+              </div>
+            </div>
+            <hr class="horizontal my-0 light">
+            <div class="card-footer p-2 ps-3">
+              <p class="mb-0 text-sm text-secondary">Estimated, from tokens saved</p>
+            </div>
+          </div>
+        </div>
+        <div class="col-xl-3 col-sm-6">
+          <div class="card kpi-card h-100">
+            <div class="card-header p-2 ps-3">
+              <div class="d-flex justify-content-between">
+                <div>
+                  <p class="text-sm mb-0 text-capitalize" data-bs-toggle="tooltip" data-bs-placement="top" title="Total input tokens across all recorded calls, before any compression was applied — the raw volume Synthelion processed.">Tokens processed</p>
+                  <h4 class="mb-0" id="kpi-tokens-before">–</h4>
+                </div>
+                <div class="icon icon-md icon-shape bg-gradient-success shadow text-center border-radius-lg">
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="8" y1="4" x2="8" y2="20"/></svg>
+                </div>
+              </div>
+            </div>
+            <hr class="horizontal my-0 light">
+            <div class="card-footer p-2 ps-3">
+              <p class="mb-0 text-sm text-secondary">Total input tokens, pre-compression</p>
+            </div>
+          </div>
+        </div>
+        <div class="col-xl-3 col-sm-6">
+          <div class="card kpi-card h-100">
+            <div class="card-header p-2 ps-3">
+              <div class="d-flex justify-content-between">
+                <div>
+                  <p class="text-sm mb-0 text-capitalize" data-bs-toggle="tooltip" data-bs-placement="top" title="Number of cross-session memory notes (session_record) saved via the active vector-store/lexical backend — not limited to the selected date range.">Decisions stored</p>
+                  <h4 class="mb-0" id="kpi-decisions">–</h4>
+                </div>
+                <div class="icon icon-md icon-shape bg-gradient-success shadow text-center border-radius-lg">
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+                </div>
+              </div>
+            </div>
+            <hr class="horizontal my-0 light">
+            <div class="card-footer p-2 ps-3">
+              <p class="mb-0 text-sm text-secondary">Cross-session memory (all time)</p>
             </div>
           </div>
         </div>
@@ -705,6 +784,36 @@
                   <option value="4">4 — Exhaustive (+ code excerpts)</option>
                 </select>
               </div>
+            </div>
+          </div>
+        </div>
+        <div class="col-12 col-lg-6">
+          <div class="card card-plain h-100">
+            <div class="card-header pb-0">
+              <h6 class="mb-0">Dashboard</h6>
+              <p class="text-sm mb-0">Host/port this web server binds to, and how the browser gets live updates</p>
+            </div>
+            <div class="card-body">
+              <div class="input-group input-group-outline mb-3">
+                <label class="form-label">Host</label>
+                <input type="text" class="form-control" id="settings-dashboard-host" placeholder="127.0.0.1">
+              </div>
+              <div class="input-group input-group-outline mb-3">
+                <label class="form-label">Port</label>
+                <input type="number" class="form-control" id="settings-dashboard-port" placeholder="8787">
+              </div>
+              <div class="mb-3">
+                <label class="form-label text-sm text-secondary mb-1">Realtime updates</label>
+                <select class="form-control" id="settings-dashboard-realtime">
+                  <option value="websocket">WebSocket (push)</option>
+                  <option value="polling">Polling (fetch on refresh)</option>
+                </select>
+              </div>
+              <div class="input-group input-group-outline mb-3">
+                <label class="form-label">WebSocket port</label>
+                <input type="number" class="form-control" id="settings-dashboard-ws-port" placeholder="8788">
+              </div>
+              <p class="text-xs text-secondary mb-0">Requires restarting the dashboard process to take effect — the server is already bound to the current host/port and won't rebind itself.</p>
             </div>
           </div>
         </div>
