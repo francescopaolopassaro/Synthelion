@@ -441,6 +441,57 @@ class TestContentRouter:
         r = router.route("I would like to know if it is possible to receive information.")
         assert r.strategy_used == "NlpCompression"
 
+    # ── adaptive scaling by content size ──────────────────────────────────────
+
+    def test_escalate_level_steps_up_by_one(self):
+        from synthelion.content_router import _escalate_level
+        assert _escalate_level(CompressionLevel.NONE) == CompressionLevel.LIGHT
+        assert _escalate_level(CompressionLevel.LIGHT) == CompressionLevel.SEMANTIC
+        assert _escalate_level(CompressionLevel.SEMANTIC) == CompressionLevel.AGGRESSIVE
+
+    def test_escalate_level_caps_at_aggressive(self):
+        from synthelion.content_router import _escalate_level
+        assert _escalate_level(CompressionLevel.AGGRESSIVE) == CompressionLevel.AGGRESSIVE
+
+    def test_escalate_level_leaves_alternate_algorithms_unchanged(self):
+        from synthelion.content_router import _escalate_level
+        assert _escalate_level(CompressionLevel.STATISTICAL) == CompressionLevel.STATISTICAL
+        assert _escalate_level(CompressionLevel.SYNTACTIC) == CompressionLevel.SYNTACTIC
+
+    def test_small_content_uses_configured_level_unescalated(self):
+        router = ContentRouter.from_profile(CompressionProfile.BALANCED)  # SEMANTIC
+        seen_levels = []
+        original_compress = router._nlp.compress
+
+        def spy(text, level, *a, **kw):
+            seen_levels.append(level)
+            return original_compress(text, level, *a, **kw)
+
+        router._nlp.compress = spy
+        router.route("This is a plain sentence without any special structure. " * 5)
+        assert seen_levels[-1] == CompressionLevel.SEMANTIC
+
+    def test_huge_content_escalates_to_aggressive(self):
+        router = ContentRouter.from_profile(CompressionProfile.BALANCED)  # SEMANTIC
+        seen_levels = []
+        original_compress = router._nlp.compress
+
+        def spy(text, level, *a, **kw):
+            seen_levels.append(level)
+            return original_compress(text, level, *a, **kw)
+
+        router._nlp.compress = spy
+        huge_text = "This is a plain sentence without any special structure. " * 2000
+        router.route(huge_text)
+        assert seen_levels[-1] == CompressionLevel.AGGRESSIVE
+
+    def test_max_items_override_caps_row_count(self):
+        crusher = JsonCrusher(max_items=15)
+        data = [{"k1": i, "k2": i, "k3": i, "k4": i, "k5": i, "k6": i, "k7": i} for i in range(30)]
+        r = crusher.crush(json.dumps(data), max_items=4)
+        if r["strategy"] == "LossyRowDrop":
+            assert r["kept_rows"] <= 4
+
 
 # ---------------------------------------------------------------------------
 # 6. Summarizers
@@ -782,6 +833,14 @@ class TestToolListRelevancePruning:
 
 
 class TestOutputMaskingTools:
+    @pytest.fixture(autouse=True)
+    def _isolated_output_mask_store(self):
+        from synthelion import output_mask as om_mod
+        orig = om_mod._store
+        om_mod._store = None
+        yield
+        om_mod._store = orig
+
     def test_tools_in_definitions(self):
         names = {t["function"]["name"] for t in get_tool_definitions()}
         assert {"mask_old_tool_output", "expand_masked_output"}.issubset(names)
@@ -809,6 +868,72 @@ class TestOutputMaskingTools:
     def test_expand_masked_output_marked_read_only(self):
         from synthelion.plugins.mcp_server import _READ_ONLY_TOOLS
         assert "expand_masked_output" in _READ_ONLY_TOOLS
+
+    def test_mask_response_includes_artifact_index(self):
+        outputs = [{"tool": "npm install", "output": f"noise {i}" * 10} for i in range(4)]
+        r = execute_tool("mask_old_tool_output", {"outputs": outputs, "keep_last": 1})
+        assert "npm install" in r["artifact_index"]
+        assert "[Artifact Index]" in r["artifact_index"]
+
+    def test_get_artifact_index_reflects_store_state(self):
+        assert execute_tool("get_artifact_index", {})["index"] == ""
+        outputs = [{"tool": "pytest", "output": "x" * 50} for _ in range(3)]
+        execute_tool("mask_old_tool_output", {"outputs": outputs, "keep_last": 0})
+        idx = execute_tool("get_artifact_index", {})["index"]
+        assert "pytest" in idx
+        assert "3 entries" in idx
+
+    def test_get_artifact_index_in_tool_definitions(self):
+        names = {t["function"]["name"] for t in get_tool_definitions()}
+        assert "get_artifact_index" in names
+
+    def test_get_artifact_index_marked_read_only(self):
+        from synthelion.plugins.mcp_server import _READ_ONLY_TOOLS
+        assert "get_artifact_index" in _READ_ONLY_TOOLS
+
+
+class TestOutputMaskArtifactIndexDirect:
+    def test_render_index_empty(self):
+        from synthelion.output_mask import OutputMaskStore
+        assert OutputMaskStore().render_index() == ""
+
+    def test_render_index_groups_by_tool(self):
+        from synthelion.output_mask import OutputMaskStore
+        store = OutputMaskStore()
+        store.store("output a", tool="git push")
+        store.store("output b", tool="git push")
+        store.store("output c", tool="npm install")
+        idx = store.render_index()
+        assert "git push (2 entries)" in idx
+        assert "npm install (1 entries)" in idx
+
+    def test_store_without_tool_labeled_unknown(self):
+        from synthelion.output_mask import OutputMaskStore
+        store = OutputMaskStore()
+        store.store("some text")
+        assert "unknown" in store.render_index()
+
+
+class TestRewriteCommandTool:
+    def test_tool_in_definitions(self):
+        names = {t["function"]["name"] for t in get_tool_definitions()}
+        assert "rewrite_command" in names
+
+    def test_execute_rewrites_known_command(self):
+        r = execute_tool("rewrite_command", {"command": "git log -5"})
+        assert r == {"command": "git --no-pager log -5", "rewritten": True}
+
+    def test_execute_unknown_command_unchanged(self):
+        r = execute_tool("rewrite_command", {"command": "ls -la"})
+        assert r == {"command": "ls -la", "rewritten": False}
+
+    def test_execute_refuses_composite_command(self):
+        r = execute_tool("rewrite_command", {"command": "git log && echo done"})
+        assert r["rewritten"] is False
+
+    def test_marked_read_only(self):
+        from synthelion.plugins.mcp_server import _READ_ONLY_TOOLS
+        assert "rewrite_command" in _READ_ONLY_TOOLS
 
 
 class TestDiffToolOutputTool:
@@ -1083,6 +1208,76 @@ class TestJsonCrusher:
         assert _looks_like_tool_schema([{"name": ""}]) is False
         sig = _to_tool_signatures(rows)
         assert sig == "t(p:string) — d"
+
+
+# ---------------------------------------------------------------------------
+# 12b. JsonCrusher — chain-depth collapsing for single JSON objects
+# ---------------------------------------------------------------------------
+class TestChainCollapse:
+    def setup_method(self):
+        self.crusher = JsonCrusher()
+
+    def test_collapses_deep_single_child_chain(self):
+        obj = {"a": {"b": {"c": "x"}}}
+        r = self.crusher.crush(json.dumps(obj))
+        assert r["strategy"] == "ChainCollapse"
+        assert r["was_crushed"] is True
+        assert "a.b.c: x" in r["compressed"]
+
+    def test_stops_at_multi_child_node(self):
+        obj = {"a": {"b": {"c": "x", "d": "y"}}}
+        r = self.crusher.crush(json.dumps(obj))
+        # collapses down to "a.b" then stops — "c"/"d" stay as a nested value
+        assert "a.b:" in r["compressed"] or r["strategy"] == "None"
+
+    def test_does_not_touch_json_schema_object(self):
+        schema = {
+            "type": "object",
+            "properties": {"name": {"type": "string"}},
+            "required": ["name"],
+        }
+        r = self.crusher.crush(json.dumps(schema))
+        assert r["was_crushed"] is False
+        assert r["strategy"] == "None"
+
+    def test_nested_json_schema_anywhere_blocks_collapse(self):
+        obj = {"config": {"validator": {"type": "object", "properties": {"x": {}}, "enum": [1]}}}
+        r = self.crusher.crush(json.dumps(obj))
+        assert r["was_crushed"] is False
+
+    def test_array_behavior_unchanged(self):
+        data = [{"name": "Alice", "age": 30}, {"name": "Bob", "age": 25}]
+        r = self.crusher.crush(json.dumps(data))
+        assert r["strategy"] in ("MarkdownTable", "Csv")
+
+    def test_collapse_chains_direct(self):
+        from synthelion.compressors.json_crusher import _collapse_chains
+        flat = _collapse_chains({"a": {"b": {"c": "x"}}, "d": 1})
+        assert flat == {"a.b.c": "x", "d": 1}
+
+    def test_looks_like_schema_object_direct(self):
+        from synthelion.compressors.json_crusher import _looks_like_schema_object
+        assert _looks_like_schema_object({"type": "object", "properties": {}}) is True
+        assert _looks_like_schema_object({"a": {"b": "c"}}) is False
+        assert _looks_like_schema_object({"a": {"enum": [1], "properties": {}}}) is True
+
+    def test_content_router_json_object_uses_chain_collapse(self):
+        from synthelion.content_router import ContentRouter
+        router = ContentRouter.from_profile(CompressionProfile.BALANCED)
+        obj = {"level1": {"level2": {"level3": {"level4": "deeply nested value here"}}}}
+        r = router.route(json.dumps(obj))
+        assert "ChainCollapse" in r.strategy_used
+
+    def test_content_router_schema_object_falls_back_to_nlp(self):
+        from synthelion.content_router import ContentRouter
+        router = ContentRouter.from_profile(CompressionProfile.BALANCED)
+        schema = json.dumps({
+            "type": "object",
+            "properties": {"x": {"type": "string"}, "y": {"type": "number"}},
+            "required": ["x"],
+        })
+        r = router.route(schema)
+        assert r.strategy_used == "NlpCompression"
 
 
 # ---------------------------------------------------------------------------

@@ -16,21 +16,31 @@ from __future__ import annotations
 import hashlib
 import threading
 import time
+from collections import deque
 
 _TTL = 1800   # 30 minutes — matches ContentRouter/CompressionService/SharedContext
 _MAX = 500    # max entries — evict oldest 25% when full
+_CATALOG_MAX = 200  # artifact-index entries kept — an index, not the data itself,
+                    # so a simple cap is enough, no TTL precision needed here.
 
 
 class OutputMaskStore:
-    """Thread-safe hash → original-text store backing masked tool output."""
+    """Thread-safe hash → original-text store backing masked tool output.
+
+    Also keeps a lightweight catalog of what's been masked (tool, hash, size,
+    timestamp) — the "Artifact Index": a small text block meant to be injected back
+    into the context so the model itself knows what was hidden and can ask for it
+    back by hash, instead of the masking being invisible until something needs it.
+    """
 
     def __init__(self, ttl_seconds: float = _TTL, max_entries: int = _MAX) -> None:
         self._ttl = ttl_seconds
         self._max = max_entries
         self._lock = threading.Lock()
         self._data: dict[str, tuple[str, float]] = {}
+        self._catalog: deque[dict] = deque(maxlen=_CATALOG_MAX)
 
-    def store(self, text: str) -> str:
+    def store(self, text: str, tool: str | None = None) -> str:
         key = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
         with self._lock:
             self._data[key] = (text, time.time())
@@ -38,6 +48,9 @@ class OutputMaskStore:
                 sorted_keys = sorted(self._data, key=lambda k: self._data[k][1])
                 for k in sorted_keys[: self._max // 4]:
                     del self._data[k]
+            self._catalog.append({
+                "hash": key, "tool": tool or "unknown", "chars": len(text), "ts": time.time(),
+            })
         return key
 
     def retrieve(self, hash_key: str) -> str | None:
@@ -50,6 +63,28 @@ class OutputMaskStore:
                 del self._data[hash_key]
                 return None
             return text
+
+    def render_index(self) -> str:
+        """Renders the artifact catalog grouped by tool, e.g.:
+        `- npm install (3 entries): a1b2c3.., 850c00.. — retrieve with expand_masked_output(hash=...)`
+        Empty string if nothing has been masked yet."""
+        with self._lock:
+            entries = list(self._catalog)
+        if not entries:
+            return ""
+
+        by_tool: dict[str, list[str]] = {}
+        for e in entries:
+            by_tool.setdefault(e["tool"], []).append(e["hash"])
+
+        lines = ["[Artifact Index]"]
+        for tool, hashes in by_tool.items():
+            hash_list = ", ".join(hashes)
+            lines.append(
+                f"- {tool} ({len(hashes)} entries): {hash_list} — "
+                "retrieve with expand_masked_output(hash=...)"
+            )
+        return "\n".join(lines)
 
 
 _store: OutputMaskStore | None = None
@@ -80,7 +115,7 @@ def mask_old_outputs(
             result.append(entry)
             continue
         text = entry.get("output", "")
-        h = store.store(text)
+        h = store.store(text, tool=entry.get("tool"))
         masked = dict(entry)
         masked["output"] = (
             f"[Tool output masked — {len(text)} chars — "

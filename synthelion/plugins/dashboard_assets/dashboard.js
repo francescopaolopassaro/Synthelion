@@ -763,7 +763,7 @@
   const PAGE_TITLES = {
     overview: "Overview", charts: "Charts", sessions: "Sessions", requests: "Recent requests",
     decisions: "Decisions", settings: "Settings", profile: "Profile", notifications: "Notifications",
-    cluster: "Cluster",
+    cluster: "Cluster", doctor: "Doctor", version: "Version",
   };
 
   function pageForPath(path) {

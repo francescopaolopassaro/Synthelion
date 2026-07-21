@@ -26,8 +26,13 @@ class JsonCrusher:
     def __init__(self, max_items: int = MAX_ITEMS_DEFAULT) -> None:
         self._max_items = max_items
 
-    def crush(self, json_text: str, query: str | None = None) -> dict:
-        """Return a dict with keys: compressed, strategy, was_crushed, ccr_hash, original_rows, kept_rows."""
+    def crush(self, json_text: str, query: str | None = None, max_items: int | None = None) -> dict:
+        """Return a dict with keys: compressed, strategy, was_crushed, ccr_hash, original_rows, kept_rows.
+
+        `max_items` overrides `self._max_items` for this call only (adaptive-scaling
+        callers can tighten the row cap for very large inputs without mutating shared
+        instance state) — `None` falls back to the constructor default.
+        """
         result_base = {
             "compressed": json_text,
             "strategy": "None",
@@ -37,10 +42,14 @@ class JsonCrusher:
             "kept_rows": 0,
         }
         try:
-            arr = json.loads(json_text)
+            parsed = json.loads(json_text)
         except json.JSONDecodeError:
             return result_base
 
+        if isinstance(parsed, dict):
+            return self._crush_object(parsed, json_text)
+
+        arr = parsed
         if not isinstance(arr, list) or not arr:
             return result_base
 
@@ -96,8 +105,9 @@ class JsonCrusher:
             }
 
         # Lossy BM25 row-drop if too many rows
-        if len(rows) > self._max_items:
-            kept, dropped = _bm25_select(rows, query or "", self._max_items)
+        effective_max_items = max_items if max_items is not None else self._max_items
+        if len(rows) > effective_max_items:
+            kept, dropped = _bm25_select(rows, query or "", effective_max_items)
             dropped_text = json.dumps(dropped, ensure_ascii=False)
             ccr_hash = hashlib.sha256(dropped_text.encode()).hexdigest()[:12]
             _ccr_instance().store(ccr_hash, dropped_text)
@@ -113,6 +123,68 @@ class JsonCrusher:
             }
 
         return result_base
+
+    def _crush_object(self, obj: dict, json_text: str) -> dict:
+        """Handles a single JSON *object* (not an array of rows) — today the only
+        strategy is chain-depth collapsing: a nested chain of single-key objects
+        (`{"a": {"b": {"c": "x"}}}`) is flattened to a dot-path line (`a.b.c: x`),
+        the same shape a real JSON-Schema-style config often takes but with none of
+        the JSON-Schema semantics `_looks_like_schema_object` guards against."""
+        result_base = {
+            "compressed": json_text,
+            "strategy": "None",
+            "was_crushed": False,
+            "ccr_hash": None,
+            "original_rows": 0,
+            "kept_rows": 0,
+        }
+        if not obj or _looks_like_schema_object(obj):
+            return result_base
+
+        flat = _collapse_chains(obj)
+        rendered = "\n".join(f"{k}: {v}" for k, v in flat.items())
+        if rendered and len(rendered) < len(json_text) * 0.85:
+            return {
+                "compressed": rendered,
+                "strategy": "ChainCollapse",
+                "was_crushed": True,
+                "ccr_hash": None,
+                "original_rows": 1,
+                "kept_rows": 1,
+            }
+        return result_base
+
+
+def _looks_like_schema_object(obj: dict) -> bool:
+    """True if *obj* (at any level visited) looks like a real JSON-Schema object —
+    `type`/`enum`/`minimum`/`maximum`/`pattern` alongside `properties` — rather than
+    an ordinary data object that merely has a key named the same. Deliberately
+    conservative: a false positive here just means a real schema stays uncollapsed
+    (safe), a false negative would mangle schema semantics into meaningless
+    dot-paths (unsafe), so only clearly schema-shaped objects are excluded."""
+    schema_markers = ("enum", "minimum", "maximum", "pattern")
+    if "properties" in obj and (obj.get("type") == "object" or any(m in obj for m in schema_markers)):
+        return True
+    return any(
+        isinstance(v, dict) and _looks_like_schema_object(v) for v in obj.values()
+    )
+
+
+def _collapse_chains(obj: dict, prefix: str = "") -> dict:
+    """Flattens chains of single-key nested objects into dot-path keys. A dict with
+    more than one key, a list, or a scalar all terminate the chain at that point —
+    only unambiguous single-child nesting (pure structural boilerplate, no
+    information lost by flattening) gets collapsed."""
+    flat: dict = {}
+    for key, value in obj.items():
+        path = f"{prefix}.{key}" if prefix else key
+        if isinstance(value, dict) and len(value) == 1:
+            flat.update(_collapse_chains(value, path))
+        elif isinstance(value, dict):
+            flat[path] = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+        else:
+            flat[path] = value
+    return flat
 
 
 def _looks_like_tool_schema(rows: list[dict]) -> bool:

@@ -31,6 +31,25 @@ def _approx_tokens(text: str) -> int:
     return len(text) // 4
 
 
+def _escalate_level(level: CompressionLevel) -> CompressionLevel:
+    """One step more aggressive, capped at AGGRESSIVE. STATISTICAL/SYNTACTIC are
+    alternate algorithms rather than "more aggressive than AGGRESSIVE" on a single
+    scale, so a level already at or past AGGRESSIVE is left untouched — an explicit
+    choice of a different algorithm is never silently overridden."""
+    if level.value < CompressionLevel.AGGRESSIVE.value:
+        return CompressionLevel(level.value + 1)
+    return level
+
+
+# Adaptive-scaling thresholds (approx. token count of the raw input): past these,
+# ContentRouter compresses more aggressively than the level/max_items it was
+# configured with — mirrors kompact's tiered scaling, adapted to Synthelion's
+# existing knobs (CompressionLevel escalation, JsonCrusher row cap) instead of a
+# separate parameter set.
+_SCALE_LARGE = 5000
+_SCALE_HUGE = 25000
+
+
 def _guard_against_expansion(result: RoutedCompressionResult) -> None:
     """Universal safety net, mutating *result* in place: if whatever compressor ran
     produced output that isn't actually smaller (a rewriting compressor like
@@ -153,8 +172,22 @@ class ContentRouter:
         detection = self._detector.detect(content)
         ct = detection.type
 
+        # Adaptive scaling: the bigger the input, the more aggressively it's
+        # compressed by default — computed once, applied uniformly below. Both are
+        # purely local values (never mutate self.*), so concurrent calls with
+        # different content sizes never interfere with each other.
+        if tb >= _SCALE_HUGE:
+            effective_level = _escalate_level(_escalate_level(self._prose_level))
+            effective_max_items = max(3, int(self._json._max_items * 0.35))
+        elif tb >= _SCALE_LARGE:
+            effective_level = _escalate_level(self._prose_level)
+            effective_max_items = max(3, int(self._json._max_items * 0.6))
+        else:
+            effective_level = self._prose_level
+            effective_max_items = self._json._max_items
+
         if ct == ContentType.JSON_ARRAY:
-            r = self._json.crush(content, query)
+            r = self._json.crush(content, query, max_items=effective_max_items)
             compressed = r["compressed"]
             return RoutedCompressionResult(
                 compressed=compressed, original=content,
@@ -163,6 +196,20 @@ class ContentRouter:
                 tokens_before=tb, tokens_after=_approx_tokens(compressed),
                 ccr_hash=r.get("ccr_hash"),
             )
+
+        if ct == ContentType.JSON_OBJECT:
+            r = self._json.crush(content, query, max_items=effective_max_items)
+            if r["was_crushed"]:
+                compressed = r["compressed"]
+                return RoutedCompressionResult(
+                    compressed=compressed, original=content,
+                    detected_type=ct,
+                    strategy_used=f"JsonCrush:{r['strategy']}",
+                    tokens_before=tb, tokens_after=_approx_tokens(compressed),
+                    ccr_hash=r.get("ccr_hash"),
+                )
+            # Falls through to NLP compression below when nothing was crushed
+            # (e.g. a JSON-Schema-shaped object, or one too small to collapse).
 
         if ct == ContentType.GIT_DIFF:
             compressed, _ = self._diff.compress(content)
@@ -182,7 +229,7 @@ class ContentRouter:
 
         if ct == ContentType.HTML:
             extracted = self._html.extract(content)
-            nlp_result = self._nlp.compress(extracted, self._prose_level)
+            nlp_result = self._nlp.compress(extracted, effective_level)
             compressed = nlp_result.compressed_text
             return RoutedCompressionResult(
                 compressed=compressed, original=content,
@@ -207,7 +254,7 @@ class ContentRouter:
             )
 
         if ct == ContentType.SEARCH_RESULTS:
-            nlp_result = self._nlp.compress(content, self._prose_level)
+            nlp_result = self._nlp.compress(content, effective_level)
             compressed = nlp_result.compressed_text
             return RoutedCompressionResult(
                 compressed=compressed, original=content,
@@ -215,8 +262,8 @@ class ContentRouter:
                 tokens_before=tb, tokens_after=_approx_tokens(compressed),
             )
 
-        # PlainText / JsonObject → NLP compression
-        nlp_result = self._nlp.compress(content, self._prose_level)
+        # PlainText, or JsonObject that JsonCrusher couldn't collapse → NLP compression
+        nlp_result = self._nlp.compress(content, effective_level)
         compressed = nlp_result.compressed_text
         return RoutedCompressionResult(
             compressed=compressed, original=content,
