@@ -36,7 +36,7 @@ _READ_ONLY_TOOLS = frozenset({
     "compress_for_context", "compress_conversation", "deduplicate",
     "compress_file",
     "session_recall", "synthelion_status",
-    "safety_check", "analyze_waste", "check_cache_alignment", "align_cache_prompt", "shape_output",
+    "safety_check", "check_sensitive_content", "analyze_waste", "check_cache_alignment", "align_cache_prompt", "shape_output",
     "focus_relevant", "estimate_cost", "generate_commit_message", "review_diff",
     "generate_project_wiki",
 })

@@ -20,6 +20,7 @@ from synthelion.content_detector import ContentDetector
 from synthelion.content_router import ContentRouter
 from synthelion.cache_aligner import CacheAligner, VolatileFinding
 from synthelion.safety_guard import SafetyGuard, SafetyLevel, SafetyVerdict
+from synthelion.sensitive_guard import find_sensitive
 from synthelion.waste_analyzer import WasteAnalyzer, WasteAnalysis
 from synthelion.relevance_filter import RelevanceFilter, RelevanceHit
 from synthelion.shared_context import SharedContext, SharedContextEntry
@@ -65,6 +66,7 @@ __all__ = [
     "SafetyGuard",
     "SafetyLevel",
     "SafetyVerdict",
+    "find_sensitive",
     "WasteAnalyzer",
     "WasteAnalysis",
     "RelevanceFilter",

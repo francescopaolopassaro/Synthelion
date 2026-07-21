@@ -205,7 +205,22 @@ class SessionDB:
         tags: list[str] | None = None,
         files: list[str] | None = None,
     ) -> str:
-        """Save a decision/context note and return its ID."""
+        """Save a decision/context note and return its ID.
+
+        `text` is scanned for credential-shaped content (`sensitive_guard`) before
+        it touches any backend — a decision an agent asks to persist could easily
+        be "we set AWS_SECRET_ACCESS_KEY=..." pasted from a terminal, and this is
+        the only path in Synthelion that writes arbitrary agent-supplied text to
+        disk indefinitely (unlike `CcrStore`, which is in-memory with a 5-minute
+        TTL). A hit redacts `text` to a placeholder rather than raising — the
+        calling tool still gets a normal decision_id back, degrading gracefully
+        the same way a backend error already does below.
+        """
+        from synthelion.sensitive_guard import find_sensitive
+        sensitive_class = find_sensitive(text)
+        if sensitive_class is not None:
+            text = f"[REDACTED: possible {sensitive_class} detected — not persisted verbatim]"
+
         decision_id = str(uuid.uuid4())
         metadata: dict[str, Any] = {
             "reason": reason or "",

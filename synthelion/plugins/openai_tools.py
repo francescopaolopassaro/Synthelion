@@ -404,6 +404,22 @@ def get_tool_definitions() -> list[dict]:
         {
             "type": "function",
             "function": {
+                "name": "check_sensitive_content",
+                "description": (
+                    "Scans text for credential-shaped content (AWS/GitHub/Slack tokens, PEM key "
+                    "blocks, Bearer headers, bulk .env dumps) before persisting it (e.g. with "
+                    "session_record). Read-only — never blocks compression, only flags."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {"text": {"type": "string", "description": "Text to scan."}},
+                    "required": ["text"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
                 "name": "analyze_waste",
                 "description": (
                     "Detect token waste in content: HTML noise, base64 blobs, excessive "
@@ -744,6 +760,9 @@ def execute_tool(name: str, arguments: dict) -> dict:
     if name == "safety_check":
         return _exec_safety_check(arguments)
 
+    if name == "check_sensitive_content":
+        return _exec_check_sensitive_content(arguments)
+
     if name == "analyze_waste":
         return _exec_analyze_waste(arguments)
 
@@ -1001,6 +1020,12 @@ def _exec_safety_check(arguments: dict) -> dict:
     from synthelion.safety_guard import SafetyGuard
     verdict = SafetyGuard().check(arguments["message"])
     return {"level": verdict.level.value, "reason": verdict.reason, "should_compress": verdict.should_compress}
+
+
+def _exec_check_sensitive_content(arguments: dict) -> dict:
+    from synthelion.sensitive_guard import find_sensitive
+    match = find_sensitive(arguments["text"])
+    return {"sensitive": match is not None, "class": match}
 
 
 def _exec_analyze_waste(arguments: dict) -> dict:

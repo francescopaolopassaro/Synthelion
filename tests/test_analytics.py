@@ -250,6 +250,39 @@ class TestSessionDB:
         results = db.session_recall(query="Decision A")
         assert results[0]["reason"] == "r"
 
+    def test_record_decision_redacts_aws_key(self, db):
+        decision_id = db.record_decision("Rotated key: AKIAIOSFODNN7EXAMPLE for the deploy user")
+        assert isinstance(decision_id, str)
+        stored = db.list_decisions(limit=10)[0]
+        assert "AKIAIOSFODNN7EXAMPLE" not in stored["text"]
+        assert "REDACTED" in stored["text"]
+        assert "aws-access-key" in stored["text"]
+
+    def test_record_decision_redacts_private_key(self, db):
+        secret = "-----BEGIN RSA PRIVATE KEY-----\nMIIEow...\n-----END RSA PRIVATE KEY-----"
+        db.record_decision(secret)
+        stored = db.list_decisions(limit=10)[0]
+        assert "MIIEow" not in stored["text"]
+        assert "REDACTED" in stored["text"]
+
+    def test_record_decision_redaction_not_on_disk(self, db):
+        db.record_decision("token: ghp_abcdefghijklmnopqrstuvwxyzABCDEF")
+        raw = db._fallback_file.read_text(encoding="utf-8")
+        assert "ghp_abcdefghijklmnopqrstuvwxyzABCDEF" not in raw
+
+    def test_record_decision_ordinary_text_not_redacted(self, db):
+        db.record_decision("We use JWT for authentication", reason="stateless")
+        stored = db.list_decisions(limit=10)[0]
+        assert stored["text"] == "We use JWT for authentication"
+
+    def test_record_decision_redaction_still_returns_normal_id(self, db):
+        decision_id = db.record_decision("AKIAIOSFODNN7EXAMPLE")
+        assert isinstance(decision_id, str) and len(decision_id) > 0
+        # metadata (reason/tags/files) is still recorded normally alongside the redaction
+        db2_id = db.record_decision("AKIAIOSFODNN7EXAMPLE", reason="leaked key", tags=["security"])
+        stored = [d for d in db.list_decisions(limit=10) if d["id"] == db2_id][0]
+        assert stored["reason"] == "leaked key"
+
     def test_recall_no_query_returns_recent(self, db):
         db.record_decision("First decision")
         db.record_decision("Second decision")
@@ -661,6 +694,18 @@ class TestNewMcpTools:
         from synthelion.plugins.openai_tools import _fmt_metrics
         s = _fmt_metrics(0, 0)
         assert "0.0%" in s
+
+    def test_check_sensitive_content_flags_secret(self):
+        from synthelion.plugins.openai_tools import execute_tool, get_tool_definitions
+        names = {td["function"]["name"] for td in get_tool_definitions()}
+        assert "check_sensitive_content" in names
+        r = execute_tool("check_sensitive_content", {"text": "AKIAIOSFODNN7EXAMPLE"})
+        assert r == {"sensitive": True, "class": "aws-access-key"}
+
+    def test_check_sensitive_content_clean_text(self):
+        from synthelion.plugins.openai_tools import execute_tool
+        r = execute_tool("check_sensitive_content", {"text": "Hello world"})
+        assert r == {"sensitive": False, "class": None}
 
     def test_record_ledger_ignores_exceptions(self):
         from synthelion.plugins.openai_tools import _record_ledger
