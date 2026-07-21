@@ -25,6 +25,7 @@ Supports 50+ languages out of the box. No AI model required. No configuration.
 ## Table of contents
 
 - [Why Synthelion?](#why-synthelion)
+- [Synthelion vs other prompt/context-compression tools](#synthelion-vs-other-promptcontext-compression-tools)
 - [Quick install — one command](#quick-install--one-command)
 - [Install (manual)](#install-manual)
 - [Update](#update)
@@ -49,6 +50,15 @@ Supports 50+ languages out of the box. No AI model required. No configuration.
 ## Why Synthelion?
 
 Every token sent to a model costs money and time. Synthelion removes the words that carry no meaning — articles, prepositions, conjunctions, auxiliary verbs — and reduces inflected words to their base form. The model receives exactly the same information, just without the grammatical packaging.
+
+**Strengths:**
+- **Zero ML models, zero network calls** — every technique is a deterministic heuristic (curated word lists, BM25, TF-IDF, regex/structural detection). No embedding model to download, nothing phones home.
+- **50+ languages out of the box**, no per-language configuration.
+- **Content-aware routing** — JSON, HTML, git diffs, logs, code, and prose each get a dedicated compression strategy instead of one generic pass; a universal anti-expansion guard means you never get back something bigger than what you sent in.
+- **Adaptive by design** — compression escalates automatically for larger inputs, results are cached by content hash, and repeated tool calls get diffed instead of resent in full.
+- **Safety-conscious by default** — credential-shaped text (API keys, tokens, PEM blocks) is redacted before it's ever persisted to disk; destructive-command text is flagged before compression could obscure it.
+- **MCP-native** — 33 tools, `readOnlyHint`-annotated where safe for parallel calls, plus first-class OpenAI/LangChain/Claude adapters and a plain Python API.
+- **Ops-ready** — a local multi-page dashboard, cluster/master-slave deployment, Docker/Kubernetes manifests, all included, none required.
 
 ### Before / After
 
@@ -111,13 +121,54 @@ directly (NLP-only, per-level).
 
 | Content | Original | After | Saved |
 |:---|---:|---:|:---:|
-| Plain text EN | 58 | 36 | −37.9% |
-| Plain text IT | 51 | 36 | −29.4% |
-| JSON array | 46 | 32 | −30.4% |
-| Git diff | 51 | 31 | −39.2% |
-| Python code | 56 | 31 | −44.6% |
-| Log / stacktrace | 101 | 45 | −55.4% |
-| HTML page | 51 | 16 | **−68.6%** |
+| Plain text EN | 196 | 105 | −46.4% |
+| Plain text IT | 200 | 131 | −34.5% |
+| JSON array (20 rows) | 609 | 326 | −46.5% |
+| Git diff (2 files) | 328 | 198 | −39.6% |
+| Python code | 273 | 151 | −44.7% |
+| Log / stacktrace (retry burst) | 1,666 | 102 | **−93.9%** |
+| HTML page | 242 | 61 | **−74.8%** |
+| Tool-schema JSON (new in 1.2.2 — `ToolSignature`) | 315 | 106 | **−66.3%** |
+| Nested JSON object (new in 1.2.2 — `ChainCollapse`) | 32 | 24 | −25.0% |
+
+Larger, more realistic payloads compress further than tiny samples — the log
+benchmark above is a 20-repeat retry burst (a real flaky-dependency scenario),
+where `LogCompressor`'s dedup collapses near-identical stack traces down to
+one occurrence plus a counter.
+
+---
+
+### Synthelion vs other prompt/context-compression tools
+
+A capability comparison, not a performance benchmark — we don't publish
+head-to-head token-savings numbers against other projects because we haven't
+run their code in a controlled, reproducible setup; this table is based on
+reading each project's public source. If you've measured a real head-to-head,
+open an issue with your methodology and we'll link it here.
+
+| Capability | Synthelion | headroom | kompact | tokenless | squeez | bu-ketao |
+|:---|:---:|:---:|:---:|:---:|:---:|:---:|
+| Zero ML models, zero network calls | ✅ | ❌ (torch/transformers/SigLIP, fine-tuned classifiers) | ✅ | ⚠️ optional ONNX embedding | ✅ | n/a (prompt rules, no code) |
+| NLP compression, 50+ languages | ✅ | — (ML feature extraction instead) | ✅ (TF-IDF) | — | — | n/a |
+| Content-type auto-routing (JSON/HTML/diff/log/code) | ✅ | ✅ | ✅ | ✅ (shape-based) | — | n/a |
+| Tool-schema → compact signature | ✅ | — | ✅ (TF-IDF selection) | ✅ | — | n/a |
+| Credential-shape detection before persisting | ✅ | — | — | — | ✅ (origin) | n/a |
+| Terminal ANSI/noise cleanup + success collapse | ✅ | — | — | — | ✅ (origin) | n/a |
+| Masking old tool output + retrieval (Artifact Index) | ✅ | ✅ (read-lifecycle staleness tracking) | ✅ (origin) | — | — | n/a |
+| Diff-on-repeat for identical tool calls | ✅ | — | — | — | — | n/a |
+| Adaptive compression scaling by content size | ✅ | — | ✅ (origin) | — | — | n/a |
+| JSON chain-depth / dot-path collapsing | ✅ | — | — | ✅ (origin) | — | n/a |
+| Advisory command-rewrite (never executes) | ✅ | — | — | ⚠️ executes it (rtk wrapper) | — | n/a |
+| Local multi-page web dashboard | ✅ | ✅ | ✅ (simpler) | — | — | n/a |
+| Cluster / master-slave deployment | ✅ | — | — | — | — | n/a |
+| MCP protocol (Claude Code, etc.) | ✅ 33 tools | ✅ (CLI plugins: Claude/Codex/Gemini) | — (HTTP proxy instead) | ✅ (hooks) | — | n/a |
+| Vision/image token optimization | — (text-only) | ✅ (tile-aligned resize + trained router) | — | — | — | n/a |
+| Provider cache-breakpoint-aware read staleness | — | ✅ (`read_maturation.py`) | — | — | — | n/a |
+| Response-style compression (output-side, CJK-aware) | — (out of scope, different axis) | — | — | — | — | ✅ (origin) |
+
+**Not in this table:** `tokensave` — a Rust code-intelligence tool (Tree-sitter knowledge graph, dead-code/cycle detection, code-health scoring) that solves a genuinely different problem (structural understanding of a codebase) rather than context/token compression, so it isn't a like-for-like comparison here.
+
+**On headroom specifically:** the broadest-scope alternative we looked at — proxy architecture, persistent memory, vision-token optimization, and ML-based response-length prediction (fine-tuned MiniLM/SigLIP classifiers hosted on HuggingFace). That breadth comes at the cost of the zero-ML-models guarantee Synthelion makes: several of headroom's key decisions (image routing, response-length prediction) depend on downloaded, trained models rather than deterministic heuristics.
 
 ---
 

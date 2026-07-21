@@ -409,87 +409,233 @@ def _cmd_bench(args) -> None:
 def _bench_corpus() -> list[dict]:
     return [
         {
+            # A realistically verbose request, the shape an actual user/agent
+            # message takes — not a bare sentence. Hedging, politeness filler,
+            # and restated context are exactly what SEMANTIC-level removes.
             "label": "plain_text_eng",
             "text": (
-                "The quick brown fox jumps over the lazy dog. "
-                "This is a simple sentence that contains many common English words. "
-                "The articles, prepositions, and conjunctions should be removed. "
-                "We are testing the compression algorithm with this text."
+                "I would like to kindly ask if it would be possible for you to please "
+                "take a look at the following issue that we have been experiencing "
+                "with our application over the past few days. Basically, what is "
+                "happening is that whenever a user attempts to submit the form on "
+                "the checkout page, the request seems to time out after a certain "
+                "amount of time has passed, and we are not entirely sure why this is "
+                "occurring. We have tried to investigate the problem ourselves, but "
+                "we were unable to determine the root cause of the issue. It would "
+                "be greatly appreciated if you could review the relevant logs and "
+                "provide us with some guidance on how we might be able to go about "
+                "resolving this particular problem as soon as possible, since it is "
+                "currently affecting a significant number of our customers."
             ),
         },
         {
             "label": "plain_text_ita",
             "text": (
-                "Il gatto è seduto sul tappeto. "
-                "La veloce volpe marrone salta sopra il cane pigro. "
-                "Questo è un testo di prova per testare la compressione in italiano. "
-                "Gli articoli e le preposizioni dovrebbero essere rimossi."
+                "Vorrei gentilmente chiederle se fosse possibile, quando ha un "
+                "momento di tempo libero, dare un'occhiata al problema che stiamo "
+                "riscontrando da diversi giorni con la nostra applicazione. In "
+                "pratica, quello che sta succedendo è che ogni volta che un utente "
+                "prova a inviare il modulo nella pagina di pagamento, la richiesta "
+                "sembra andare in timeout dopo un certo periodo di tempo, e non "
+                "siamo del tutto sicuri del motivo per cui questo stia accadendo. "
+                "Abbiamo provato a indagare da soli sul problema, ma non siamo "
+                "riusciti a determinare la causa principale. Le saremmo molto grati "
+                "se potesse esaminare i log pertinenti e fornirci qualche "
+                "indicazione su come potremmo risolvere questo particolare "
+                "problema il prima possibile, dato che sta attualmente "
+                "interessando un numero significativo dei nostri clienti."
             ),
         },
         {
+            # 20-row array of API-response-shaped records — realistic payload
+            # size for a "list users"/"list orders" tool response.
             "label": "json_array",
-            "text": (
-                '[{"id":1,"name":"Alice","age":30,"city":"Rome","active":true},'
-                '{"id":2,"name":"Bob","age":25,"city":"Milan","active":false},'
-                '{"id":3,"name":"Carol","age":35,"city":"Naples","active":true}]'
-            ),
+            "text": json.dumps([
+                {
+                    "id": i, "name": f"User{i}", "email": f"user{i}@example.com",
+                    "age": 20 + (i % 40), "city": ["Rome", "Milan", "Naples", "Turin", "Bologna"][i % 5],
+                    "active": bool(i % 2), "role": ["admin", "member", "guest"][i % 3],
+                }
+                for i in range(1, 21)
+            ], ensure_ascii=False),
         },
         {
+            # Multi-file diff with generous unchanged context — realistic PR
+            # diff, the kind DiffCompressor's context-trimming actually targets.
             "label": "git_diff",
             "text": (
-                "diff --git a/foo.py b/foo.py\n"
+                "diff --git a/src/checkout/service.py b/src/checkout/service.py\n"
                 "index 1234567..abcdefg 100644\n"
-                "--- a/foo.py\n"
-                "+++ b/foo.py\n"
-                "@@ -1,5 +1,5 @@\n"
-                " def hello():\n"
-                '-    print("hello world")\n'
-                '+    print("hello synthelion")\n'
+                "--- a/src/checkout/service.py\n"
+                "+++ b/src/checkout/service.py\n"
+                "@@ -1,15 +1,15 @@\n"
+                " import logging\n"
+                " from decimal import Decimal\n"
+                " from typing import Optional\n"
                 " \n"
-                " def bye():\n"
-                '     print("bye")\n'
+                " logger = logging.getLogger(__name__)\n"
+                " \n"
+                " class CheckoutService:\n"
+                "     def __init__(self, gateway, timeout=30):\n"
+                "         self.gateway = gateway\n"
+                "-        self.timeout = timeout\n"
+                "+        self.timeout = timeout * 2\n"
+                " \n"
+                "     def process(self, order):\n"
+                "         logger.info('Processing order %s', order.id)\n"
+                "-        return self.gateway.charge(order.total, timeout=self.timeout)\n"
+                "+        return self.gateway.charge(order.total, timeout=self.timeout, retries=3)\n"
+                " \n"
+                " def validate(order):\n"
+                "     if order.total <= 0:\n"
+                "         raise ValueError('Invalid total')\n"
+                "diff --git a/tests/test_checkout.py b/tests/test_checkout.py\n"
+                "index 89abcde..fedcba9 100644\n"
+                "--- a/tests/test_checkout.py\n"
+                "+++ b/tests/test_checkout.py\n"
+                "@@ -20,10 +20,12 @@ def test_process_order():\n"
+                "     service = CheckoutService(gateway=FakeGateway())\n"
+                "     order = make_order(total=100)\n"
+                "     result = service.process(order)\n"
+                "-    assert result.success\n"
+                "+    assert result.success\n"
+                "+    assert result.retries == 3\n"
+                " \n"
+                " def test_validate_rejects_negative():\n"
+                "     with pytest.raises(ValueError):\n"
+                "         validate(make_order(total=-1))\n"
             ),
         },
         {
+            # Realistically documented module — docstrings, comments, blank
+            # lines make up a large share, which CodeCompressor strips.
             "label": "code_python",
             "text": (
-                "# This is a comment\n"
+                '"""Utility module for computing Fibonacci numbers.\n\n'
+                "This module provides both a naive recursive implementation and a\n"
+                "memoized version for comparison purposes in the benchmark suite.\n"
+                '"""\n'
+                "\n"
+                "# Cache for memoized results, keyed by input value.\n"
+                "_cache = {}\n"
+                "\n"
+                "\n"
                 "def fibonacci(n):\n"
-                "    # Base cases\n"
+                "    # Base cases: fibonacci(0) == 0, fibonacci(1) == 1\n"
                 "    if n <= 1:\n"
                 "        return n\n"
-                "    # Recursive call\n"
+                "    # Recursive call — exponential time complexity, intentionally\n"
+                "    # naive for benchmarking purposes.\n"
                 "    return fibonacci(n - 1) + fibonacci(n - 2)\n"
                 "\n"
-                "# Main entry point\n"
+                "\n"
+                "def fibonacci_memoized(n):\n"
+                "    # Check the cache first to avoid redundant computation.\n"
+                "    if n in _cache:\n"
+                "        return _cache[n]\n"
+                "    # Base cases, same as the naive version above.\n"
+                "    if n <= 1:\n"
+                "        return n\n"
+                "    # Compute and store in cache before returning.\n"
+                "    result = fibonacci_memoized(n - 1) + fibonacci_memoized(n - 2)\n"
+                "    _cache[n] = result\n"
+                "    return result\n"
+                "\n"
+                "\n"
+                "# Main entry point — prints the first 10 Fibonacci numbers using\n"
+                "# both implementations for comparison.\n"
                 "if __name__ == '__main__':\n"
-                "    print(fibonacci(10))\n"
+                "    for i in range(10):\n"
+                "        print(fibonacci(i), fibonacci_memoized(i))\n"
             ),
         },
         {
+            # A realistic burst of repeated errors from a flaky retry loop —
+            # the shape LogCompressor's dedup is actually built for.
             "label": "log_stacktrace",
-            "text": (
-                "ERROR 2026-01-01 12:00:00 Exception in thread main\n"
-                "java.lang.NullPointerException\n"
+            "text": "".join(
+                f"ERROR 2026-01-01 12:00:{i:02d} Exception in thread main\n"
+                "java.lang.NullPointerException: Cannot invoke \"Order.getTotal()\" because \"order\" is null\n"
+                "\tat com.example.checkout.CheckoutService.process(CheckoutService.java:42)\n"
+                "\tat com.example.checkout.CheckoutController.submit(CheckoutController.java:18)\n"
                 "\tat com.example.App.main(App.java:10)\n"
-                "ERROR 2026-01-01 12:00:01 Exception in thread main\n"
-                "java.lang.NullPointerException\n"
-                "\tat com.example.App.main(App.java:10)\n"
-                "ERROR 2026-01-01 12:00:02 Exception in thread main\n"
-                "java.lang.NullPointerException\n"
-                "\tat com.example.App.main(App.java:10)\n"
-                "INFO  2026-01-01 12:00:03 Application started\n"
-            ),
+                for i in range(20)
+            ) + "INFO  2026-01-01 12:00:20 Application started\n",
         },
         {
+            # A realistic marketing/landing page — nav, footer, scripts, and
+            # styling markup dominate over the actual visible text.
             "label": "html_content",
             "text": (
-                "<html><head><title>Test</title></head><body>"
-                "<h1>Hello World</h1>"
-                "<p>This is a paragraph with some <strong>bold</strong> text.</p>"
-                "<ul><li>Item one</li><li>Item two</li><li>Item three</li></ul>"
-                "</body></html>"
+                "<!doctype html><html><head><title>Acme Corp — Home</title>"
+                '<meta name="viewport" content="width=device-width, initial-scale=1">'
+                '<link rel="stylesheet" href="/style.css"><script src="/analytics.js"></script>'
+                "</head><body>"
+                '<nav><ul><li><a href="/">Home</a></li><li><a href="/about">About</a></li>'
+                '<li><a href="/pricing">Pricing</a></li><li><a href="/contact">Contact</a></li></ul></nav>'
+                '<header class="hero"><h1>Welcome to Acme Corp</h1>'
+                "<p>This is a paragraph with some <strong>bold</strong> and <em>italic</em> text "
+                "describing what our product does and why customers should care about it.</p>"
+                '<button class="cta">Get started</button></header>'
+                '<section class="features"><ul>'
+                "<li>Item one describing a feature</li><li>Item two describing another feature</li>"
+                "<li>Item three describing a third feature</li></ul></section>"
+                '<footer><p>&copy; 2026 Acme Corp. All rights reserved.</p>'
+                '<ul><li><a href="/privacy">Privacy</a></li><li><a href="/terms">Terms</a></li></ul>'
+                "</footer></body></html>"
             ),
+        },
+        {
+            # New in 1.2.2 — JsonCrusher's ToolSignature strategy for
+            # OpenAI/Anthropic-style tool-definition arrays.
+            "label": "tool_schema_json",
+            "text": json.dumps([
+                {
+                    "name": "search_flights",
+                    "description": "Search for available flights between two airports on a given date, optionally filtering by cabin class and maximum number of stops.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "origin": {"type": "string", "description": "IATA airport code of the departure airport."},
+                            "destination": {"type": "string", "description": "IATA airport code of the arrival airport."},
+                            "date": {"type": "string", "description": "Departure date in YYYY-MM-DD format."},
+                            "cabin_class": {"type": "string", "description": "Preferred cabin class: economy, premium_economy, business, or first."},
+                            "max_stops": {"type": "integer", "description": "Maximum number of layovers allowed."},
+                        },
+                        "required": ["origin", "destination", "date"],
+                    },
+                },
+                {
+                    "name": "get_weather_forecast",
+                    "description": "Retrieve the multi-day weather forecast for a given city, including temperature, precipitation probability, and wind speed.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "city": {"type": "string", "description": "Name of the city to fetch the forecast for."},
+                            "days": {"type": "integer", "description": "Number of forecast days to return."},
+                            "units": {"type": "string", "description": "Measurement units: metric or imperial."},
+                        },
+                        "required": ["city"],
+                    },
+                },
+            ], ensure_ascii=False),
+        },
+        {
+            # New in 1.2.2 — JsonCrusher's ChainCollapse strategy for single JSON
+            # objects with deep single-child nesting (config-shaped data).
+            "label": "nested_json_object",
+            "text": json.dumps({
+                "application": {
+                    "server": {
+                        "network": {
+                            "listener": {
+                                "bind_address": "0.0.0.0",
+                            },
+                        },
+                    },
+                },
+                "logging": {"level": "info", "format": "json"},
+            }),
         },
     ]
 
