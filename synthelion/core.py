@@ -2,12 +2,16 @@
 # © 2026 Passaro Francesco Paolo — Digitalsolutions.it
 from __future__ import annotations
 
+import hashlib
 import logging
 import math
-import regex
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from threading import Lock
 from typing import Callable
+
+import regex
 
 _log = logging.getLogger(__name__)
 
@@ -164,6 +168,10 @@ def _categorize(word: str, fw: frozenset[str]) -> str:
     return "CONTENT"
 
 
+_CACHE_TTL = 1800   # 30 minutes — matches ContentRouter's cache for consistency
+_CACHE_MAX = 512    # max entries — evict oldest 25% when full
+
+
 class CompressionService:
     """NLP prompt compressor: strips function words and lemmatizes tokens.
 
@@ -178,6 +186,12 @@ class CompressionService:
     ) -> None:
         self._provider = word_provider or FunctionWordProvider()
         self._detector = detector or LanguageDetector(self._provider)
+        # Same hash→result/TTL/eviction pattern as ContentRouter.route() — repeated
+        # identical calls (e.g. the same system prompt compressed every turn) skip
+        # re-tokenizing/re-lemmatizing entirely. Keyed on (text, level, iso3): the
+        # exact inputs apply_compression() is a pure function of.
+        self._cache: dict[str, tuple[CompressionResult, float]] = {}
+        self._cache_lock = Lock()
 
     # ------------------------------------------------------------------
     # Public API
@@ -198,12 +212,36 @@ class CompressionService:
     ) -> CompressionResult:
         if not text or not text.strip():
             return CompressionResult(compressed_text="")
+
+        # custom_filter is an arbitrary caller-supplied callable — not guaranteed
+        # deterministic or safely reusable across calls, so it bypasses the cache
+        # entirely rather than risk serving a stale result for a filter that behaves
+        # differently call to call.
+        cache_key = None
+        if custom_filter is None:
+            cache_key = hashlib.md5(f"{text}\x00{level}\x00{iso3 or ''}".encode()).hexdigest()
+            with self._cache_lock:
+                entry = self._cache.get(cache_key)
+                if entry and time.time() - entry[1] < _CACHE_TTL:
+                    return entry[0]
+
         try:
             lang = iso3 or self._detector.detect(text)
-            return self.apply_compression(text, lang, level, custom_filter)
+            result = self.apply_compression(text, lang, level, custom_filter)
         except Exception as exc:
             _log.warning("compress() failed: %s", exc, exc_info=True)
             return CompressionResult(compressed_text=text, error_message=str(exc))
+
+        if cache_key is not None:
+            with self._cache_lock:
+                self._cache[cache_key] = (result, time.time())
+                if len(self._cache) > _CACHE_MAX:
+                    # Evict oldest 25% of entries
+                    sorted_keys = sorted(self._cache, key=lambda k: self._cache[k][1])
+                    for k in sorted_keys[: _CACHE_MAX // 4]:
+                        del self._cache[k]
+
+        return result
 
     def compress_batch(
         self,

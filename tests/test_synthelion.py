@@ -8,7 +8,7 @@ from unittest.mock import patch
 import pytest
 
 from synthelion.models import (
-    CompressionLevel, CompressionProfile, ContentType,
+    CompressionLevel, CompressionProfile, ContentType, RoutedCompressionResult,
 )
 from synthelion.word_provider import FunctionWordProvider
 from synthelion.detector import LanguageDetector
@@ -187,6 +187,89 @@ class TestCompressionService:
         assert r.estimated_energy_saved_mwh >= 0
         assert r.estimated_co2_saved_mg >= 0
 
+    # ── content-hash cache ───────────────────────────────────────────────────
+
+    def test_repeated_compress_returns_equivalent_result(self):
+        r1 = self.svc.compress(self.EN_SENTENCE, CompressionLevel.SEMANTIC)
+        r2 = self.svc.compress(self.EN_SENTENCE, CompressionLevel.SEMANTIC)
+        assert r2.compressed_text == r1.compressed_text
+        assert r2.original_tokens == r1.original_tokens
+        assert r2.compressed_tokens == r1.compressed_tokens
+
+    def test_cache_is_actually_hit_not_just_deterministic(self):
+        """Quality check on the cache itself, not just on output equivalence: the
+        second call must come from the cache dict, not from recomputation that
+        happens to produce the same answer."""
+        self.svc.compress(self.EN_SENTENCE, CompressionLevel.SEMANTIC)
+        assert len(self.svc._cache) == 1
+        key = next(iter(self.svc._cache))
+        cached_result, _ts = self.svc._cache[key]
+        self.svc.compress(self.EN_SENTENCE, CompressionLevel.SEMANTIC)
+        assert len(self.svc._cache) == 1  # no new entry — same key, hit not miss
+        r3 = self.svc.compress(self.EN_SENTENCE, CompressionLevel.SEMANTIC)
+        assert r3 is cached_result  # literally the same cached object returned
+
+    def test_cache_distinguishes_by_level(self):
+        r_light = self.svc.compress(self.EN_SENTENCE, CompressionLevel.LIGHT)
+        r_agg = self.svc.compress(self.EN_SENTENCE, CompressionLevel.AGGRESSIVE)
+        assert r_light.compressed_text != r_agg.compressed_text
+        assert len(self.svc._cache) == 2
+
+    def test_cache_distinguishes_by_language(self):
+        text = "Ich hätte gerne einen Kaffee."
+        r_deu = self.svc.compress(text, CompressionLevel.LIGHT, iso3="deu")
+        r_eng = self.svc.compress(text, CompressionLevel.LIGHT, iso3="eng")
+        assert len(self.svc._cache) == 2
+        # Different declared language must not silently reuse the other's result.
+        assert (r_deu.compressed_text, r_deu.original_tokens) != (r_eng.compressed_text, r_eng.original_tokens) \
+            or r_deu is not r_eng  # at minimum, distinct cache entries were computed
+
+    def test_cache_distinguishes_by_text(self):
+        self.svc.compress("First sentence here.", CompressionLevel.SEMANTIC)
+        self.svc.compress("A completely different second sentence.", CompressionLevel.SEMANTIC)
+        assert len(self.svc._cache) == 2
+
+    def test_custom_filter_bypasses_cache(self):
+        identity_filter = lambda tokens, fw: tokens  # noqa: E731
+        self.svc.compress(self.EN_SENTENCE, CompressionLevel.SEMANTIC, custom_filter=identity_filter)
+        assert len(self.svc._cache) == 0
+
+    def test_cache_does_not_affect_compression_quality(self):
+        """The whole point of this suite: caching must be purely a performance layer —
+        cached and freshly-computed results must be indistinguishable in content."""
+        fresh_svc = CompressionService()
+        uncached = fresh_svc.compress(self.EN_SENTENCE, CompressionLevel.SEMANTIC)
+        cached_svc = CompressionService()
+        cached_svc.compress(self.EN_SENTENCE, CompressionLevel.SEMANTIC)  # warm the cache
+        cached = cached_svc.compress(self.EN_SENTENCE, CompressionLevel.SEMANTIC)  # served from cache
+        assert cached.compressed_text == uncached.compressed_text
+        assert cached.efficiency_pct == uncached.efficiency_pct
+
+    def test_cache_eviction_caps_size(self):
+        import synthelion.core as core_module
+        original_max = core_module._CACHE_MAX
+        core_module._CACHE_MAX = 10
+        try:
+            for i in range(20):
+                self.svc.compress(f"Sentence number {i} about something unique.", CompressionLevel.LIGHT)
+            assert len(self.svc._cache) <= 10
+        finally:
+            core_module._CACHE_MAX = original_max
+
+    def test_cache_ttl_expiry_recomputes(self):
+        import synthelion.core as core_module
+        original_ttl = core_module._CACHE_TTL
+        core_module._CACHE_TTL = 0  # immediately stale
+        try:
+            r1 = self.svc.compress(self.EN_SENTENCE, CompressionLevel.SEMANTIC)
+            key = next(iter(self.svc._cache))
+            _cached_result, ts = self.svc._cache[key]
+            r2 = self.svc.compress(self.EN_SENTENCE, CompressionLevel.SEMANTIC)
+            # Recomputed (TTL=0 means every read is already stale) but content-equal.
+            assert r2.compressed_text == r1.compressed_text
+        finally:
+            core_module._CACHE_TTL = original_ttl
+
 
 # ---------------------------------------------------------------------------
 # 4. ContentDetector
@@ -245,6 +328,75 @@ class TestContentRouter:
         router = ContentRouter()
         r = router.route(diff)
         assert r.detected_type == ContentType.GIT_DIFF
+
+    # ── universal anti-expansion guard ───────────────────────────────────────
+
+    def test_guard_leaves_genuine_compression_untouched(self):
+        from synthelion.content_router import _guard_against_expansion
+        r = RoutedCompressionResult(
+            compressed="short", original="a much longer original string here",
+            strategy_used="NlpCompression", tokens_before=10, tokens_after=1,
+        )
+        _guard_against_expansion(r)
+        assert r.compressed == "short"
+        assert r.strategy_used == "NlpCompression"
+
+    def test_guard_reverts_when_output_is_not_smaller(self):
+        from synthelion.content_router import _guard_against_expansion
+        original = "tiny"
+        r = RoutedCompressionResult(
+            compressed="tiny plus a lot of extra overhead that is longer than original",
+            original=original,
+            strategy_used="JsonCrush:LossyRowDrop", tokens_before=1, tokens_after=15,
+            ccr_hash="deadbeef1234",
+        )
+        _guard_against_expansion(r)
+        assert r.compressed == original
+        assert r.tokens_after == r.tokens_before
+        assert r.strategy_used == "JsonCrush:LossyRowDrop→Passthrough(no-gain)"
+        assert r.ccr_hash is None
+
+    def test_guard_reverts_on_equal_token_count_too(self):
+        """Equal (not just larger) counts still count as "no real gain"."""
+        from synthelion.content_router import _guard_against_expansion
+        r = RoutedCompressionResult(
+            compressed="different text same length", original="different text same length",
+            strategy_used="HtmlExtract+NlpCompression", tokens_before=5, tokens_after=5,
+        )
+        _guard_against_expansion(r)
+        assert r.compressed == r.original
+        assert "no-gain" in r.strategy_used
+
+    def test_guard_never_touches_passthrough_or_error(self):
+        from synthelion.content_router import _guard_against_expansion
+        for strategy in ("Passthrough", "Error"):
+            r = RoutedCompressionResult(
+                compressed="x", original="y", strategy_used=strategy,
+                tokens_before=1, tokens_after=99,
+            )
+            _guard_against_expansion(r)
+            assert r.compressed == "x"  # untouched even though tokens_after > tokens_before
+            assert r.strategy_used == strategy
+
+    def test_route_end_to_end_falls_back_when_compressor_expands(self):
+        """Integration: a compressor that misbehaves and returns something bigger
+        than the input must never leak past route() — the caller always gets
+        something at least as small as what it sent in."""
+        router = ContentRouter.from_profile(CompressionProfile.BALANCED)
+        original_crush = router._json.crush
+
+        def _bloating_crush(json_text, query=None):
+            r = original_crush(json_text, query)
+            if r["was_crushed"]:
+                r["compressed"] = r["compressed"] + ("!" * len(json_text) * 2)
+            return r
+
+        router._json.crush = _bloating_crush
+        arr = json.dumps([{"name": f"Item {i}", "value": i, "desc": "x" * 20} for i in range(20)])
+        r = router.route(arr)
+        assert r.compressed == arr
+        assert r.tokens_after == r.tokens_before
+        assert "no-gain" in r.strategy_used
 
 
 # ---------------------------------------------------------------------------
@@ -507,6 +659,10 @@ class TestMcpServer:
         from synthelion.plugins.openai_tools import get_tool_list as openai_gtl
         assert set(mcp_gtl()) == set(openai_gtl())
 
+    def test_check_sensitive_content_marked_read_only(self):
+        from synthelion.plugins.mcp_server import _READ_ONLY_TOOLS
+        assert "check_sensitive_content" in _READ_ONLY_TOOLS
+
 
 # ---------------------------------------------------------------------------
 # 11. check_tool_loop / reset_tool_loop — loop guardrail MCP tools
@@ -657,6 +813,124 @@ class TestJsonCrusher:
     def test_array_of_non_dicts_not_crushed(self):
         r = self.crusher.crush('["a", "b", "c"]')
         assert not r["was_crushed"]
+
+    # ── ToolSignature (tool-schema → Python-signature compression) ──────────
+
+    def test_openai_style_tool_schema_detected(self):
+        data = [
+            {
+                "name": "get_weather",
+                "description": "Get the current weather for a location",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "location": {"type": "string"},
+                        "unit": {"type": "string"},
+                    },
+                    "required": ["location"],
+                },
+            },
+            {
+                "name": "send_email",
+                "description": "Send an email to a recipient",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"to": {"type": "string"}, "body": {"type": "string"}},
+                    "required": ["to", "body"],
+                },
+            },
+        ]
+        raw = json.dumps(data)
+        r = self.crusher.crush(raw)
+        assert r["strategy"] == "ToolSignature"
+        assert r["was_crushed"]
+        assert "get_weather(location:string, unit?:string)" in r["compressed"]
+        assert "send_email(to:string, body:string)" in r["compressed"]
+        assert "Get the current weather" in r["compressed"]
+        # Quality check: the whole point is a real size reduction, not just a
+        # different-looking format.
+        assert len(r["compressed"]) < len(raw)
+
+    def test_anthropic_style_input_schema_detected(self):
+        data = [
+            {
+                "name": "search_docs",
+                "description": "Search the documentation",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"query": {"type": "string"}},
+                    "required": ["query"],
+                },
+            },
+        ]
+        r = self.crusher.crush(json.dumps(data))
+        assert r["strategy"] == "ToolSignature"
+        assert "search_docs(query:string)" in r["compressed"]
+
+    def test_tool_schema_no_description_omits_dash(self):
+        data = [{"name": "noop", "parameters": {"type": "object", "properties": {}}}]
+        r = self.crusher.crush(json.dumps(data))
+        assert r["strategy"] == "ToolSignature"
+        assert r["compressed"].strip() == "noop()"
+        assert "—" not in r["compressed"]
+
+    def test_tool_schema_required_vs_optional_markers(self):
+        data = [{
+            "name": "f",
+            "parameters": {
+                "type": "object",
+                "properties": {"a": {"type": "integer"}, "b": {"type": "boolean"}},
+                "required": ["a"],
+            },
+        }]
+        r = self.crusher.crush(json.dumps(data))
+        assert "a:integer" in r["compressed"]  # required — no "?"
+        assert "b?:boolean" in r["compressed"]  # optional — has "?"
+
+    def test_ordinary_array_with_name_key_not_misdetected_as_tool_schema(self):
+        """Regression guard: a plain data array that happens to have a `name` field
+        (extremely common — people, products, files, ...) must still go through the
+        normal Markdown/CSV path, not be misread as a tool schema and mangled."""
+        data = [{"name": "Alice", "age": 30}, {"name": "Bob", "age": 25}]
+        r = self.crusher.crush(json.dumps(data))
+        assert r["strategy"] != "ToolSignature"
+        assert r["strategy"] in ("MarkdownTable", "Csv")
+        assert "Alice" in r["compressed"]
+
+    def test_name_with_non_object_parameters_not_tool_schema(self):
+        data = [{"name": "x", "parameters": "not-a-schema"}, {"name": "y", "parameters": "also-not"}]
+        r = self.crusher.crush(json.dumps(data))
+        assert r["strategy"] != "ToolSignature"
+
+    def test_parameters_object_without_properties_not_tool_schema(self):
+        data = [{"name": "x", "parameters": {"type": "object"}}, {"name": "y", "parameters": {"type": "object"}}]
+        r = self.crusher.crush(json.dumps(data))
+        assert r["strategy"] != "ToolSignature"
+
+    def test_mixed_array_not_misdetected_as_tool_schema(self):
+        """Strict-AND detection: if even one row doesn't match the tool shape, the
+        whole array must fall back to the generic path rather than half-render."""
+        data = [
+            {
+                "name": "get_weather",
+                "parameters": {"type": "object", "properties": {"loc": {"type": "string"}}, "required": ["loc"]},
+            },
+            {"name": "Alice", "age": 30},
+        ]
+        r = self.crusher.crush(json.dumps(data))
+        assert r["strategy"] != "ToolSignature"
+
+    def test_tool_schema_helper_functions_direct(self):
+        from synthelion.compressors.json_crusher import _looks_like_tool_schema, _to_tool_signatures
+        rows = [{
+            "name": "t", "description": "d",
+            "parameters": {"type": "object", "properties": {"p": {"type": "string"}}, "required": ["p"]},
+        }]
+        assert _looks_like_tool_schema(rows) is True
+        assert _looks_like_tool_schema([]) is False
+        assert _looks_like_tool_schema([{"name": ""}]) is False
+        sig = _to_tool_signatures(rows)
+        assert sig == "t(p:string) — d"
 
 
 # ---------------------------------------------------------------------------

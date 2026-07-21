@@ -53,6 +53,23 @@ class JsonCrusher:
 
         keys = list(dict.fromkeys(k for r in rows for k in r))
 
+        # Try tool/function-schema → Python-signature compression first: this shape
+        # (OpenAI/Anthropic tool-definition JSON — long free-text descriptions, a nested
+        # "parameters"/"input_schema" object) compresses poorly as Markdown/CSV — those
+        # either fail the 0.85 size check or produce an unreadable table — but every
+        # agent turn re-sends its whole tool list, so it's worth a dedicated strategy.
+        if _looks_like_tool_schema(rows):
+            sig = _to_tool_signatures(rows)
+            if len(sig) < len(json_text) * 0.85:
+                return {
+                    "compressed": sig,
+                    "strategy": "ToolSignature",
+                    "was_crushed": True,
+                    "ccr_hash": None,
+                    "original_rows": len(arr),
+                    "kept_rows": len(rows),
+                }
+
         # Try markdown table (lossless, small arrays)
         if len(keys) <= MAX_KEYS_MARKDOWN and len(rows) <= MAX_ROWS_MARKDOWN:
             md = _to_markdown(rows, keys)
@@ -96,6 +113,44 @@ class JsonCrusher:
             }
 
         return result_base
+
+
+def _looks_like_tool_schema(rows: list[dict]) -> bool:
+    """True if every row looks like an OpenAI/Anthropic tool-definition object:
+    a `name`, and a `parameters`/`input_schema` object with `type: "object"` and a
+    `properties` dict. Deliberately strict (every row must match, not just most) —
+    a false positive would mangle an ordinary data array into a nonsense signature."""
+    if not rows:
+        return False
+    for r in rows:
+        if not isinstance(r.get("name"), str) or not r["name"]:
+            return False
+        schema = r.get("parameters") or r.get("input_schema")
+        if not isinstance(schema, dict):
+            return False
+        if schema.get("type") != "object" or not isinstance(schema.get("properties"), dict):
+            return False
+    return True
+
+
+def _to_tool_signatures(rows: list[dict]) -> str:
+    """Renders tool-definition rows as one Python-style signature line each:
+    `tool_name(required:type, optional?:type) — description`, dropping the
+    JSON-schema boilerplate every agent turn otherwise re-sends verbatim."""
+    lines = []
+    for r in rows:
+        schema = r.get("parameters") or r.get("input_schema") or {}
+        props = schema.get("properties") or {}
+        required = set(schema.get("required") or [])
+        params = []
+        for pname, pschema in props.items():
+            ptype = pschema.get("type", "any") if isinstance(pschema, dict) else "any"
+            marker = "" if pname in required else "?"
+            params.append(f"{pname}{marker}:{ptype}")
+        signature = f"{r['name']}({', '.join(params)})"
+        description = r.get("description")
+        lines.append(f"{signature} — {description}" if description else signature)
+    return "\n".join(lines)
 
 
 def _to_markdown(rows: list[dict], keys: list[str]) -> str:

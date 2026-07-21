@@ -29,6 +29,25 @@ def _approx_tokens(text: str) -> int:
     return len(text) // 4
 
 
+def _guard_against_expansion(result: RoutedCompressionResult) -> None:
+    """Universal safety net, mutating *result* in place: if whatever compressor ran
+    produced output that isn't actually smaller (a rewriting compressor like
+    JsonCrusher's LossyRowDrop adds a CCR-hash comment that can outweigh the savings
+    on a small input, for instance), fall back to the original content untouched
+    rather than silently handing back something longer than what came in.
+
+    Centralized here rather than in each compressor: a new compressor added later
+    gets this guarantee for free instead of needing to remember its own check.
+    """
+    if result.strategy_used in ("Passthrough", "Error"):
+        return
+    if result.tokens_after >= result.tokens_before:
+        result.compressed = result.original
+        result.strategy_used = f"{result.strategy_used}→Passthrough(no-gain)"
+        result.tokens_after = result.tokens_before
+        result.ccr_hash = None
+
+
 class ContentRouter:
     """Routes content to the best compressor based on detected type.
 
@@ -88,6 +107,8 @@ class ContentRouter:
                 strategy_used="Error",
                 error_message=str(exc),
             )
+
+        _guard_against_expansion(result)
 
         with self._cache_lock:
             self._cache[cache_key] = (result, time.time())
