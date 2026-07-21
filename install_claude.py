@@ -144,6 +144,7 @@ def _hook_command_windows(cli: str) -> str:
         f"if($r.privacy_categories -and $r.privacy_categories.Count -gt 0)"
         f"{{$cats=($r.privacy_categories -join ', ');$comp=($r.privacy_compliance -join ', ');"
         f"$label=$label+\"`n`nPII / Privacy`nScore: $($r.privacy_score) - Risk: $($r.privacy_risk_level)`n`nCategories: $cats`n`nCompliance: $comp`n`nMasked: [$cats]\"}}"
+        f"if($r.ai_transparency_notice){{$label=$label+\"`n`n\"+$r.ai_transparency_notice}}"
         f"@{{systemMessage=$label;hookSpecificOutput=@{{hookEventName='UserPromptSubmit';additionalContext=$r.compressed}}}}|ConvertTo-Json -Compress}}}}"
     )
 
@@ -159,6 +160,7 @@ def _hook_command_unix(cli: str) -> str:
         f"label='[Synthelion '+str(eff)+'% saved - '+str(d.get('energy_mwh',0))+' mWh - '+str(d.get('co2_mg',0))+' mg CO2 saved]'; "
         f"cats=d.get('privacy_categories') or []; "
         f"label=label+'\\n\\nPII / Privacy\\nScore: '+str(d.get('privacy_score'))+' - Risk: '+str(d.get('privacy_risk_level'))+'\\n\\nCategories: '+', '.join(cats)+'\\n\\nCompliance: '+', '.join(d.get('privacy_compliance') or [])+'\\n\\nMasked: ['+', '.join(cats)+']' if cats else label; "
+        f"label=label+'\\n\\n'+d['ai_transparency_notice'] if d.get('ai_transparency_notice') else label; "
         f"print(json.dumps({{'systemMessage':label,'hookSpecificOutput':{{'hookEventName':'UserPromptSubmit','additionalContext':d.get('compressed','')}}}})) if eff>{HOOK_MIN_EFF} else None\"); "
         f"[ -n \"$out\" ] && printf '%s' \"$out\"; fi; fi"
     )
