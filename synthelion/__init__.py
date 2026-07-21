@@ -32,6 +32,8 @@ from synthelion.cost_estimator import default_usd_per_1k_tokens, usd, eur
 from synthelion.tokenizer import ModelTokenizer, LlmModel
 from synthelion.loop_guard import LoopGuard, LoopVerdict, LoopCheckResult, PersistentLoopGuard
 from synthelion.plugins.openai_tools import filter_relevant_tools
+from synthelion.response_style import get_style_guidance
+from synthelion.read_lifecycle import ReadLifecycleTracker, get_read_lifecycle_tracker
 
 __version__ = "1.2.2"
 __author__ = "Passaro Francesco Paolo"
@@ -91,4 +93,7 @@ __all__ = [
     "LoopCheckResult",
     "PersistentLoopGuard",
     "filter_relevant_tools",
+    "get_style_guidance",
+    "ReadLifecycleTracker",
+    "get_read_lifecycle_tracker",
 ]

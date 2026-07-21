@@ -40,12 +40,14 @@ class ReadLifecycleTracker:
     def _entry(self, session_id: str, path: str) -> dict:
         return self._state.setdefault(
             (session_id, path),
-            {"last_read_turn": None, "last_write_turn": None, "read_count": 0},
+            {"last_read_turn": None, "last_write_turn": None, "read_count": 0, "reads_since_write": 0},
         )
 
     def record_write(self, path: str, turn: int, session_id: str = "default") -> None:
         with self._lock:
-            self._entry(session_id, path)["last_write_turn"] = turn
+            entry = self._entry(session_id, path)
+            entry["last_write_turn"] = turn
+            entry["reads_since_write"] = 0
 
     def record_read(self, path: str, turn: int, session_id: str = "default") -> dict:
         """Records a read at *turn*. Returns this read's own status — always
@@ -54,6 +56,7 @@ class ReadLifecycleTracker:
         with self._lock:
             entry = self._entry(session_id, path)
             entry["read_count"] += 1
+            entry["reads_since_write"] += 1
             entry["last_read_turn"] = turn
             status = "stale" if entry["last_write_turn"] is not None and entry["last_write_turn"] >= turn else "fresh"
             return {"status": status, "read_count": entry["read_count"]}
@@ -67,7 +70,7 @@ class ReadLifecycleTracker:
                 return "unknown"
             if entry["last_write_turn"] is not None and entry["last_write_turn"] > entry["last_read_turn"]:
                 return "stale"
-            if entry["read_count"] > 1:
+            if entry["reads_since_write"] > 1:
                 return "superseded"
             return "fresh"
 
