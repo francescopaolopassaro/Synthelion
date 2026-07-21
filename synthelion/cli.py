@@ -293,6 +293,13 @@ def _cmd_compress(args) -> None:
             from synthelion.prompt_injection_guard import PromptInjectionGuard
             injection_score = PromptInjectionGuard().analyze(text).score
 
+    transparency_notice = None
+    if pcfg["enabled"] and pcfg["ai_transparency_notice"]:
+        from synthelion.ai_transparency_notice import get_transparency_notice
+        transparency_notice = get_transparency_notice(
+            pcfg["language"], pcfg.get("transparency_custom_message") or None,
+        )
+
     svc = CompressionService()
     start = time.perf_counter()
     r = svc.compress(text, level_map[args.level], iso3=args.language)
@@ -314,6 +321,7 @@ def _cmd_compress(args) -> None:
             "privacy_categories": privacy_categories,
             "privacy_compliance": privacy_compliance,
             "prompt_injection_score": injection_score,
+            "ai_transparency_notice": transparency_notice,
         }))
     else:
         print(r.compressed_text)

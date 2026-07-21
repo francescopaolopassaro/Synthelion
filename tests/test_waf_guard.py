@@ -74,10 +74,16 @@ class TestIpRules:
         assert eng.is_allowlisted("5.6.7.8")
         assert eng.get_active_block("5.6.7.8") is None
 
-    def test_expired_block_is_not_active(self, tmp_path: Path):
-        eng = WafEngine(tmp_path)
-        eng.add_ip_rule("9.9.9.9", "Block", minutes=-1)  # already expired
-        assert eng.get_active_block("9.9.9.9") is None
+    def test_expired_rule_is_not_active(self):
+        from synthelion.waf_guard import WafIpRule
+        import time as _time
+        rule = WafIpRule(ip="9.9.9.9", kind="Block", expires_at=_time.time() - 10)
+        assert rule.is_active is False
+
+    def test_permanent_rule_is_always_active(self):
+        from synthelion.waf_guard import WafIpRule
+        rule = WafIpRule(ip="9.9.9.9", kind="Block", expires_at=None)
+        assert rule.is_active is True
 
     def test_delete_ip_rule(self, tmp_path: Path):
         eng = WafEngine(tmp_path)

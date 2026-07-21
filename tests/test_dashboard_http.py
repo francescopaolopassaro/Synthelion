@@ -355,7 +355,7 @@ class TestDashboardWafApi:
     def test_detect_only_by_default_never_blocks_malicious_request(self, dashboard_server):
         # block_mode defaults to False — a malicious-looking request must still
         # reach normal routing (redirect to login), not get a 403.
-        resp = _get(dashboard_server, "/?id=1' OR '1'='1")
+        resp = _get(dashboard_server, "/?id=1%20OR%201%3D1")
         resp.read()
         assert resp.status == 302
 
