@@ -39,6 +39,7 @@ _READ_ONLY_TOOLS = frozenset({
     "safety_check", "check_sensitive_content", "analyze_waste", "check_cache_alignment", "align_cache_prompt", "shape_output",
     "focus_relevant", "estimate_cost", "generate_commit_message", "review_diff",
     "generate_project_wiki", "list_relevant_tools", "expand_masked_output",
+    "get_artifact_index", "rewrite_command",
 })
 
 

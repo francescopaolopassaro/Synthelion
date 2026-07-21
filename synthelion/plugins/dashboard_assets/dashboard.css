@@ -97,3 +97,48 @@
   height: 260px;
   width: 100%;
 }
+
+/* Wide content (Settings' 4-card rows, wide tables) can exceed the viewport
+   width on narrower windows, and .main-content itself is capped to 100vh
+   (Material Dashboard's .max-height-vh-100) without its own overflow-y — so
+   without an explicit overflow rule here, content past that height/width was
+   only reachable by Tab-focusing through it (which auto-scrolls the focused
+   field into view) instead of a normal, visible scrollbar. `scroll` (not
+   `auto`) on purpose: Windows' overlay-scrollbar behavior hides an `auto`
+   scrollbar until you start scrolling/hovering, which is indistinguishable
+   from "there's no scrollbar at all" — `scroll` always reserves the track so
+   it's visible immediately, not just mid-interaction. Apply on html too:
+   .main-content isn't reliably the true scrolling ancestor in every browser
+   given the fixed sidenav layout, so both are covered rather than guessing
+   which one wins. */
+html, body, .main-content {
+  overflow-x: scroll;
+}
+.main-content {
+  overflow-y: scroll;
+}
+
+/* Modern slim scrollbar, applied everywhere (not just one container) so it's
+   consistent across every page, not just the ones that happen to overflow
+   today. */
+::-webkit-scrollbar {
+  height: 10px;
+  width: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.25);
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.4);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+}

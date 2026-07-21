@@ -661,6 +661,37 @@ def get_tool_definitions() -> list[dict]:
         {
             "type": "function",
             "function": {
+                "name": "get_artifact_index",
+                "description": (
+                    "Returns a catalog of everything mask_old_tool_output has masked so far, "
+                    "grouped by tool, with the hash needed to retrieve each one via "
+                    "expand_masked_output. Meant to be re-injected into context so the model "
+                    "knows what was hidden and can ask for it back."
+                ),
+                "parameters": {"type": "object", "properties": {}, "required": []},
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "rewrite_command",
+                "description": (
+                    "Suggests a less verbose variant of a known shell command (same semantics "
+                    "and exit code, fewer decorative banners/pager/audit output) — e.g. adds "
+                    "--no-pager to git log, --no-fund --no-audit to npm install. Advisory only: "
+                    "never executed, the caller decides whether to actually run the suggestion. "
+                    "Refuses to rewrite composite commands (&&, |, ;, backticks, $(), redirects)."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {"command": {"type": "string", "description": "The shell command to consider rewriting."}},
+                    "required": ["command"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
                 "name": "diff_tool_output",
                 "description": (
                     "For a tool called again with identical arguments (same session), returns a "
@@ -901,6 +932,12 @@ def execute_tool(name: str, arguments: dict) -> dict:
 
     if name == "diff_tool_output":
         return _exec_diff_tool_output(arguments)
+
+    if name == "get_artifact_index":
+        return _exec_get_artifact_index(arguments)
+
+    if name == "rewrite_command":
+        return _exec_rewrite_command(arguments)
 
     return {"error": f"Unknown tool: {name}"}
 
@@ -1310,14 +1347,27 @@ def _exec_list_relevant_tools(arguments: dict) -> dict:
 
 
 def _exec_mask_old_tool_output(arguments: dict) -> dict:
-    from synthelion.output_mask import mask_old_outputs
+    from synthelion.output_mask import get_output_mask_store, mask_old_outputs
     keep_last = int(arguments.get("keep_last") if arguments.get("keep_last") is not None else 3)
-    return {"outputs": mask_old_outputs(arguments["outputs"], keep_last)}
+    store = get_output_mask_store()
+    outputs = mask_old_outputs(arguments["outputs"], keep_last, store=store)
+    return {"outputs": outputs, "artifact_index": store.render_index()}
 
 
 def _exec_expand_masked_output(arguments: dict) -> dict:
     from synthelion.output_mask import get_output_mask_store
     return {"output": get_output_mask_store().retrieve(arguments["hash"])}
+
+
+def _exec_get_artifact_index(arguments: dict) -> dict:
+    from synthelion.output_mask import get_output_mask_store
+    return {"index": get_output_mask_store().render_index()}
+
+
+def _exec_rewrite_command(arguments: dict) -> dict:
+    from synthelion.command_rewrite import rewrite_command
+    command, rewritten = rewrite_command(arguments["command"])
+    return {"command": command, "rewritten": rewritten}
 
 
 def _exec_diff_tool_output(arguments: dict) -> dict:

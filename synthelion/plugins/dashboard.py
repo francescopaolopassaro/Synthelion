@@ -69,7 +69,7 @@ _STATIC_FILES = {
 # history.pushState so navigating between them doesn't reload the page.
 _PAGE_ROUTES = frozenset({
     "/", "/index.html", "/overview", "/charts", "/sessions", "/requests",
-    "/decisions", "/settings", "/profile", "/notifications", "/cluster",
+    "/decisions", "/settings", "/doctor", "/version", "/profile", "/notifications", "/cluster",
 })
 
 # Node-to-node cluster endpoints authenticate with the cluster's shared
