@@ -25,9 +25,15 @@ _ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[@-Z
 # risk losing real content, whereas a lone braille glyph never legitimately appears.
 _SPINNER_LINE_RE = re.compile(r"^\s*[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]\s*$")
 
-# A line made up almost entirely of block/progress-bar characters (optionally with a
-# trailing percentage), e.g. "████████████░░░░░░░░ 60%".
-_PROGRESS_BAR_RE = re.compile(r"^\s*[█▓▒░▏▎▍▌▋▊▉=#\-]{4,}(?:\s+\d{1,3}%)?\s*$")
+# A line made up of Unicode block/progress-bar fill characters (unambiguous — these
+# never appear in ordinary prose), optionally with a trailing percentage, e.g.
+# "████████████░░░░░░░░ 60%". ASCII bar styles ("[=====>   ] 60%") are matched only
+# inside brackets with a percentage, since a bare run of "-" or "=" alone is a common,
+# legitimate divider/underline in plain text and must not be stripped.
+_PROGRESS_BAR_RE = re.compile(
+    r"^\s*[█▓▒░▏▎▍▌▋▊▉]{3,}(?:\s+\d{1,3}%)?\s*$"
+    r"|^\s*\[[=#\-> ]{3,}\]\s*\d{1,3}%\s*$"
+)
 
 
 def _collapse_carriage_returns(text: str) -> str:

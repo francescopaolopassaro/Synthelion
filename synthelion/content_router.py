@@ -20,6 +20,8 @@ from synthelion.models import (
     ContentType,
     RoutedCompressionResult,
 )
+from synthelion.success_collapse import collapse as _collapse_success, is_known_low_signal
+from synthelion.terminal_noise import strip_ansi_noise
 
 _CACHE_TTL = 1800   # 30 minutes
 _CACHE_MAX = 512    # max entries — evict oldest 25% when full
@@ -84,7 +86,13 @@ class ContentRouter:
         level, max_items = params.get(profile, (CompressionLevel.SEMANTIC, 15))
         return cls(prose_level=level, max_json_items=max_items)
 
-    def route(self, content: str, query: str | None = None) -> RoutedCompressionResult:
+    def route(
+        self,
+        content: str,
+        query: str | None = None,
+        command: str | None = None,
+        exit_code: int | None = None,
+    ) -> RoutedCompressionResult:
         if not content or not content.strip():
             return RoutedCompressionResult(
                 compressed=content, original=content,
@@ -92,14 +100,16 @@ class ContentRouter:
                 strategy_used="Passthrough",
             )
 
-        cache_key = hashlib.md5(content.encode()).hexdigest()
+        cache_key = hashlib.md5(
+            f"{content}\x00{command or ''}\x00{exit_code}".encode()
+        ).hexdigest()
         with self._cache_lock:
             entry = self._cache.get(cache_key)
             if entry and time.time() - entry[1] < _CACHE_TTL:
                 return entry[0]
 
         try:
-            result = self._route_inner(content, query)
+            result = self._route_inner(content, query, command, exit_code)
         except Exception as exc:
             result = RoutedCompressionResult(
                 compressed=content, original=content,
@@ -120,10 +130,28 @@ class ContentRouter:
 
         return result
 
-    def _route_inner(self, content: str, query: str | None) -> RoutedCompressionResult:
+    def _route_inner(
+        self,
+        content: str,
+        query: str | None,
+        command: str | None = None,
+        exit_code: int | None = None,
+    ) -> RoutedCompressionResult:
+        tb = _approx_tokens(content)
+
+        if command and exit_code == 0 and is_known_low_signal(command):
+            summary = _collapse_success(content, command)
+            if summary is not None:
+                return RoutedCompressionResult(
+                    compressed=summary, original=content,
+                    detected_type=ContentType.PLAIN_TEXT,
+                    strategy_used="SuccessCollapse",
+                    tokens_before=tb, tokens_after=_approx_tokens(summary),
+                )
+
+        content = strip_ansi_noise(content)
         detection = self._detector.detect(content)
         ct = detection.type
-        tb = _approx_tokens(content)
 
         if ct == ContentType.JSON_ARRAY:
             r = self._json.crush(content, query)
