@@ -922,7 +922,19 @@ UI built with [Material Dashboard Free](https://www.creative-tim.com/product/mat
 
 ![Synthelion dashboard — settings](docs/dashboard-settings.png)
 
-**Settings**: default compression level, default project-wiki depth (1-4, see below), session-store/vector-store backend selection, live storage counts, a **Doctor** panel (same checks as `synthelion doctor`, one click), and **Version** (checks PyPI only when you click "Check for updates" — never automatically — and can trigger `pip install --upgrade synthelion` from the button next to it).
+**Settings**: default compression level, default project-wiki depth (1-4, see below), session-store/vector-store backend selection, and live storage counts.
+
+![Synthelion dashboard — privacy](docs/dashboard-privacy.png)
+
+**Privacy**: PrivacyGuard's own page — toggle the master switch, auto-masking, prompt-injection guard, and the AI transparency notice independently; pick the message language; manage a whitelist of values PrivacyGuard should never flag; and a **live tester** to paste text and see PII detection + prompt-injection screening side by side, without persisting anything. See [Privacy & Security — PrivacyGuard](#privacy--security--privacyguard) below for the full feature set.
+
+![Synthelion dashboard — doctor](docs/dashboard-doctor.png)
+
+**Doctor**: the same checks as `synthelion doctor`, one click.
+
+![Synthelion dashboard — version](docs/dashboard-version.png)
+
+**Version**: checks PyPI only when you click "Check for updates" — never automatically — and can trigger `pip install --upgrade synthelion` from the button next to it.
 
 ![Synthelion dashboard — profile](docs/dashboard-profile.png)
 
