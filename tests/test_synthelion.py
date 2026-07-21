@@ -385,7 +385,7 @@ class TestContentRouter:
         router = ContentRouter.from_profile(CompressionProfile.BALANCED)
         original_crush = router._json.crush
 
-        def _bloating_crush(json_text, query=None):
+        def _bloating_crush(json_text, query=None, max_items=None):
             r = original_crush(json_text, query)
             if r["was_crushed"]:
                 r["compressed"] = r["compressed"] + ("!" * len(json_text) * 2)
@@ -1079,9 +1079,16 @@ class TestJsonCrusher:
         r = self.crusher.crush("[]")
         assert not r["was_crushed"]
 
-    def test_single_object_not_crushed(self):
+    def test_single_object_now_crushed_via_chain_collapse(self):
+        """A single JSON object used to be a no-op for JsonCrusher entirely — now
+        even a trivial flat object goes through the chain-collapse path (see
+        TestChainCollapse), rendering shorter as "key: value" lines whenever that's
+        actually smaller than the JSON text. Only real JSON-Schema-shaped objects
+        are excluded (also covered in TestChainCollapse)."""
         r = self.crusher.crush('{"key": "value"}')
-        assert not r["was_crushed"]
+        assert r["was_crushed"] is True
+        assert r["strategy"] == "ChainCollapse"
+        assert r["compressed"] == "key: value"
 
     def test_invalid_json_not_crushed(self):
         r = self.crusher.crush("not json at all")
