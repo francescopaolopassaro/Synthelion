@@ -605,6 +605,84 @@ def get_tool_definitions() -> list[dict]:
         {
             "type": "function",
             "function": {
+                "name": "list_relevant_tools",
+                "description": (
+                    "Filter the full set of available tool definitions down to the ones most "
+                    "relevant to a task/query, for orchestrators that build their own per-turn "
+                    "tools=[...] array for an LLM. Does not affect this MCP server's own "
+                    "tools/list (which has no per-turn query)."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "The task/query to score tools against."},
+                        "top_k": {"type": "integer", "description": "How many tools to keep. Default: 10."},
+                    },
+                    "required": ["query"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "mask_old_tool_output",
+                "description": (
+                    "Given a chronological list of {tool, output} tool-call results, replaces all "
+                    "but the most recent `keep_last` outputs with a short placeholder, storing the "
+                    "originals for later retrieval via expand_masked_output. Use to keep old tool "
+                    "output from silently bloating every subsequent turn's context."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "outputs": {
+                            "type": "array",
+                            "items": {"type": "object"},
+                            "description": "Chronological list of {tool, output, ...} dicts.",
+                        },
+                        "keep_last": {"type": "integer", "description": "How many recent entries to leave untouched. Default: 3."},
+                    },
+                    "required": ["outputs"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "expand_masked_output",
+                "description": "Retrieve the original text behind a placeholder produced by mask_old_tool_output, by its hash.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"hash": {"type": "string", "description": "The hash from the masked placeholder."}},
+                    "required": ["hash"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "diff_tool_output",
+                "description": (
+                    "For a tool called again with identical arguments (same session), returns a "
+                    "unified diff against the previous call's output instead of the full text again "
+                    "— but only when that diff is actually shorter. First call for a given "
+                    "tool/arguments/session always returns the output unchanged."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "tool": {"type": "string", "description": "Name of the tool that was called."},
+                        "arguments": {"type": "object", "description": "Arguments it was called with."},
+                        "output": {"type": "string", "description": "The output to evaluate/diff."},
+                        "session_id": {"type": "string", "description": "Session/agent id. Default: 'default'."},
+                    },
+                    "required": ["tool", "output"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
                 "name": "generate_project_wiki",
                 "description": (
                     "Recursively scan a project folder and produce AI-friendly, semantically "
@@ -811,6 +889,18 @@ def execute_tool(name: str, arguments: dict) -> dict:
 
     if name == "reset_tool_loop":
         return _exec_reset_tool_loop(arguments)
+
+    if name == "list_relevant_tools":
+        return _exec_list_relevant_tools(arguments)
+
+    if name == "mask_old_tool_output":
+        return _exec_mask_old_tool_output(arguments)
+
+    if name == "expand_masked_output":
+        return _exec_expand_masked_output(arguments)
+
+    if name == "diff_tool_output":
+        return _exec_diff_tool_output(arguments)
 
     return {"error": f"Unknown tool: {name}"}
 
@@ -1182,3 +1272,61 @@ def _exec_reset_tool_loop(arguments: dict) -> dict:
     guard = _get_loop_guard()
     guard.reset(arguments.get("session_id") or "default")
     return {"status": "reset"}
+
+
+def filter_relevant_tools(
+    query: str, top_k: int = 10, tool_defs: list[dict] | None = None,
+) -> list[dict]:
+    """Filters tool definitions down to the *top_k* most relevant to *query*, scoring
+    each tool's `name + description` with `RelevanceFilter.score()` (lemmatized
+    content-word overlap — the same scorer `focus_relevant` already uses on arbitrary
+    text). Keeps the original relative order among the tools kept (stable, does not
+    reorder the list a caller then hands to an LLM)."""
+    from synthelion.relevance_filter import RelevanceFilter
+    defs = tool_defs if tool_defs is not None else get_tool_definitions()
+    if top_k >= len(defs):
+        return list(defs)
+
+    scorer = RelevanceFilter()
+    scored = []
+    for i, td in enumerate(defs):
+        fn = td["function"]
+        text = f"{fn['name']} {fn.get('description', '')}"
+        scored.append((scorer.score(text, query), i, td))
+
+    scored.sort(key=lambda t: (-t[0], t[1]))
+    kept = sorted(scored[: max(1, top_k)], key=lambda t: t[1])
+    return [td for _, _, td in kept]
+
+
+def _exec_list_relevant_tools(arguments: dict) -> dict:
+    top_k = int(arguments.get("top_k") or 10)
+    all_defs = get_tool_definitions()
+    relevant = filter_relevant_tools(arguments["query"], top_k, all_defs)
+    return {
+        "tools": [td["function"]["name"] for td in relevant],
+        "total_available": len(all_defs),
+    }
+
+
+def _exec_mask_old_tool_output(arguments: dict) -> dict:
+    from synthelion.output_mask import mask_old_outputs
+    keep_last = int(arguments.get("keep_last") if arguments.get("keep_last") is not None else 3)
+    return {"outputs": mask_old_outputs(arguments["outputs"], keep_last)}
+
+
+def _exec_expand_masked_output(arguments: dict) -> dict:
+    from synthelion.output_mask import get_output_mask_store
+    return {"output": get_output_mask_store().retrieve(arguments["hash"])}
+
+
+def _exec_diff_tool_output(arguments: dict) -> dict:
+    from synthelion.repeat_diff import get_repeat_differ
+    differ = get_repeat_differ()
+    output, was_diffed = differ.diff_if_repeated(
+        arguments["tool"],
+        arguments.get("arguments"),
+        arguments["output"],
+        session_id=arguments.get("session_id") or "default",
+    )
+    return {"output": output, "was_diffed": was_diffed}
