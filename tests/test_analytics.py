@@ -1279,14 +1279,14 @@ class TestCrewAITools:
     def test_compress_tool_runs(self):
         tools = {t.name: t for t in _crewai_get_tools()}
         result = tools["synthelion_compress"].run(
-            {"text": "I would like to know if it is possible to receive information."}
+            text="I would like to know if it is possible to receive information."
         )
         assert "Compressed:" in result
 
     def test_route_content_tool_runs(self):
         tools = {t.name: t for t in _crewai_get_tools()}
         result = tools["synthelion_route_content"].run(
-            {"content": "Rome is a beautiful city with a very long and ancient history."}
+            content="Rome is a beautiful city with a very long and ancient history."
         )
         assert isinstance(result, str)
         assert "Strategy:" in result
