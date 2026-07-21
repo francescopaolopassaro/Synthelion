@@ -10,7 +10,7 @@ A comparative audit against several other prompt/context-compression projects
 surfaced techniques Synthelion didn't have yet. Everything below was
 reimplemented from scratch in Python, consistent with Synthelion's existing
 zero-ML-models, zero-network-call design — nothing here pulls in an embedding
-model or an external service. **7 new MCP tools, 33 total.**
+model or an external service. **11 new MCP tools, 37 total.**
 
 ### Added — credential-shape detection before persisting to disk
 - **`synthelion.sensitive_guard.find_sensitive(text)`** — regex-based detector
@@ -103,6 +103,30 @@ model or an external service. **7 new MCP tools, 33 total.**
   codebase and this is no exception. Refuses to rewrite any composite/
   non-attestable command (`&&`, `|`, `;`, backticks, `$()`, redirects). New
   MCP tool **`rewrite_command`**.
+
+### Added — response-style guidance (output-side, not context-side)
+- **`synthelion.response_style.get_style_guidance(level, language)`** — returns
+  a block of verbosity-reduction instructions (no filler openings, no
+  restating the question, a structured bug-fix format at `full`/`ultra`) meant
+  to be injected into an agent's own system prompt. A different axis from
+  every other Synthelion capability: it shapes what the model *generates*,
+  not what enters its context — there's no existing text to compress at the
+  point a caller would use this. Three escalating levels (`lite`/`full`/
+  `ultra`); appends a CJK-specific note when `language` is `zho`/`jpn`/`kor`,
+  since common tokenizers spend meaningfully more tokens per character there.
+  New MCP tool **`get_response_style_guidance`**.
+
+### Added — file-read freshness tracking (provider cache-breakpoint aware)
+- **`synthelion.read_lifecycle.ReadLifecycleTracker`** — tracks file
+  read/write tool calls per session and classifies each tracked read as
+  `fresh`, `stale` (a write landed after it), or `superseded` (the file's
+  been read again since, with no intervening write). `should_mature()` only
+  flags a stale/superseded read as safe to collapse into a compact marker
+  after `quiesce_turns` turns of silence on that path — a file still being
+  actively edited would just get invalidated again next turn, sitting right
+  at a provider's KV-cache breakpoint, so maturation deliberately waits for
+  the file to settle first. New MCP tools **`track_file_read`**,
+  **`track_file_write`**, **`check_read_maturity`**.
 
 ### Dashboard
 - **Settings**: new "Dashboard" card exposing `dashboard.{host,port,realtime,

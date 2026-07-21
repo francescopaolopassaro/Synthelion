@@ -35,7 +35,7 @@ Supports 50+ languages out of the box. No AI model required. No configuration.
 - [Integrations](#integrations) (OpenAI, LangChain, Claude/OpenAI adapters, Python API, CLI)
 - [Web dashboard](#web-dashboard)
 - [Cluster deployment](#cluster-deployment)
-- [Tools](#tools) (33 MCP tools)
+- [Tools](#tools) (37 MCP tools)
 - [Code examples](#code-examples)
 - [Compression levels](#compression-levels)
 - [Supported languages](#supported-languages-50)
@@ -57,7 +57,7 @@ Every token sent to a model costs money and time. Synthelion removes the words t
 - **Content-aware routing** — JSON, HTML, git diffs, logs, code, and prose each get a dedicated compression strategy instead of one generic pass; a universal anti-expansion guard means you never get back something bigger than what you sent in.
 - **Adaptive by design** — compression escalates automatically for larger inputs, results are cached by content hash, and repeated tool calls get diffed instead of resent in full.
 - **Safety-conscious by default** — credential-shaped text (API keys, tokens, PEM blocks) is redacted before it's ever persisted to disk; destructive-command text is flagged before compression could obscure it.
-- **MCP-native** — 33 tools, `readOnlyHint`-annotated where safe for parallel calls, plus first-class OpenAI/LangChain/Claude adapters and a plain Python API.
+- **MCP-native** — 37 tools, `readOnlyHint`-annotated where safe for parallel calls, plus first-class OpenAI/LangChain/Claude adapters and a plain Python API.
 - **Ops-ready** — a local multi-page dashboard, cluster/master-slave deployment, Docker/Kubernetes manifests, all included, none required.
 
 ### Before / After
@@ -154,17 +154,17 @@ open an issue with your methodology and we'll link it here.
 | Tool-schema → compact signature | ✅ | — | ✅ (TF-IDF selection) | ✅ | — | n/a |
 | Credential-shape detection before persisting | ✅ | — | — | — | ✅ (origin) | n/a |
 | Terminal ANSI/noise cleanup + success collapse | ✅ | — | — | — | ✅ (origin) | n/a |
-| Masking old tool output + retrieval (Artifact Index) | ✅ | ✅ (read-lifecycle staleness tracking) | ✅ (origin) | — | — | n/a |
+| Masking old tool output + retrieval (Artifact Index) | ✅ | — | ✅ (origin) | — | — | n/a |
 | Diff-on-repeat for identical tool calls | ✅ | — | — | — | — | n/a |
 | Adaptive compression scaling by content size | ✅ | — | ✅ (origin) | — | — | n/a |
 | JSON chain-depth / dot-path collapsing | ✅ | — | — | ✅ (origin) | — | n/a |
 | Advisory command-rewrite (never executes) | ✅ | — | — | ⚠️ executes it (rtk wrapper) | — | n/a |
 | Local multi-page web dashboard | ✅ | ✅ | ✅ (simpler) | — | — | n/a |
 | Cluster / master-slave deployment | ✅ | — | — | — | — | n/a |
-| MCP protocol (Claude Code, etc.) | ✅ 33 tools | ✅ (CLI plugins: Claude/Codex/Gemini) | — (HTTP proxy instead) | ✅ (hooks) | — | n/a |
+| MCP protocol (Claude Code, etc.) | ✅ 37 tools | ✅ (CLI plugins: Claude/Codex/Gemini) | — (HTTP proxy instead) | ✅ (hooks) | — | n/a |
 | Vision/image token optimization | — (text-only) | ✅ (tile-aligned resize + trained router) | — | — | — | n/a |
-| Provider cache-breakpoint-aware read staleness | — | ✅ (`read_maturation.py`) | — | — | — | n/a |
-| Response-style compression (output-side, CJK-aware) | — (out of scope, different axis) | — | — | — | — | ✅ (origin) |
+| Provider cache-breakpoint-aware read staleness | ✅ | ✅ (origin, `read_maturation.py`) | — | — | — | n/a |
+| Response-style compression (output-side, CJK-aware) | ✅ | — | — | — | — | ✅ (origin) |
 
 **Not in this table:** `tokensave` — a Rust code-intelligence tool (Tree-sitter knowledge graph, dead-code/cycle detection, code-health scoring) that solves a genuinely different problem (structural understanding of a codebase) rather than context/token compression, so it isn't a like-for-like comparison here.
 
@@ -946,7 +946,7 @@ lands on.
 
 ## Tools
 
-33 MCP tools — the compression/read tools are marked `readOnlyHint: true` so Claude Code and other MCP clients can call them safely in parallel; the handful that mutate state (session recording, the loop guard, output masking) are not.
+37 MCP tools — the compression/read tools are marked `readOnlyHint: true` so Claude Code and other MCP clients can call them safely in parallel; the handful that mutate state (session recording, the loop guard, output masking) are not.
 
 | Tool | What it does |
 |---|---|
@@ -982,6 +982,10 @@ lands on.
 | **get_artifact_index** | Returns the catalog of everything masked so far, grouped by tool — meant to be re-injected into context so the model knows what was hidden. |
 | **rewrite_command** | Suggests a less verbose variant of a known shell command (same semantics/exit code) — advisory only, never executed. Refuses composite commands. |
 | **diff_tool_output** | For a tool called again with identical arguments, returns a unified diff against the previous call's output instead of the full text again, when that's actually shorter. |
+| **get_response_style_guidance** | Returns verbosity-reduction instructions to inject into an agent's own system prompt (no filler openings, structured bug-fix format, CJK-aware) — shapes the model's *output*, not its input context. |
+| **track_file_read** | Records a file read for freshness tracking within a session — returns whether it's fresh or already stale. |
+| **track_file_write** | Records a file write — any earlier tracked reads of that path become stale. |
+| **check_read_maturity** | Checks whether a tracked file read is stale/superseded and has been quiet long enough to safely collapse into a compact marker. |
 
 Two more ship as CLI-only, meant for shell hooks rather than an agent calling them directly: `synthelion loop-check` / `synthelion loop-reset` — same loop guard, but persisted across process invocations (`~/.synthelion/loop_guard.jsonl`) for use as an external `PreToolUse`-style hook, since a hook script is a fresh process every call and can't keep the MCP tools' in-memory history.
 
