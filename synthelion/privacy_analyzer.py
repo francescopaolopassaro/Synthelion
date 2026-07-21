@@ -152,6 +152,53 @@ def _load_default_rules_text() -> str:
     return ref.read_text(encoding="utf-8")
 
 
+class PrivacyBlockedError(RuntimeError):
+    """Raised (instead of silently masking-and-continuing) when
+    ``privacy.block_on_risk`` is enabled and a message's PII score reaches
+    ``privacy.block_min_score``. Every agent entry point that shares this
+    guard (RagAgent -> Claude/OpenAI/CrewAI adapters, the MCP/OpenAI-function
+    `compress` tool, the Claude Code hook) raises/reports this the same way,
+    so blocking behaves identically no matter which agent is talking to the
+    text — not just Claude Code's terminal hook.
+    """
+
+    def __init__(self, result: "PrivacyAnalysisResult", notice: str) -> None:
+        self.result = result
+        self.notice = notice
+        super().__init__(notice)
+
+
+def build_privacy_notice(
+    result: "PrivacyAnalysisResult", transparency_notice: str | None = None, blocked: bool = False,
+) -> str:
+    """Single source of truth for the human-readable PII/privacy breakdown +
+    EU AI Act Art.50 transparency notice — shared by the CLI/hook, the RAG
+    agent adapters (Claude/OpenAI/CrewAI), and the MCP/OpenAI-function
+    `compress` tool, so the disclosure looks identical everywhere."""
+    lines: list[str] = []
+    if blocked:
+        lines.append("[Synthelion] Blocked: high PII/privacy risk detected.")
+    if result.detected_categories:
+        cats = ", ".join(result.detected_categories)
+        if lines:
+            lines.append("")
+        lines += [
+            "PII / Privacy",
+            f"Score: {result.score} - Risk: {result.risk_level}",
+            "",
+            f"Categories: {cats}",
+            "",
+            f"Compliance: {', '.join(result.compliance_flags)}",
+            "",
+            f"Masked: [{cats}]",
+        ]
+    if transparency_notice:
+        if lines:
+            lines.append("")
+        lines.append(transparency_notice)
+    return "\n".join(lines)
+
+
 class PrivacyAnalyzer:
     """Thread-safe. One instance can be reused across calls/threads."""
 

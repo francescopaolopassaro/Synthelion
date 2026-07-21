@@ -41,6 +41,10 @@ class PreparedMessage:
     recalled_context: list[dict] = field(default_factory=list)
     tokens_before: int = 0
     tokens_after: int = 0
+    privacy_masked: bool = False
+    privacy_score: int | None = None
+    privacy_risk_level: str | None = None
+    privacy_categories: list[str] = field(default_factory=list)
 
     @property
     def tokens_saved(self) -> int:
@@ -91,20 +95,65 @@ class RagAgent:
     ) -> PreparedMessage:
         """Compress *message* and recall relevant past context.
 
+        Runs the same PrivacyGuard pre-pass as the Claude Code hook (see
+        `synthelion.cli._cmd_compress`) before compression, so PII is masked
+        the same way whether the message reaches the model through Claude
+        Code's terminal or through this adapter (ClaudeAdapter/OpenAIAdapter/
+        CrewAI all call this method) — the guard isn't Claude Code-specific.
+        Raises :class:`~synthelion.privacy_analyzer.PrivacyBlockedError` if
+        `privacy.block_on_risk` is on and the message's PII score reaches
+        `privacy.block_min_score`; callers should let this propagate rather
+        than send the message to the model.
+
         Returns a :class:`PreparedMessage` with the compressed text and any
         recalled decisions that should be injected into the prompt.
         """
-        routed = self._router.route(message)
-        compressed = routed.compressed or message
+        text = message
+        privacy_masked = False
+        privacy_score = None
+        privacy_risk_level = None
+        privacy_categories: list[str] = []
+
+        from synthelion.config import privacy_config
+        pcfg = privacy_config()
+        if pcfg["enabled"]:
+            from synthelion.privacy_analyzer import PrivacyAnalyzer, PrivacyBlockedError, build_privacy_notice
+            from synthelion.privacy_session import PrivacySession
+
+            analyzer = PrivacyAnalyzer()
+            if pcfg.get("whitelist"):
+                analyzer.add_to_whitelist(*pcfg["whitelist"])
+            session = PrivacySession() if pcfg["auto_masking"] else None
+            presult = analyzer.analyze(text, pcfg["language"], session=session, auto_masking=pcfg["auto_masking"])
+            privacy_score = presult.score
+            privacy_risk_level = presult.risk_level
+            privacy_categories = presult.detected_categories
+
+            if pcfg.get("block_on_risk") and privacy_score >= pcfg.get("block_min_score", 61):
+                transparency_notice = None
+                if pcfg["ai_transparency_notice"]:
+                    from synthelion.ai_transparency_notice import get_transparency_notice
+                    transparency_notice = get_transparency_notice(
+                        pcfg["language"], pcfg.get("transparency_custom_message") or None,
+                    )
+                raise PrivacyBlockedError(presult, build_privacy_notice(presult, transparency_notice, blocked=True))
+
+            if pcfg["auto_masking"] and presult.masked_text:
+                text = presult.masked_text
+                privacy_masked = presult.match_count > 0
+
+        routed = self._router.route(text)
+        compressed = routed.compressed or text
         self._ledger.record(
             "rag_prepare",
             routed.tokens_before,
             routed.tokens_after,
             content_type=routed.detected_type.value,
+            pii_masked_count=(1 if privacy_masked else 0),
         )
         self._window.append(role, compressed)
 
-        query = recall_query or message
+        query = recall_query or text
         recalled = self._db.session_recall(query=query, limit=self._recall_limit)
 
         return PreparedMessage(
@@ -113,6 +162,10 @@ class RagAgent:
             recalled_context=recalled,
             tokens_before=routed.tokens_before,
             tokens_after=routed.tokens_after,
+            privacy_masked=privacy_masked,
+            privacy_score=privacy_score,
+            privacy_risk_level=privacy_risk_level,
+            privacy_categories=privacy_categories,
         )
 
     def store(

@@ -986,6 +986,19 @@
                 <input class="form-check-input" type="checkbox" role="switch" id="privacy-transparency-notice">
                 <label class="form-check-label text-sm" for="privacy-transparency-notice">AI transparency notice (EU AI Act Art.50)</label>
               </div>
+              <div class="form-check form-switch mb-2">
+                <input class="form-check-input" type="checkbox" role="switch" id="privacy-block-on-risk">
+                <label class="form-check-label text-sm" for="privacy-block-on-risk">Block prompt instead of masking, above risk threshold</label>
+              </div>
+              <div class="mb-3">
+                <label class="form-label text-sm text-secondary mb-1">Block threshold</label>
+                <select class="form-control" id="privacy-block-min-score">
+                  <option value="36">Low or above (score &gt;= 36)</option>
+                  <option value="61">High or above (score &gt;= 61)</option>
+                  <option value="86">Critical only (score &gt;= 86)</option>
+                </select>
+                <p class="text-xs text-secondary mb-0 mt-1">When the toggle above is on, the UserPromptSubmit hook rejects the prompt outright (with the full PII/privacy note and AI Act notice as the reason) instead of masking-and-continuing.</p>
+              </div>
               <div class="mb-3">
                 <label class="form-label text-sm text-secondary mb-1">Message language</label>
                 <select class="form-control" id="privacy-language">

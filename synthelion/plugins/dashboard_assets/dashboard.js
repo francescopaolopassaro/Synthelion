@@ -428,6 +428,8 @@
       document.getElementById("privacy-auto-masking").checked = config.privacy.auto_masking;
       document.getElementById("privacy-injection-guard").checked = config.privacy.prompt_injection_guard;
       document.getElementById("privacy-transparency-notice").checked = config.privacy.ai_transparency_notice;
+      document.getElementById("privacy-block-on-risk").checked = config.privacy.block_on_risk;
+      document.getElementById("privacy-block-min-score").value = String(config.privacy.block_min_score || 61);
       document.getElementById("privacy-language").value = config.privacy.language;
       document.getElementById("privacy-transparency-custom").value = config.privacy.transparency_custom_message || "";
       markFilled("privacy-transparency-custom");
@@ -450,6 +452,8 @@
         auto_masking: document.getElementById("privacy-auto-masking").checked,
         prompt_injection_guard: document.getElementById("privacy-injection-guard").checked,
         ai_transparency_notice: document.getElementById("privacy-transparency-notice").checked,
+        block_on_risk: document.getElementById("privacy-block-on-risk").checked,
+        block_min_score: Number(document.getElementById("privacy-block-min-score").value),
         language: document.getElementById("privacy-language").value,
         transparency_custom_message: document.getElementById("privacy-transparency-custom").value,
         whitelist: privacyWhitelist,

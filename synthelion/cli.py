@@ -264,6 +264,7 @@ def _cmd_compress(args) -> None:
     # match no stopword list in any language). `privacy.enabled = False` restores
     # exactly the pre-1.2.2 behavior.
     from synthelion.config import privacy_config
+    from synthelion.privacy_analyzer import PrivacyAnalysisResult
     pcfg = privacy_config()
     privacy_masked = False
     privacy_masked_count = 0
@@ -272,6 +273,7 @@ def _cmd_compress(args) -> None:
     privacy_categories: list[str] = []
     privacy_compliance: list[str] = []
     injection_score = None
+    presult = PrivacyAnalysisResult()
     if pcfg["enabled"]:
         from synthelion.privacy_analyzer import PrivacyAnalyzer
         from synthelion.privacy_session import PrivacySession
@@ -300,6 +302,18 @@ def _cmd_compress(args) -> None:
             pcfg["language"], pcfg.get("transparency_custom_message") or None,
         )
 
+    # Block-on-risk: an explicit opt-in (privacy.block_on_risk) that rejects
+    # the prompt outright — via the hook's `decision: "block"` — instead of
+    # masking-and-continuing, once the PII risk score crosses
+    # privacy.block_min_score. See install_claude.py/.ps1/.sh: the hook
+    # scripts only branch on `blocked`, all formatting happens here so the
+    # three hook dialects (PowerShell/bash/local settings.json) never have to
+    # duplicate this logic again.
+    privacy_blocked = bool(
+        pcfg["enabled"] and pcfg.get("block_on_risk")
+        and privacy_score is not None and privacy_score >= pcfg.get("block_min_score", 61)
+    )
+
     svc = CompressionService()
     start = time.perf_counter()
     r = svc.compress(text, level_map[args.level], iso3=args.language)
@@ -308,6 +322,23 @@ def _cmd_compress(args) -> None:
         "cli_compress", r.original_tokens, r.compressed_tokens, language=args.language or "",
         duration_ms=duration_ms, pii_masked_count=privacy_masked_count,
     )
+
+    # Full human-readable breakdown — savings + complete PII/privacy note +
+    # AI Act transparency notice — used both as the hook's `systemMessage`
+    # (masking-and-continue path) and as the `reason` shown to the user when
+    # the prompt is blocked outright, so the disclosure is identical either way.
+    # `build_privacy_notice` is the single shared formatter (also used by
+    # RagAgent/adapters and the MCP `compress` tool) so every agent shows the
+    # same PII/AI-Act disclosure, not just Claude Code's hook.
+    from synthelion.privacy_analyzer import build_privacy_notice
+    pii_notice = build_privacy_notice(presult, transparency_notice, blocked=privacy_blocked)
+    if privacy_blocked:
+        notice = pii_notice
+    else:
+        pct = round(r.efficiency_pct)
+        savings_line = f"[Synthelion {pct}% saved - {round(r.estimated_energy_saved_mwh, 3)} mWh - {round(r.estimated_co2_saved_mg, 3)} mg CO2 saved]"
+        notice = f"{savings_line}\n\n{pii_notice}" if pii_notice else savings_line
+
     if args.json:
         print(json.dumps({
             "compressed": r.compressed_text,
@@ -322,6 +353,8 @@ def _cmd_compress(args) -> None:
             "privacy_compliance": privacy_compliance,
             "prompt_injection_score": injection_score,
             "ai_transparency_notice": transparency_notice,
+            "blocked": privacy_blocked,
+            "notice": notice,
         }))
     else:
         print(r.compressed_text)

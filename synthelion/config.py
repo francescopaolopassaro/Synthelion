@@ -70,6 +70,17 @@ _DEFAULT_CONFIG: dict[str, Any] = {
         # Exact-match values PrivacyAnalyzer should never flag/mask (e.g. a
         # company support email that's fine to see in plaintext logs).
         "whitelist": [],
+        # If True, the UserPromptSubmit hook rejects the prompt outright
+        # (hook `decision: "block"`) instead of masking-and-continuing when
+        # the detected PII risk score is >= block_min_score. Off by default —
+        # masking-and-continue (today's behavior) stays the default so this
+        # is an explicit, informed opt-in, same posture as waf.block_mode.
+        "block_on_risk": False,
+        # Score threshold (0-100, see PrivacyAnalyzer._risk_level) at/above
+        # which a prompt is blocked when block_on_risk is on. 61 = "High" or
+        # "Critical" risk (score bands: <=15 Safe, <=35 Low, <=60 Medium,
+        # <=85 High, >85 Critical).
+        "block_min_score": 61,
     },
     "waf": {
         # Master switch — set to False to disable request inspection entirely.

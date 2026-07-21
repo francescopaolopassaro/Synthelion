@@ -6,6 +6,34 @@ All notable changes to Synthelion are documented here.
 
 ## [Unreleased]
 
+---
+
+## [1.2.3] — 2026-07-21
+
+### Added — PrivacyGuard block-on-risk
+- **`privacy.block_on_risk`** (default `False`) and **`privacy.block_min_score`**
+  (default `61` = High/Critical) — new opt-in config that rejects a prompt
+  outright instead of masking-and-continuing once its PII risk score crosses
+  the threshold. Configurable from the dashboard's Privacy page or directly
+  in `config.json`.
+- **Claude Code hook**: when triggered, the `UserPromptSubmit` hook now
+  returns `decision: "block"` with the full PII/privacy breakdown + AI Act
+  Art.50 notice as the `reason` — the prompt never reaches the model, closing
+  the gap where a masked-and-continued hook could only *add* context
+  alongside the untouched original prompt. Updated in `install_claude.py`/
+  `.ps1`/`.sh` and the local hook install.
+- **All other agent entry points get the same guard, not just the Claude
+  Code hook**: `RagAgent.prepare_message` (shared by `ClaudeAdapter`,
+  `OpenAIAdapter`, `CrewAIAdapter`) now runs the PrivacyGuard pre-pass itself
+  and raises `PrivacyBlockedError` on block; the MCP/OpenAI-function
+  `compress` tool (used by Claude Code's MCP server, OpenCode, and any other
+  MCP/OpenAI function-calling client) got the same pre-pass added — it had
+  none before. `synthelion.privacy_analyzer.build_privacy_notice` is the new
+  single formatter shared by the CLI, the adapters, and the MCP tool, so the
+  PII/AI-Act disclosure is identical everywhere.
+
+---
+
 ### Added — CrewAI integration
 - **`synthelion.integrations.crewai_adapter.CrewAIAdapter`** — a CrewAI helper
   mirroring `ClaudeAdapter`/`OpenAIAdapter` (`chat`/`store`/`recall`/`status`/

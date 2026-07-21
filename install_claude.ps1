@@ -86,14 +86,16 @@ function Find-CliSynthelion {
 # ── build hook command ────────────────────────────────────────────────────────
 function Build-HookCommand($cliBin) {
     $cli = if ($cliBin) { $cliBin } else { "synthelion" }
-    # Two different strings, two different audiences: $label (efficiency % +
-    # energy + CO2 only, no compressed text) goes into top-level
-    # systemMessage so it's what the user actually sees in the terminal;
-    # $r.compressed goes into hookSpecificOutput.additionalContext, which
-    # Claude reads but the terminal never displays — still doing its job,
-    # just invisibly.
+    # All formatting (savings label, PII/privacy breakdown, AI Act notice)
+    # happens inside `synthelion compress --json` itself (see cli.py's
+    # `notice` field) — this hook only branches on `blocked`:
+    #   - blocked   -> decision: "block" with reason=$r.notice (full PII
+    #                  breakdown + AI Act notice), prompt never reaches Claude.
+    #   - otherwise -> systemMessage=$r.notice (visible in the terminal) +
+    #                  additionalContext=$r.compressed (invisible to the
+    #                  terminal, but that's the actual compressed prompt Claude reads).
     return @"
-`$j=[Console]::In.ReadToEnd()|ConvertFrom-Json;`$p=`$j.prompt;if(`$p){`$r=(`$p| & "$cli" compress --json 2>`$null)|ConvertFrom-Json;if(`$r -and `$r.efficiency_pct -gt 15){`$pct=[Math]::Round(`$r.efficiency_pct);`$label='[Synthelion '+`$pct+'% saved - '+`$r.energy_mwh+' mWh - '+`$r.co2_mg+' mg CO2 saved]';if(`$r.privacy_categories -and `$r.privacy_categories.Count -gt 0){`$cats=(`$r.privacy_categories -join ', ');`$comp=(`$r.privacy_compliance -join ', ');`$label=`$label+"``n``nPII / Privacy``nScore: `$(`$r.privacy_score) - Risk: `$(`$r.privacy_risk_level)``n``nCategories: `$cats``n``nCompliance: `$comp``n``nMasked: [`$cats]"}if(`$r.ai_transparency_notice){`$label=`$label+"``n``n"+`$r.ai_transparency_notice}@{systemMessage=`$label;hookSpecificOutput=@{hookEventName='UserPromptSubmit';additionalContext=`$r.compressed}}|ConvertTo-Json -Compress}}
+`$j=[Console]::In.ReadToEnd()|ConvertFrom-Json;`$p=`$j.prompt;if(`$p){`$r=(`$p| & "$cli" compress --json 2>`$null)|ConvertFrom-Json;if(`$r -and `$r.blocked){@{decision='block';reason=`$r.notice}|ConvertTo-Json -Compress}elseif(`$r -and `$r.efficiency_pct -gt 15){@{systemMessage=`$r.notice;hookSpecificOutput=@{hookEventName='UserPromptSubmit';additionalContext=`$r.compressed}}|ConvertTo-Json -Compress}}
 "@
 }
 

@@ -126,26 +126,24 @@ def mcp_command_config(binary: str | None) -> dict:
 def _hook_command_windows(cli: str) -> str:
     # `& "cli"` (not bare `"cli" args`) is required — a quoted path followed
     # by arguments is a parse error in PowerShell without the call operator.
-    # Two different strings, two different audiences: `$label` (efficiency %
-    # + energy + CO2 only, no compressed text) goes into top-level
-    # `systemMessage` so it's what the user actually sees in the terminal;
-    # `$r.compressed` goes into hookSpecificOutput.additionalContext, which
-    # Claude reads but the terminal never displays — that's still the actual
-    # compressed prompt doing its job, just invisibly.
+    # All formatting (savings label, PII/privacy breakdown, AI Act notice)
+    # happens in `synthelion compress --json` itself (see cli.py's `notice`
+    # field) — the hook script only has to branch on `blocked`:
+    #   - blocked   -> `decision: "block"` with `reason=$r.notice` (full PII
+    #                  breakdown + AI Act notice), prompt never reaches Claude.
+    #   - otherwise -> `systemMessage=$r.notice` (visible in the terminal) +
+    #                  `additionalContext=$r.compressed` (invisible to the
+    #                  terminal, but that's the actual compressed prompt Claude reads).
     cli_q = cli.replace("\\", "\\\\")          # escape backslashes for PS string
     return (
         f"$j=[Console]::In.ReadToEnd()|ConvertFrom-Json;"
         f"$p=$j.prompt;"
         f"if($p -and $p.Length -gt {HOOK_MIN_LEN})"
         f"{{$r=($p| & \"{cli_q}\" compress --json 2>$null)|ConvertFrom-Json;"
-        f"if($r -and $r.efficiency_pct -gt {HOOK_MIN_EFF})"
-        f"{{$pct=[Math]::Round($r.efficiency_pct);"
-        f"$label='[Synthelion '+$pct+'% saved - '+$r.energy_mwh+' mWh - '+$r.co2_mg+' mg CO2 saved]';"
-        f"if($r.privacy_categories -and $r.privacy_categories.Count -gt 0)"
-        f"{{$cats=($r.privacy_categories -join ', ');$comp=($r.privacy_compliance -join ', ');"
-        f"$label=$label+\"`n`nPII / Privacy`nScore: $($r.privacy_score) - Risk: $($r.privacy_risk_level)`n`nCategories: $cats`n`nCompliance: $comp`n`nMasked: [$cats]\"}}"
-        f"if($r.ai_transparency_notice){{$label=$label+\"`n`n\"+$r.ai_transparency_notice}}"
-        f"@{{systemMessage=$label;hookSpecificOutput=@{{hookEventName='UserPromptSubmit';additionalContext=$r.compressed}}}}|ConvertTo-Json -Compress}}}}"
+        f"if($r -and $r.blocked)"
+        f"{{@{{decision='block';reason=$r.notice}}|ConvertTo-Json -Compress}}"
+        f"elseif($r -and $r.efficiency_pct -gt {HOOK_MIN_EFF})"
+        f"{{@{{systemMessage=$r.notice;hookSpecificOutput=@{{hookEventName='UserPromptSubmit';additionalContext=$r.compressed}}}}|ConvertTo-Json -Compress}}}}"
     )
 
 
@@ -157,11 +155,8 @@ def _hook_command_unix(cli: str) -> str:
         f"if [ -n \"$r\" ]; then "
         f"out=$(printf '%s' \"$r\" | python3 -c \""
         f"import sys,json; d=json.load(sys.stdin); eff=int(d.get('efficiency_pct',0)); "
-        f"label='[Synthelion '+str(eff)+'% saved - '+str(d.get('energy_mwh',0))+' mWh - '+str(d.get('co2_mg',0))+' mg CO2 saved]'; "
-        f"cats=d.get('privacy_categories') or []; "
-        f"label=label+'\\n\\nPII / Privacy\\nScore: '+str(d.get('privacy_score'))+' - Risk: '+str(d.get('privacy_risk_level'))+'\\n\\nCategories: '+', '.join(cats)+'\\n\\nCompliance: '+', '.join(d.get('privacy_compliance') or [])+'\\n\\nMasked: ['+', '.join(cats)+']' if cats else label; "
-        f"label=label+'\\n\\n'+d['ai_transparency_notice'] if d.get('ai_transparency_notice') else label; "
-        f"print(json.dumps({{'systemMessage':label,'hookSpecificOutput':{{'hookEventName':'UserPromptSubmit','additionalContext':d.get('compressed','')}}}})) if eff>{HOOK_MIN_EFF} else None\"); "
+        f"print(json.dumps({{'decision':'block','reason':d.get('notice','')}})) if d.get('blocked') "
+        f"else print(json.dumps({{'systemMessage':d.get('notice',''),'hookSpecificOutput':{{'hookEventName':'UserPromptSubmit','additionalContext':d.get('compressed','')}}}})) if eff>{HOOK_MIN_EFF} else None\"); "
         f"[ -n \"$out\" ] && printf '%s' \"$out\"; fi; fi"
     )
 

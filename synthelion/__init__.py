@@ -39,7 +39,7 @@ from synthelion.privacy_session import PrivacySession
 from synthelion.prompt_injection_guard import PromptInjectionGuard, PromptInjectionResult
 from synthelion.ai_transparency_notice import get_transparency_notice
 
-__version__ = "1.2.2"
+__version__ = "1.2.3"
 __author__ = "Passaro Francesco Paolo"
 
 

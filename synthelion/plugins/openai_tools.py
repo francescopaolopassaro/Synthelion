@@ -902,8 +902,38 @@ def execute_tool(name: str, arguments: dict) -> dict:
     """Execute a Synthelion tool by name and return a JSON-serializable result."""
     _call_timer.start = time.perf_counter()
     if name == "compress":
+        # Same PrivacyGuard pre-pass as the Claude Code hook (cli.py's
+        # `_cmd_compress`) and RagAgent.prepare_message — this tool is what
+        # Claude Code's MCP server, OpenCode, and any other MCP/OpenAI
+        # function-calling client actually call for compression, so it needs
+        # the same masking/block-on-risk guard, not just the terminal hook.
+        text = arguments["text"]
+        from synthelion.config import privacy_config
+        pcfg = privacy_config()
+        if pcfg["enabled"]:
+            from synthelion.privacy_analyzer import PrivacyAnalyzer, PrivacyBlockedError, build_privacy_notice
+            from synthelion.privacy_session import PrivacySession
+
+            analyzer = PrivacyAnalyzer()
+            if pcfg.get("whitelist"):
+                analyzer.add_to_whitelist(*pcfg["whitelist"])
+            session = PrivacySession() if pcfg["auto_masking"] else None
+            presult = analyzer.analyze(text, pcfg["language"], session=session, auto_masking=pcfg["auto_masking"])
+
+            if pcfg.get("block_on_risk") and presult.score >= pcfg.get("block_min_score", 61):
+                transparency_notice = None
+                if pcfg["ai_transparency_notice"]:
+                    from synthelion.ai_transparency_notice import get_transparency_notice
+                    transparency_notice = get_transparency_notice(
+                        pcfg["language"], pcfg.get("transparency_custom_message") or None,
+                    )
+                raise PrivacyBlockedError(presult, build_privacy_notice(presult, transparency_notice, blocked=True))
+
+            if pcfg["auto_masking"] and presult.masked_text:
+                text = presult.masked_text
+
         level = _LEVEL_MAP.get((arguments.get("level") or _default_level()).lower(), CompressionLevel.SEMANTIC)
-        r = _svc.compress(arguments["text"], level, iso3=arguments.get("language"))
+        r = _svc.compress(text, level, iso3=arguments.get("language"))
         _record_ledger("compress", r.original_tokens, r.compressed_tokens)
         return {
             "compressed_text": r.compressed_text,
