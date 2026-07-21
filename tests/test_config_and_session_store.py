@@ -22,7 +22,7 @@ from synthelion.analytics.session_store import (
 )
 from synthelion.config import (
     default_compression_level, default_config, default_wiki_depth, load_config, merge_config,
-    new_cluster_token, new_node_id, privacy_config, save_config,
+    new_cluster_token, new_node_id, privacy_config, save_config, waf_config,
 )
 
 
@@ -116,6 +116,34 @@ class TestConfig:
         pcfg = privacy_config(cfg)
         assert pcfg["auto_masking"] is False
         assert pcfg["enabled"] is True  # untouched default preserved
+
+    def test_waf_config_defaults(self):
+        wcfg = waf_config(default_config())
+        assert wcfg["enabled"] is True
+        assert wcfg["block_mode"] is False
+        assert wcfg["rule_sql_injection"] is True
+        assert wcfg["auto_ban_threshold"] == 8
+        assert wcfg["rate_limit_requests_per_minute"] == 120
+        assert wcfg["excluded_paths"] == []
+
+    def test_waf_config_can_be_disabled(self):
+        cfg = default_config()
+        cfg["waf"]["enabled"] = False
+        assert waf_config(cfg)["enabled"] is False
+
+    def test_waf_config_block_mode_roundtrip(self, tmp_path: Path):
+        cfg = default_config()
+        cfg["waf"]["block_mode"] = True
+        path = save_config(cfg, tmp_path / "config.json")
+        loaded = load_config(path)
+        assert waf_config(loaded)["block_mode"] is True
+
+    def test_waf_config_partial_override_keeps_other_defaults(self):
+        cfg = default_config()
+        cfg["waf"] = {"block_mode": True}
+        wcfg = waf_config(cfg)
+        assert wcfg["block_mode"] is True
+        assert wcfg["enabled"] is True  # untouched default preserved
 
     def test_merge_config_overrides_only_given_keys(self):
         base = default_config()

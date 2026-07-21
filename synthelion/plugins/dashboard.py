@@ -70,7 +70,7 @@ _STATIC_FILES = {
 _PAGE_ROUTES = frozenset({
     "/", "/index.html", "/overview", "/charts", "/sessions", "/requests",
     "/decisions", "/settings", "/doctor", "/version", "/profile", "/notifications", "/cluster",
-    "/privacy",
+    "/privacy", "/security",
 })
 
 # Node-to-node cluster endpoints authenticate with the cluster's shared
@@ -175,6 +175,10 @@ class _DashboardHandler(BaseHTTPRequestHandler):
                 from synthelion.cluster import render_k8s_manifest
                 nodes = int(qs.get("nodes", ["2"])[0])
                 self._serve_text(render_k8s_manifest(nodes), "synthelion-cluster.k8s.yaml")
+            elif path == "/api/waf/events":
+                self._serve_json(self._waf_events(qs))
+            elif path == "/api/waf/ip-rules":
+                self._serve_json(self._waf_ip_rules())
             else:
                 self._error(404, "Not found")
         except Exception as exc:  # noqa: BLE001 - never let one bad request kill the server
@@ -188,6 +192,10 @@ class _DashboardHandler(BaseHTTPRequestHandler):
         # of closing it cleanly (observed as a flaky ConnectionAbortedError
         # on Windows for the 401-before-body-read case in particular).
         self._body = self._read_raw_body()
+
+        parsed = urlparse(self.path)
+        if not self._waf_gate(path, parsed.query, self._body.decode("utf-8", errors="ignore") if self._body else ""):
+            return
 
         if path == "/login":
             self._handle_login()
@@ -229,10 +237,55 @@ class _DashboardHandler(BaseHTTPRequestHandler):
                 self._serve_json(self._cluster_action())
             elif path == "/api/privacy-test":
                 self._serve_json(self._privacy_test())
+            elif path == "/api/waf/ip-rules":
+                self._serve_json(self._waf_add_ip_rule())
+            elif path == "/api/waf/ip-rules/delete":
+                self._serve_json(self._waf_delete_ip_rule())
             else:
                 self._error(404, "Not found")
         except Exception as exc:  # noqa: BLE001 - never let one bad request kill the server
             self._error(500, str(exc))
+
+    def _waf_gate(self, path: str, query: str, body: str) -> bool:
+        """Returns True if the request should proceed. Writes the block response
+        itself and returns False otherwise. Called at the very start of both
+        do_GET and do_POST — before login/logout, before routing, before the
+        session-cookie auth check — so it protects every endpoint including the
+        bearer-token cluster ones. See synthelion/waf_guard.py."""
+        if path.startswith("/assets/") or path in _STATIC_FILES or path in ("/login", "/logout"):
+            return True
+        from synthelion.config import waf_config
+        from synthelion.waf_guard import get_waf_engine
+
+        cfg = waf_config()
+        if not cfg.get("enabled", True):
+            return True
+        excluded = cfg.get("excluded_paths") or []
+        if any(path.startswith(p.strip()) for p in excluded if p and p.strip()):
+            return True
+        if cfg.get("skip_authenticated", True) and self._authenticated():
+            return True
+
+        ip = self.client_address[0] if self.client_address else ""
+        ua = self.headers.get("User-Agent", "")
+        decision = get_waf_engine().gate(ip, self.command, path, query, ua, body, cfg)
+        if not decision.allowed:
+            self._waf_block(cfg)
+            return False
+        return True
+
+    def _waf_block(self, cfg: dict) -> None:
+        message = cfg.get("block_message") or "Request blocked by Synthelion firewall."
+        status = int(cfg.get("block_status_code") or 403)
+        payload = message.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        try:
+            self.wfile.write(payload)
+        except OSError:
+            pass
 
     def _read_raw_body(self) -> bytes:
         length = int(self.headers.get("Content-Length", 0) or 0)

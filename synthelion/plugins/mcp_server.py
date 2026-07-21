@@ -222,6 +222,12 @@ def main() -> None:
         return results
 
     async def _serve() -> None:
+        # stdio only — this process never opens a network socket, so it has no
+        # network attack surface today. If a network transport (SSE/HTTP) is
+        # ever added here, gate it with synthelion.waf_guard.get_waf_engine()
+        # .gate(...) — the same call synthelion/plugins/dashboard.py already
+        # makes for the dashboard's HTTP server — rather than writing a second
+        # WAF/firewall engine from scratch.
         async with stdio_server() as (read_stream, write_stream):
             await app.run(read_stream, write_stream, app.create_initialization_options())
 

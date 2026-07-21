@@ -36,9 +36,11 @@ def dashboard_server(tmp_path, monkeypatch):
     from synthelion.analytics import cluster_registry as cluster_registry_module
     from synthelion.analytics import ledger as ledger_module
     from synthelion.analytics import session_db as session_db_module
+    from synthelion import waf_guard as waf_guard_module
     monkeypatch.setattr(ledger_module, "_ledger", None)
     monkeypatch.setattr(session_db_module, "_db", None)
     monkeypatch.setattr(cluster_registry_module, "_registry", None)
+    monkeypatch.setattr(waf_guard_module, "_engine", None)
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), _DashboardHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -261,7 +263,7 @@ class TestDashboardConfigApi:
 class TestDashboardPageRoutes:
     def test_page_routes_serve_shell_when_authenticated(self, dashboard_server):
         cookie = _login(dashboard_server)
-        for path in ("/", "/charts", "/sessions", "/requests", "/decisions", "/settings", "/profile", "/notifications", "/privacy"):
+        for path in ("/", "/charts", "/sessions", "/requests", "/decisions", "/settings", "/profile", "/notifications", "/privacy", "/security"):
             resp = _get(dashboard_server, path, cookie)
             body = resp.read()
             assert resp.status == 200, path
@@ -312,6 +314,70 @@ class TestDashboardPrivacyTestApi:
         body = json.loads(resp.read())
         assert body["privacy"]["score"] <= 15
         assert body["prompt_injection"]["is_clean"] is True
+
+
+class TestDashboardWafApi:
+    def test_events_requires_auth(self, dashboard_server):
+        resp = _get(dashboard_server, "/api/waf/events")
+        resp.read()
+        assert resp.status == 401
+
+    def test_ip_rules_requires_auth(self, dashboard_server):
+        resp = _get(dashboard_server, "/api/waf/ip-rules")
+        resp.read()
+        assert resp.status == 401
+
+    def test_add_and_list_ip_rule(self, dashboard_server):
+        cookie = _login(dashboard_server)
+        resp = _post_json(dashboard_server, "/api/waf/ip-rules", {"ip": "203.0.113.7", "kind": "Block", "reason": "test"}, cookie)
+        resp.read()
+        assert resp.status == 200
+        resp = _get(dashboard_server, "/api/waf/ip-rules", cookie)
+        body = json.loads(resp.read())
+        assert any(r["ip"] == "203.0.113.7" and r["kind"] == "Block" for r in body["rules"])
+
+    def test_delete_ip_rule(self, dashboard_server):
+        cookie = _login(dashboard_server)
+        _post_json(dashboard_server, "/api/waf/ip-rules", {"ip": "203.0.113.8", "kind": "Block"}, cookie).read()
+        resp = _post_json(dashboard_server, "/api/waf/ip-rules/delete", {"ip": "203.0.113.8", "kind": "Block"}, cookie)
+        resp.read()
+        assert resp.status == 200
+        resp = _get(dashboard_server, "/api/waf/ip-rules", cookie)
+        body = json.loads(resp.read())
+        assert not any(r["ip"] == "203.0.113.8" for r in body["rules"])
+
+    def test_events_empty_by_default(self, dashboard_server):
+        cookie = _login(dashboard_server)
+        resp = _get(dashboard_server, "/api/waf/events", cookie)
+        body = json.loads(resp.read())
+        assert body["events"] == []
+
+    def test_detect_only_by_default_never_blocks_malicious_request(self, dashboard_server):
+        # block_mode defaults to False — a malicious-looking request must still
+        # reach normal routing (redirect to login), not get a 403.
+        resp = _get(dashboard_server, "/?id=1' OR '1'='1")
+        resp.read()
+        assert resp.status == 302
+
+    def test_block_mode_blocks_unauthenticated_malicious_request(self, dashboard_server):
+        cookie = _login(dashboard_server)
+        resp = _post_json(dashboard_server, "/api/config", {"waf": {"block_mode": True}}, cookie)
+        resp.read()
+        assert resp.status == 200
+
+        resp = _get(dashboard_server, "/?q=<script>alert(1)</script>")
+        resp.read()
+        assert resp.status == 403
+
+    def test_block_mode_does_not_block_authenticated_session(self, dashboard_server):
+        # skip_authenticated defaults to True — a logged-in operator's own
+        # requests (e.g. searching for a literal "<script>" in a decision note)
+        # must never get blocked.
+        cookie = _login(dashboard_server)
+        _post_json(dashboard_server, "/api/config", {"waf": {"block_mode": True}}, cookie).read()
+        resp = _get(dashboard_server, "/charts?q=<script>alert(1)</script>", cookie)
+        resp.read()
+        assert resp.status == 200
 
 
 class TestDashboardNotificationsApi:

@@ -500,6 +500,155 @@
     }
   });
 
+  // ── security (WAF & firewall) ────────────────────────────────────────────
+
+  async function loadWafSettings() {
+    try {
+      const { config } = await fetchJson("/api/config");
+      const w = config.waf;
+      document.getElementById("waf-enabled").checked = w.enabled;
+      document.getElementById("waf-block-mode").checked = w.block_mode;
+      document.getElementById("waf-rule-sql").checked = w.rule_sql_injection;
+      document.getElementById("waf-rule-xss").checked = w.rule_xss;
+      document.getElementById("waf-rule-path").checked = w.rule_path_traversal;
+      document.getElementById("waf-rule-cmd").checked = w.rule_command_injection;
+      document.getElementById("waf-rule-ua").checked = w.rule_bad_user_agent;
+      document.getElementById("waf-rule-scanner").checked = w.rule_scanner_probe;
+      document.getElementById("waf-inspect-body").checked = w.inspect_body;
+      document.getElementById("waf-skip-authenticated").checked = w.skip_authenticated;
+      document.getElementById("waf-autoban-enabled").checked = w.auto_ban_enabled;
+      document.getElementById("waf-autoban-threshold").value = w.auto_ban_threshold;
+      document.getElementById("waf-autoban-window").value = w.auto_ban_window_minutes;
+      document.getElementById("waf-autoban-duration").value = w.auto_ban_duration_minutes;
+      document.getElementById("waf-ratelimit-enabled").checked = w.rate_limit_enabled;
+      document.getElementById("waf-ratelimit-rpm").value = w.rate_limit_requests_per_minute;
+      document.getElementById("waf-ratelimit-ban").value = w.rate_limit_ban_minutes;
+      document.getElementById("waf-block-status").value = w.block_status_code;
+      document.getElementById("waf-log-retention").value = w.log_retention_days;
+      document.getElementById("waf-block-message").value = w.block_message || "";
+      document.getElementById("waf-excluded-paths").value = (w.excluded_paths || []).join("\n");
+      ["waf-autoban-threshold", "waf-autoban-window", "waf-autoban-duration",
+       "waf-ratelimit-rpm", "waf-ratelimit-ban", "waf-block-status", "waf-log-retention",
+       "waf-block-message"].forEach(markFilled);
+    } catch (err) {
+      // non-critical — form just keeps its blank/default values
+    }
+  }
+
+  async function saveWafSettings() {
+    const btn = document.getElementById("waf-save-btn");
+    const status = document.getElementById("waf-save-status");
+    btn.disabled = true;
+    status.textContent = "Saving…";
+    status.className = "text-sm text-secondary";
+    const payload = {
+      waf: {
+        enabled: document.getElementById("waf-enabled").checked,
+        block_mode: document.getElementById("waf-block-mode").checked,
+        rule_sql_injection: document.getElementById("waf-rule-sql").checked,
+        rule_xss: document.getElementById("waf-rule-xss").checked,
+        rule_path_traversal: document.getElementById("waf-rule-path").checked,
+        rule_command_injection: document.getElementById("waf-rule-cmd").checked,
+        rule_bad_user_agent: document.getElementById("waf-rule-ua").checked,
+        rule_scanner_probe: document.getElementById("waf-rule-scanner").checked,
+        inspect_body: document.getElementById("waf-inspect-body").checked,
+        skip_authenticated: document.getElementById("waf-skip-authenticated").checked,
+        auto_ban_enabled: document.getElementById("waf-autoban-enabled").checked,
+        auto_ban_threshold: Number(document.getElementById("waf-autoban-threshold").value),
+        auto_ban_window_minutes: Number(document.getElementById("waf-autoban-window").value),
+        auto_ban_duration_minutes: Number(document.getElementById("waf-autoban-duration").value),
+        rate_limit_enabled: document.getElementById("waf-ratelimit-enabled").checked,
+        rate_limit_requests_per_minute: Number(document.getElementById("waf-ratelimit-rpm").value),
+        rate_limit_ban_minutes: Number(document.getElementById("waf-ratelimit-ban").value),
+        block_status_code: Number(document.getElementById("waf-block-status").value),
+        log_retention_days: Number(document.getElementById("waf-log-retention").value),
+        block_message: document.getElementById("waf-block-message").value,
+        excluded_paths: document.getElementById("waf-excluded-paths").value
+          .split("\n").map((s) => s.trim()).filter(Boolean),
+      },
+    };
+    try {
+      await postJson("/api/config", payload);
+      status.textContent = "Saved.";
+      status.className = "text-sm text-success";
+    } catch (err) {
+      status.textContent = "Error: " + err.message;
+      status.className = "text-sm text-danger";
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  document.getElementById("waf-save-btn").addEventListener("click", saveWafSettings);
+
+  async function loadWafIpRules() {
+    const tbody = document.getElementById("waf-ip-rules-body");
+    try {
+      const { rules } = await fetchJson("/api/waf/ip-rules");
+      if (!rules.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-sm text-secondary">No IP rules yet.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = rules.map((r) => `
+        <tr>
+          <td class="text-sm"><code>${escapeHtml(r.ip)}</code></td>
+          <td class="text-sm">${escapeHtml(r.kind)}${r.auto ? ' <span class="badge badge-sm bg-gradient-secondary">auto</span>' : ""}</td>
+          <td class="text-sm">${escapeHtml(r.reason || "–")}</td>
+          <td class="text-sm">${r.expires_at ? new Date(r.expires_at * 1000).toLocaleString() : "never"}</td>
+          <td><button type="button" class="btn btn-sm btn-outline-danger py-0 px-2 waf-ip-remove-btn" data-ip="${escapeHtml(r.ip)}" data-kind="${escapeHtml(r.kind)}">Remove</button></td>
+        </tr>`).join("");
+      tbody.querySelectorAll(".waf-ip-remove-btn").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          await postJson("/api/waf/ip-rules/delete", { ip: btn.dataset.ip, kind: btn.dataset.kind });
+          loadWafIpRules();
+        });
+      });
+    } catch (err) {
+      tbody.innerHTML = `<tr><td colspan="5" class="text-sm text-danger">Error: ${escapeHtml(err.message)}</td></tr>`;
+    }
+  }
+
+  document.getElementById("waf-ip-add-btn").addEventListener("click", async () => {
+    const ip = document.getElementById("waf-ip-input").value.trim();
+    if (!ip) return;
+    const kind = document.getElementById("waf-ip-kind").value;
+    const reason = document.getElementById("waf-ip-reason").value.trim() || "Manual";
+    try {
+      await postJson("/api/waf/ip-rules", { ip, kind, reason });
+      document.getElementById("waf-ip-input").value = "";
+      document.getElementById("waf-ip-reason").value = "";
+      loadWafIpRules();
+    } catch (err) {
+      // non-critical — the table just doesn't update
+    }
+  });
+
+  async function loadWafEvents() {
+    const tbody = document.getElementById("waf-events-body");
+    try {
+      const { events } = await fetchJson("/api/waf/events?limit=100");
+      if (!events.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-sm text-secondary">No events yet.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = events.map((e) => {
+        const cls = e.action === "Blocked" ? "text-danger" : "text-warning";
+        return `
+        <tr>
+          <td class="text-sm">${new Date(e.ts).toLocaleString()}</td>
+          <td class="text-sm"><code>${escapeHtml(e.ip || "–")}</code></td>
+          <td class="text-sm">${escapeHtml(e.method || "")} ${escapeHtml(e.path || "")}</td>
+          <td class="text-sm">${escapeHtml(e.category || "")}</td>
+          <td class="text-sm">${escapeHtml(e.rule_name || "")}</td>
+          <td class="text-sm">${escapeHtml(e.severity || "")}</td>
+          <td class="text-sm ${cls}">${escapeHtml(e.action || "")}</td>
+        </tr>`;
+      }).join("");
+    } catch (err) {
+      tbody.innerHTML = `<tr><td colspan="7" class="text-sm text-danger">Error: ${escapeHtml(err.message)}</td></tr>`;
+    }
+  }
+
   // ── doctor / version / upgrade ───────────────────────────────────────────
 
   function doctorIcon(status) {
@@ -867,6 +1016,7 @@
     overview: "Overview", charts: "Charts", sessions: "Sessions", requests: "Recent requests",
     decisions: "Decisions", settings: "Settings", profile: "Profile", notifications: "Notifications",
     cluster: "Cluster", doctor: "Doctor", version: "Version", privacy: "Privacy",
+    security: "Security",
   };
 
   function pageForPath(path) {
@@ -888,6 +1038,12 @@
       link.classList.toggle("bg-gradient-info", isActive);
     });
     document.getElementById("breadcrumb-page").textContent = PAGE_TITLES[name] || "Overview";
+    // IP rules/events can change from other processes (auto-ban, rate limit) —
+    // refresh them every time the page is opened, not just once at load.
+    if (name === "security") {
+      loadWafIpRules();
+      loadWafEvents();
+    }
   }
 
   function navigate(path, push) {
@@ -911,6 +1067,7 @@
   loadVersion();
   loadSettings();
   loadPrivacySettings();
+  loadWafSettings();
   loadStorageStatus();
   loadProfile();
   loadNotifications();
