@@ -33,7 +33,7 @@ from synthelion.tokenizer import ModelTokenizer, LlmModel
 from synthelion.loop_guard import LoopGuard, LoopVerdict, LoopCheckResult, PersistentLoopGuard
 from synthelion.plugins.openai_tools import filter_relevant_tools
 
-__version__ = "1.2.1"
+__version__ = "1.2.2"
 __author__ = "Passaro Francesco Paolo"
 
 

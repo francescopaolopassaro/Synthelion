@@ -344,6 +344,7 @@ def _cmd_status(args) -> None:
         print("  By content type:")
         for ct, saved in sorted(s["by_content_type"].items(), key=lambda x: x[1], reverse=True):
             print(f"    {ct}: {saved:,} tokens saved")
+    _print_star_cta()
 
 
 def _cmd_gain(args) -> None:
@@ -561,6 +562,13 @@ def run_doctor_checks() -> list[dict]:
     return checks
 
 
+def _print_star_cta() -> None:
+    """Small, one-line reminder shown at the end of human-readable CLI output
+    (never in --json mode, which must stay machine-parseable) — the CLI is
+    often the only place a happy user ever sees Synthelion's name."""
+    print("\n⭐ Enjoying Synthelion? Star us on GitHub: https://github.com/francescopaolopassaro/synthelion")
+
+
 def _cmd_doctor(args) -> None:
     checks = run_doctor_checks()
 
@@ -575,9 +583,11 @@ def _cmd_doctor(args) -> None:
         print(f"  [{icon}] {c['check']}: {c['detail']}")
     if has_error:
         print("\nSome checks failed. Run with --json for structured output.")
+        _print_star_cta()
         raise SystemExit(1)
     else:
         print("\nAll checks passed.")
+        _print_star_cta()
 
 
 def _cmd_install(args) -> None:
