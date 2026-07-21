@@ -714,6 +714,85 @@ def get_tool_definitions() -> list[dict]:
         {
             "type": "function",
             "function": {
+                "name": "get_response_style_guidance",
+                "description": (
+                    "Returns a block of verbosity-reduction instructions to inject into an agent's "
+                    "own system prompt, so its generated responses are more concise (no filler "
+                    "openings, no restating the question, structured bug-fix format at full/ultra). "
+                    "Different axis from every other tool here: this shapes what the model writes, "
+                    "not what enters its context."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "level": {"type": "string", "enum": ["lite", "full", "ultra"], "description": "Aggressiveness. Default: lite."},
+                        "language": {"type": "string", "description": "ISO 639-3 code of the response language, e.g. 'zho'. Adds a CJK-specific note when applicable."},
+                    },
+                    "required": [],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "track_file_read",
+                "description": (
+                    "Records a file read for freshness tracking within a session. Returns whether "
+                    "this read is fresh or already stale (a write landed at/after this turn). Use "
+                    "alongside track_file_write and check_read_maturity to know when an earlier "
+                    "Read's output sitting in context is safe to collapse."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string", "description": "File path that was read."},
+                        "turn": {"type": "integer", "description": "Monotonically increasing turn/step counter for this session."},
+                        "session_id": {"type": "string", "description": "Session/agent id. Default: 'default'."},
+                    },
+                    "required": ["path", "turn"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "track_file_write",
+                "description": "Records a file write for freshness tracking — any earlier reads of this path become stale.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string", "description": "File path that was written/edited."},
+                        "turn": {"type": "integer", "description": "Monotonically increasing turn/step counter for this session."},
+                        "session_id": {"type": "string", "description": "Session/agent id. Default: 'default'."},
+                    },
+                    "required": ["path", "turn"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "check_read_maturity",
+                "description": (
+                    "Checks whether a previously-tracked file read is stale/superseded and has been "
+                    "quiet long enough to safely collapse into a compact marker (mirrors "
+                    "provider KV-cache-breakpoint stability: a file still being actively edited "
+                    "would just invalidate again next turn, so maturation waits for quiescence)."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string", "description": "File path to check."},
+                        "turn": {"type": "integer", "description": "Current turn/step counter for this session."},
+                        "session_id": {"type": "string", "description": "Session/agent id. Default: 'default'."},
+                    },
+                    "required": ["path", "turn"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
                 "name": "generate_project_wiki",
                 "description": (
                     "Recursively scan a project folder and produce AI-friendly, semantically "
@@ -938,6 +1017,18 @@ def execute_tool(name: str, arguments: dict) -> dict:
 
     if name == "rewrite_command":
         return _exec_rewrite_command(arguments)
+
+    if name == "get_response_style_guidance":
+        return _exec_get_response_style_guidance(arguments)
+
+    if name == "track_file_read":
+        return _exec_track_file_read(arguments)
+
+    if name == "track_file_write":
+        return _exec_track_file_write(arguments)
+
+    if name == "check_read_maturity":
+        return _exec_check_read_maturity(arguments)
 
     return {"error": f"Unknown tool: {name}"}
 
@@ -1368,6 +1459,39 @@ def _exec_rewrite_command(arguments: dict) -> dict:
     from synthelion.command_rewrite import rewrite_command
     command, rewritten = rewrite_command(arguments["command"])
     return {"command": command, "rewritten": rewritten}
+
+
+def _exec_get_response_style_guidance(arguments: dict) -> dict:
+    from synthelion.response_style import get_style_guidance
+    guidance = get_style_guidance(arguments.get("level") or "lite", arguments.get("language"))
+    return {"guidance": guidance}
+
+
+def _exec_track_file_read(arguments: dict) -> dict:
+    from synthelion.read_lifecycle import get_read_lifecycle_tracker
+    tracker = get_read_lifecycle_tracker()
+    return tracker.record_read(
+        arguments["path"], int(arguments["turn"]), session_id=arguments.get("session_id") or "default",
+    )
+
+
+def _exec_track_file_write(arguments: dict) -> dict:
+    from synthelion.read_lifecycle import get_read_lifecycle_tracker
+    tracker = get_read_lifecycle_tracker()
+    tracker.record_write(arguments["path"], int(arguments["turn"]), session_id=arguments.get("session_id") or "default")
+    return {"status": "recorded"}
+
+
+def _exec_check_read_maturity(arguments: dict) -> dict:
+    from synthelion.read_lifecycle import get_read_lifecycle_tracker
+    tracker = get_read_lifecycle_tracker()
+    path = arguments["path"]
+    turn = int(arguments["turn"])
+    session_id = arguments.get("session_id") or "default"
+    status = tracker.classify(path, session_id=session_id)
+    should_mature = tracker.should_mature(path, turn, session_id=session_id)
+    marker = tracker.maturation_marker(path, status) if should_mature else None
+    return {"status": status, "should_mature": should_mature, "marker": marker}
 
 
 def _exec_diff_tool_output(arguments: dict) -> dict:
