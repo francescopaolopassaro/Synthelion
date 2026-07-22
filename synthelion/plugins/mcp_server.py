@@ -42,6 +42,7 @@ _READ_ONLY_TOOLS = frozenset({
     "get_artifact_index", "rewrite_command",
     "get_response_style_guidance", "check_read_maturity",
     "restore_privacy_text", "check_prompt_injection", "get_ai_transparency_notice",
+    "retrieve_compressed_text", "memory_recall",
 })
 
 

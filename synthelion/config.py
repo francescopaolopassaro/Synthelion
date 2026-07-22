@@ -115,6 +115,105 @@ _DEFAULT_CONFIG: dict[str, Any] = {
         # Path prefixes exempt from inspection (one per line in the UI).
         "excluded_paths": [],
     },
+    "proxy": {
+        # Master switch. Off by default — the proxy is an additional, opt-in
+        # enforcement layer for agents with no MCP/hook support (Aider, Cursor
+        # today); it never replaces or is required by the existing MCP/hook
+        # integrations (`synthelion install --agent ...`), which keep working
+        # exactly as before whether the proxy is running or not.
+        "enabled": False,
+        "host": "127.0.0.1",
+        "port": 8788,
+        # Upstream base URL per wire format, matched by request path prefix
+        # (Anthropic: /v1/messages* and /v1/complete*; OpenAI-compatible:
+        # /v1/chat/completions, /v1/completions, /v1/responses, /v1/embeddings,
+        # /v1/models). Point these at Bedrock/Azure/local gateways to reuse the
+        # same routing instead of the public APIs.
+        "anthropic_upstream": "https://api.anthropic.com",
+        # Also used for any OpenAI-*compatible* provider at the same paths —
+        # Groq, OpenRouter, Together, Azure OpenAI, Mistral, DeepSeek, xAI,
+        # local vLLM/Ollama-OpenAI-shim servers, etc. all speak this same
+        # wire format; point this at theirs instead to route through them.
+        "openai_upstream": "https://api.openai.com",
+        # Gemini's wire format/paths differ from both of the above
+        # (`/v1beta/models/{model}:generateContent`), so it gets its own slot.
+        "gemini_upstream": "https://generativelanguage.googleapis.com",
+        # Fallback upstream for any other path not matched above — forwarded
+        # with the same recursive JSON-string compression/privacy pass (that
+        # part is schema-agnostic and works regardless of provider), just
+        # without provider-specific path knowledge. Empty = respond 502 for
+        # unrecognized paths instead of guessing.
+        "default_upstream": "",
+        # User-defined overrides, checked before anthropic/openai/gemini/
+        # default above (first prefix match wins) — lets a user point at any
+        # provider/path models.dev knows about (or a private gateway) without
+        # needing a dedicated config slot. Each entry:
+        # {"label": str, "path_prefix": str, "upstream": str}. The dashboard's
+        # Proxy page can pre-fill `upstream`/`label` from a provider picked out
+        # of models.dev's public provider list — an explicit, on-demand fetch
+        # (`GET /api/proxy/providers`), never automatic.
+        "custom_routes": [],
+        # Circuit breaker: if an upstream returns 429 (rate-limited) this many
+        # times within the window, the proxy stops forwarding to it for the
+        # cooldown period and fails fast (503, no upstream call made) instead
+        # of hammering an already-rate-limited provider. Any non-429 success
+        # resets that upstream's failure count immediately.
+        "circuit_breaker_enabled": True,
+        "circuit_breaker_threshold": 3,
+        "circuit_breaker_window_seconds": 60,
+        "circuit_breaker_cooldown_seconds": 30,
+        # Failover pool: if the resolved primary upstream doesn't respond —
+        # connection refused, DNS failure, TLS error, timeout, 429, or a 5xx —
+        # the proxy retries the *same* request against each of these in
+        # order before giving up. Capped at 10 (enforced when read, extras
+        # silently dropped) so one misconfigured list can't turn a single
+        # request into an unbounded retry storm.
+        "fallback_upstreams": [],
+        # Per-attempt timeout while trying a candidate upstream (connect +
+        # headers). Once a response's headers are being streamed to the
+        # client, no further failover happens for that request — bytes
+        # already sent can't be taken back.
+        "attempt_timeout_seconds": 30,
+        # Rolling-history compression: once a `messages` array reaches this
+        # many turns, everything except the most recent half is compressed at
+        # `aggressive` instead of the configured default level — older turns
+        # shrink harder, recent ones stay closer to full detail. Never merges
+        # or drops messages (stays valid for every provider's exact schema).
+        "rolling_history_enabled": True,
+        "rolling_history_threshold": 6,
+        # CCR ("compress, cache, retrieve") — reversible compression. When a
+        # string's compression saves at least `ccr_min_tokens_saved` tokens,
+        # the original is cached (SQLite, ~/.synthelion/ccr.db) for
+        # `ccr_ttl_seconds` and a `[ccr:<token>]` marker is appended to the
+        # compressed text — an agent that decides it needs the full detail
+        # can call the `synthelion_retrieve` MCP tool / `synthelion retrieve`
+        # CLI command with that token to get it back. Off by default: it
+        # changes the wire text (adds a visible marker), so it's an informed
+        # opt-in rather than always-on behavior.
+        "ccr_enabled": False,
+        "ccr_min_tokens_saved": 15,
+        "ccr_ttl_seconds": 3600,
+        # Response cache: identical (upstream, path, exact request body)
+        # within `response_cache_ttl_seconds` is served from a local cache
+        # instead of re-calling the provider. Exact-match only — deliberately
+        # not embedding-similarity/"semantic" caching, consistent with
+        # Synthelion's zero-ML-models stance; two prompts that mean the same
+        # thing but aren't byte-identical are two separate cache entries.
+        "response_cache_enabled": False,
+        "response_cache_ttl_seconds": 120,
+        "response_cache_max_entries": 200,
+        # Daily budget cap, in USD, estimated the same way the dashboard's
+        # cost-saved KPI is (see ledger.py's per-token price constant). Once
+        # the day's estimated spend crosses this, further requests are
+        # refused (503) until the next UTC day. 0/absent = no cap.
+        "daily_budget_usd": 0,
+        # Output shaping: append a short "be terse, don't restate context"
+        # instruction to the system prompt — Anthropic (`system` field) and
+        # OpenAI-shaped (a `system`/`developer` role message) requests only,
+        # since where the system prompt lives is provider-specific; silently
+        # skipped for any other shape. Off by default.
+        "output_shaping_enabled": False,
+    },
     "cluster": {
         # "standalone" (default) | "master" | "slave"
         "role": "standalone",

@@ -8,6 +8,136 @@ All notable changes to Synthelion are documented here.
 
 ---
 
+## [1.2.4] — 2026-07-22
+
+### Added — local privacy/compression proxy
+- **`synthelion serve-proxy`** — a new, strictly opt-in (`proxy.enabled` default `False`)
+  local HTTP reverse proxy closing the enforcement gap the MCP/hook
+  integrations can't: Cursor and Aider have no way to force a model to call a
+  privacy tool. Point `ANTHROPIC_BASE_URL`/`OPENAI_BASE_URL` at the proxy
+  instead and masking/compression happen server-side, before the request
+  ever reaches the real provider — a risky prompt gets a hard `400` block,
+  never forwarded, same posture as Claude Code's `block_on_risk` hook.
+- **Schema-agnostic compression**: recursively compresses every string value
+  in the request JSON regardless of which field it's under — works for
+  Anthropic, OpenAI-compatible (Groq/OpenRouter/Together/Azure OpenAI/
+  Mistral/DeepSeek/xAI/local shims), Gemini, and custom routes without
+  hardcoding any one provider's exact wire format.
+- **Automatic failover**, up to 10 backup providers deep — connection
+  refused, DNS failure, TLS error, timeout, `429`, or `5xx` all trigger a
+  retry against the next configured upstream, before the client ever sees a
+  failure. **Circuit breaker** stops hammering an already-rate-limited
+  upstream after N failures in a window, cooling down before retrying it.
+- **Firewall-protected**: the same WAF gating the dashboard (SQLi/XSS/path-
+  traversal/command-injection inspection, IP allow/block, auto-ban, rate
+  limiting) now gates every proxy request too.
+- **Rolling-history compression** — once a conversation reaches a turn
+  threshold, older turns compress at `aggressive` while recent ones stay at
+  the configured default, without merging or dropping any message (stays
+  valid for every provider's exact schema).
+- **CCR (reversible compression)**, opt-in — compressed-away text can be
+  cached and retrieved later via the new `synthelion retrieve --token ...`
+  CLI command or the `retrieve_compressed_text` MCP tool.
+- **Exact-match response cache**, opt-in — identical `(upstream, path, body)`
+  within a TTL is served locally instead of re-calling the provider.
+  Deliberately not embedding-similarity/semantic caching, consistent with
+  Synthelion's zero-ML-models stance.
+- **Daily budget cap** (`proxy.daily_budget_usd`) and **output shaping**
+  (appends a "be terse" instruction to the system prompt for Anthropic/
+  OpenAI-shaped requests), both opt-in.
+- **Structured, prompt-free request log** (`synthelion/analytics/proxy_log.py`)
+  — timestamp, method, path, upstream, status, duration, blocked, tokens
+  before/after. The prompt/response/masked text are never written anywhere.
+- **Dashboard "Proxy" page** — Status / Routes / Reliability / Advanced /
+  Logs tabs; every proxy setting (all of the above, plus custom routes with
+  a "pick a provider" convenience sourced from a live provider list fetched
+  on demand) is editable without touching `config.json` by hand.
+
+### Added — `synthelion launch`
+- One command starts the proxy and launches an agent already pointed at it
+  (`synthelion launch claude|codex|aider`; `cursor` prints the config to
+  paste in, since it's an IDE, not a spawnable CLI) — the single-command
+  equivalent of running `serve-proxy` in one terminal and setting
+  `ANTHROPIC_BASE_URL`/`OPENAI_BASE_URL` by hand in another.
+
+### Added — cross-agent shared memory
+- **`synthelion memory add/list/clear`** and MCP tools `memory_add`/
+  `memory_recall` — small, durable, deduplicated (exact-content-hash) notes
+  visible to every agent, not just the one that wrote them. Not RAG/semantic
+  search over a large corpus — that already exists per-session via the
+  vector-store-backed session memory.
+
+### Added — `synthelion learn`
+- Deterministic pattern mining over the savings ledger and proxy log — no
+  ML, no fabricated insights: only things actually true about recent
+  activity (a tool averaging low compression efficiency, repeated privacy
+  blocks on the same category, an upstream failing repeatedly). Appends
+  findings to `CLAUDE.md`/`AGENTS.md` as plain markdown.
+
+### Added — new agent integrations (`synthelion install --agent ...`)
+- **Cursor**: MCP registration + a mandatory privacy Rule (`.mdc`) + a
+  best-effort `beforeSubmitPrompt` hook. Cursor's hook is documented as
+  informational-only in the current beta (it can't block/rewrite the
+  prompt), so this only logs usage to the savings ledger — enforcement
+  still depends on the model choosing to call the MCP tool, same limitation
+  as any tool-use-only agent.
+- **Aider**: an advisory `CONVENTIONS.md`-style file registered via
+  `.aider.conf.yml`'s `read:` key. Aider has no MCP client and no pre-send
+  hook, so this cannot mask or block anything automatically — it only asks
+  the model to warn the user and suggest running `synthelion compress`
+  manually; documented plainly rather than overstating what it does.
+- **OpenAI Codex CLI**: MCP registration in `config.toml`'s
+  `[mcp_servers.synthelion]` + a mandatory privacy instruction merged into
+  `~/.codex/AGENTS.md`. An experimental hook (`--experimental-hooks`,
+  `[features].codex_hooks` + `hooks.json`) is available but off by default —
+  Codex's hook engine is still marked "under development" upstream with an
+  unconfirmed payload schema.
+- Standalone installer scripts (`install_cursor.py/.ps1/.sh`,
+  `install_aider.py/.ps1/.sh`, `install_codex.py/.ps1/.sh`), matching the
+  existing `install_claude.py`/`install_opencode.py` pattern, alongside the
+  same functionality integrated into `synthelion install --agent
+  cursor|aider|codex` (with `--uninstall` support for all three).
+
+### Added — smarter self-upgrade
+- **`synthelion upgrade`** now detects how Synthelion was actually installed
+  (plain pip, `pip --user`, pipx, `uv tool`, or an editable/git checkout) and
+  runs the command that really applies, instead of always shelling out to
+  `pip install --upgrade` — which silently no-oped on an editable install
+  and wasn't the idiomatic path for pipx/uv-tool installs. New `--check` flag
+  reports the latest PyPI version without upgrading.
+
+### Fixed
+- **`synthelion version` / `synthelion --version`** — there was no version
+  command or flag at all; `synthelion version` errored with "invalid
+  choice." Both now work, and print the same `synthelion.__version__`.
+- **Dashboard self-restart after upgrade** — clicking "Upgrade now" ran `pip
+  install --upgrade` but the *running* dashboard process kept serving the
+  old code (Python doesn't hot-reload already-imported modules); a new
+  "Restart dashboard now" button re-execs the process in place (same host/
+  port) so the upgrade actually takes effect without a manual
+  kill-and-relaunch.
+- **`pip install -e .` mid-session regression**: reinstalling editable while
+  a dashboard process from the old non-editable install was still running
+  deleted that process's on-disk HTML/JS/CSS assets out from under it
+  (`_serve_file` reads them fresh per request), causing every page —
+  including `/login` — to 404. Documented as a standing gotcha; the fix is
+  simply to restart the dashboard right after any reinstall.
+- **`/proxy` dashboard page 404** — the new Proxy page's sidebar link,
+  client-side router entry, and page content were added, but the
+  server-side `_PAGE_ROUTES` allow-list was never updated to include it,
+  so the page 404'd until this was caught by an actual Playwright
+  screenshot pass (not by the API-level curl testing done throughout
+  development, which never touched page routing).
+- **Duplicate `Server`/`Date` response headers** on both the proxy's live
+  forward path and its response-cache replay path — `send_response()`
+  already injects fresh ones; forwarding/replaying the upstream's own copies
+  on top produced two of each in every response.
+
+### Version
+- Bumped `1.2.3` → `1.2.4` in `synthelion/__init__.py` and `pyproject.toml`
+  (previously out of sync after the 1.2.4-targeted OpenCode plugin work
+  shipped without the version bump).
+
 ## [1.2.3] — 2026-07-21
 
 ### Added — PrivacyGuard block-on-risk

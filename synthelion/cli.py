@@ -20,7 +20,16 @@ def main() -> None:
         prog="synthelion",
         description="Synthelion — Python port of Caveman. Token compressor for LLMs.",
     )
+    import synthelion as _synthelion_pkg
+    parser.add_argument(
+        "--version", action="version", version=f"synthelion {_synthelion_pkg.__version__}",
+    )
     sub = parser.add_subparsers(dest="cmd", required=True)
+
+    # version (subcommand form — some callers/scripts probe `synthelion version`
+    # instead of the `--version` flag; support both rather than erroring)
+    p_version = sub.add_parser("version", help="Show the installed Synthelion version")
+    p_version.add_argument("--json", action="store_true")
 
     # compress
     p_cmp = sub.add_parser("compress", help="Compress text to reduce LLM tokens")
@@ -56,14 +65,26 @@ def main() -> None:
     p_dash.add_argument("--host", default="127.0.0.1", help="Bind address (default: 127.0.0.1, local only)")
     p_dash.add_argument("--port", type=int, default=8787, help="Port (default: 8787)")
 
+    # serve-proxy — local reverse proxy for agents with no MCP/hook support
+    p_proxy = sub.add_parser(
+        "serve-proxy",
+        help="Start the local privacy/compression proxy (point ANTHROPIC_BASE_URL/OPENAI_BASE_URL at it)",
+    )
+    p_proxy.add_argument("--host", default=None, help="Bind address (default: configured value, normally 127.0.0.1)")
+    p_proxy.add_argument("--port", type=int, default=None, help="Port (default: configured value, normally 8788)")
+
     # doctor — check installation health
     p_doctor = sub.add_parser("doctor", help="Check Synthelion installation health")
     p_doctor.add_argument("--json", action="store_true", help="Output as JSON")
 
     # install — register MCP server in agent configs
     p_install = sub.add_parser("install", help="Register Synthelion MCP server in an AI agent config")
-    p_install.add_argument("--agent", choices=["claude", "gemini", "opencode", "cursor", "windsurf"], default="claude", help="Agent to configure (default: claude)")
+    p_install.add_argument("--agent", choices=["claude", "gemini", "opencode", "cursor", "windsurf", "aider", "codex"], default="claude", help="Agent to configure (default: claude)")
     p_install.add_argument("--local", action="store_true", help="Install in project-local config instead of global")
+    p_install.add_argument("--no-rule", action="store_true", help="Skip the mandatory privacy instruction file (Cursor Rule / Codex AGENTS.md)")
+    p_install.add_argument("--no-hook", action="store_true", help="Cursor only: skip the best-effort beforeSubmitPrompt observability hook")
+    p_install.add_argument("--experimental-hooks", action="store_true", help="Codex CLI only: also enable [features].codex_hooks + hooks.json — unstable, unconfirmed schema, off by default")
+    p_install.add_argument("--uninstall", action="store_true", help="Remove Synthelion config instead of installing (cursor/aider/codex only)")
 
     # status — aggregate savings from the ledger
     p_status = sub.add_parser("status", help="Show aggregate token savings statistics")
@@ -84,6 +105,7 @@ def main() -> None:
     # upgrade — self-upgrade via pip
     p_upgrade = sub.add_parser("upgrade", help="Upgrade Synthelion to the latest version from PyPI")
     p_upgrade.add_argument("--dry-run", action="store_true", help="Show what would run without running it")
+    p_upgrade.add_argument("--check", action="store_true", help="Report the latest PyPI version without upgrading")
 
     # export — export savings ledger
     p_export = sub.add_parser("export", help="Export savings ledger to CSV or JSONL")
@@ -152,6 +174,35 @@ def main() -> None:
     cluster_sub.add_parser("status", help="Show this node's cluster role, and (if master) joined nodes")
     cluster_sub.add_parser("leave", help="Return this node to standalone mode")
 
+    # retrieve — CCR (compress, cache, retrieve) reversible-compression lookup
+    p_retrieve = sub.add_parser("retrieve", help="Retrieve the original text behind a [ccr:token] marker (proxy CCR feature)")
+    p_retrieve.add_argument("--token", "-t", required=True, help="The token from a [ccr:xxxxxxxx] marker")
+    p_retrieve.add_argument("--json", action="store_true")
+
+    # serve-proxy is defined above; launch — start the proxy + an agent together
+    p_launch = sub.add_parser("launch", help="Start the proxy and launch an agent already pointed at it, in one command")
+    p_launch.add_argument("agent", choices=["claude", "codex", "aider", "cursor"], help="Agent to launch (cursor just prints the config — it's an IDE, not a spawnable CLI)")
+    p_launch.add_argument("--port", type=int, default=None, help="Proxy port (default: configured value, normally 8788)")
+    p_launch.add_argument("--no-proxy-start", action="store_true", help="Assume the proxy is already running; only set env vars and launch the agent")
+    p_launch.add_argument("agent_args", nargs=argparse.REMAINDER, help="Extra arguments passed through to the agent's own CLI")
+
+    # learn — mine the ledger/proxy log for deterministic, actionable patterns
+    p_learn = sub.add_parser("learn", help="Scan recent activity for actionable patterns (repeated blocks, low-efficiency tools) and write them to CLAUDE.md/AGENTS.md")
+    p_learn.add_argument("--days", type=int, default=7, help="Look-back window (default: 7)")
+    p_learn.add_argument("--output", default="CLAUDE.md", help="File to append findings to (default: CLAUDE.md)")
+    p_learn.add_argument("--dry-run", action="store_true", help="Print findings without writing the file")
+
+    # memory — cross-agent shared memory (dedup'd notes any agent can read/write)
+    p_memory = sub.add_parser("memory", help="Cross-agent shared memory — notes visible to every agent, not just the one that wrote them")
+    memory_sub = p_memory.add_subparsers(dest="memory_cmd", required=True)
+    p_mem_add = memory_sub.add_parser("add", help="Add a note (deduplicated by content hash)")
+    p_mem_add.add_argument("--text", "-t", required=True)
+    p_mem_add.add_argument("--agent", "-a", default="", help="Name of the agent/tool writing this (optional)")
+    p_mem_list = memory_sub.add_parser("list", help="List recent shared-memory notes")
+    p_mem_list.add_argument("--limit", type=int, default=20)
+    p_mem_list.add_argument("--json", action="store_true")
+    p_mem_clear = memory_sub.add_parser("clear", help="Delete all shared-memory notes")
+
     # wiki — generate AI-friendly project documentation
     p_wiki = sub.add_parser("wiki", help="Generate AI-friendly, compressed project documentation")
     p_wiki.add_argument("path", help="Project folder to scan")
@@ -162,7 +213,9 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    if args.cmd == "compress":
+    if args.cmd == "version":
+        _cmd_version(args)
+    elif args.cmd == "compress":
         _cmd_compress(args)
     elif args.cmd == "detect":
         _cmd_detect(args)
@@ -176,6 +229,11 @@ def main() -> None:
     elif args.cmd == "serve-dashboard":
         from synthelion.plugins.dashboard import run_dashboard
         run_dashboard(host=args.host, port=args.port)
+    elif args.cmd == "serve-proxy":
+        from synthelion.config import load_config
+        from synthelion.plugins.proxy import run_proxy
+        pcfg = load_config().get("proxy", {})
+        run_proxy(host=args.host or pcfg.get("host", "127.0.0.1"), port=args.port or pcfg.get("port", 8788))
     elif args.cmd == "status":
         _cmd_status(args)
     elif args.cmd == "gain":
@@ -206,6 +264,14 @@ def main() -> None:
         _cmd_loop_reset(args)
     elif args.cmd == "cluster":
         _cmd_cluster(args)
+    elif args.cmd == "retrieve":
+        _cmd_retrieve(args)
+    elif args.cmd == "launch":
+        _cmd_launch(args)
+    elif args.cmd == "learn":
+        _cmd_learn(args)
+    elif args.cmd == "memory":
+        _cmd_memory(args)
 
 
 def _read_input(args) -> str:
@@ -360,6 +426,14 @@ def _cmd_compress(args) -> None:
         print(r.compressed_text)
         suffix = f" — {privacy_masked_count} sensitive item(s) masked" if privacy_masked else ""
         print(f"\n[{r.efficiency_pct:.1f}% saved — {r.original_tokens} → {r.compressed_tokens} tokens{suffix}]", file=sys.stderr)
+
+
+def _cmd_version(args) -> None:
+    import synthelion
+    if getattr(args, "json", False):
+        print(json.dumps({"version": synthelion.__version__}))
+    else:
+        print(f"synthelion {synthelion.__version__}")
 
 
 def _cmd_detect(args) -> None:
@@ -1041,14 +1115,11 @@ def _cmd_install(args) -> None:
         print("  2. The plugin auto-compresses every prompt and masks PII.")
         print("  3. Run `opencode doctor` to verify everything loaded.")
 
-    elif agent in ("cursor", "windsurf"):
-        # Both read a plain { "mcpServers": {...} } file, same shape as Claude —
-        # only the path differs, and neither exposes a project-local variant
-        # documented well enough to rely on, so --local is a no-op for these.
-        if agent == "cursor":
-            config_path = Path.home() / ".cursor" / "mcp.json"
-        else:
-            config_path = Path.home() / ".codeium" / "windsurf" / "mcp_config.json"
+    elif agent == "windsurf":
+        # Reads a plain { "mcpServers": {...} } file, same shape as Claude —
+        # no project-local variant documented well enough to rely on, so
+        # --local is a no-op here.
+        config_path = Path.home() / ".codeium" / "windsurf" / "mcp_config.json"
         config_path.parent.mkdir(parents=True, exist_ok=True)
 
         if config_path.exists():
@@ -1062,10 +1133,84 @@ def _cmd_install(args) -> None:
         cfg.setdefault("mcpServers", {})["synthelion"] = mcp_entry
         config_path.write_text(_json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
         print(f"✓ Synthelion MCP registered in {config_path}")
-        print(f"  Restart {agent.capitalize()} to activate.")
+        print("  Restart Windsurf to activate.")
+
+    elif agent == "cursor":
+        # MCP + a mandatory privacy Rule (.mdc) the model can call, + a
+        # best-effort beforeSubmitPrompt hook. Cursor's hook is documented as
+        # informational-only in the current beta (it can't block/rewrite the
+        # prompt), so enforcement here still depends on the model choosing to
+        # call the MCP tool — same limitation as any tool-use-only agent.
+        from synthelion.integrations import cursor as cursor_integration
+
+        if getattr(args, "uninstall", False):
+            removed = cursor_integration.remove(local=local)
+            print(f"✓ Removed from Cursor: {removed or 'nothing found'}")
+            return
+
+        written = cursor_integration.configure(
+            binary=mcp_cmd, local=local,
+            add_rule=not getattr(args, "no_rule", False),
+            add_hook=not getattr(args, "no_hook", False),
+        )
+        print(f"✓ Synthelion MCP registered in {written['mcp_path']}")
+        if "rule_path" in written:
+            print(f"✓ Privacy rule installed in {written['rule_path']}")
+        if "hooks_path" in written:
+            print(f"  beforeSubmitPrompt hook wired in {written['hooks_path']}")
+            print("  NOTE: Cursor's beta does not act on hook output — this only logs")
+            print("  usage to Synthelion's ledger, it cannot block/rewrite prompts.")
+        print("  Restart Cursor to activate.")
+
+    elif agent == "aider":
+        # No MCP client, no pre-send hook — the only real lever is an
+        # advisory conventions file loaded via `read:` in .aider.conf.yml.
+        # This cannot mask or block anything automatically; say so plainly.
+        from synthelion.integrations import aider as aider_integration
+
+        if getattr(args, "uninstall", False):
+            removed = aider_integration.remove(local=local)
+            print(f"✓ Removed from Aider: {removed or 'nothing found'}")
+            return
+
+        written = aider_integration.configure(local=local)
+        print(f"✓ Conventions file written to {written['conventions_path']}")
+        print(f"✓ Registered in {written['conf_path']}")
+        print()
+        print("  NOTE: this is advisory only. Aider has no MCP client and no")
+        print("  pre-send hook, so nothing is actually masked or blocked —")
+        print("  the model is only asked to warn the user and suggest running")
+        print("  `synthelion compress` manually. For real enforcement, use")
+        print("  Claude Code, Cursor, or Codex CLI instead.")
+
+    elif agent == "codex":
+        # MCP (`[mcp_servers.synthelion]` in config.toml) + AGENTS.md
+        # instructions by default. The experimental hook engine
+        # (`[features].codex_hooks` + hooks.json) is only wired when
+        # --experimental-hooks is passed — its schema is still marked
+        # "under development" upstream and unconfirmed by official docs.
+        from synthelion.integrations import codex as codex_integration
+
+        if getattr(args, "uninstall", False):
+            removed = codex_integration.remove()
+            print(f"✓ Removed from Codex CLI: {removed or 'nothing found'}")
+            return
+
+        written = codex_integration.configure(
+            binary=mcp_cmd,
+            add_agents=not getattr(args, "no_rule", False),
+            experimental_hooks=getattr(args, "experimental_hooks", False),
+        )
+        print(f"✓ Synthelion MCP registered in {written['config_path']}")
+        if "agents_md_path" in written:
+            print(f"✓ Privacy instructions written to {written['agents_md_path']}")
+        if written.get("experimental"):
+            print(f"  [EXPERIMENTAL] hook wired in {written['hooks_path']} — schema unconfirmed,")
+            print("  verify with `codex /hooks` inside a session; may do nothing on your build.")
+        print("  Restart Codex CLI (or run `codex mcp list`) to activate.")
 
     else:
-        print(f"ERROR: unsupported agent '{agent}'. Supported: claude, gemini, opencode, cursor, windsurf", file=sys.stderr)
+        print(f"ERROR: unsupported agent '{agent}'. Supported: claude, gemini, opencode, cursor, windsurf, aider, codex", file=sys.stderr)
         raise SystemExit(1)
 
 
@@ -1099,16 +1244,83 @@ def check_pypi_version(timeout: float = 8.0) -> dict:
     }
 
 
+def _detect_install_method() -> str:
+    """Returns 'editable' | 'pipx' | 'uv' | 'pip' — how this Synthelion
+    install got here, so `synthelion upgrade` can run the command that
+    actually works instead of always guessing `pip install --upgrade`
+    (which silently no-ops for an editable/git checkout, and works but isn't
+    idiomatic for pipx/uv-tool installs, which have their own upgrade
+    commands that also refresh the shim)."""
+    exe_lower = sys.executable.replace("\\", "/").lower()
+    if "pipx" in exe_lower:
+        return "pipx"
+    if "/uv/tools/" in exe_lower or "uv/tool" in exe_lower:
+        return "uv"
+    try:
+        import importlib.metadata as im
+        dist = im.distribution("synthelion")
+        direct_url_text = dist.read_text("direct_url.json") or ""
+        if '"editable"' in direct_url_text and "true" in direct_url_text.lower():
+            return "editable"
+    except Exception:
+        pass
+    # Fallback: some editable installs (older setuptools `develop`-style, or
+    # metadata without a direct_url.json) don't self-report — but the actual
+    # imported module still resolves to the source checkout, not a copy
+    # inside site-packages, which is the real thing we care about anyway
+    # ("does `pip install --upgrade` even change what's running").
+    try:
+        from pathlib import Path
+        import synthelion as _syn
+        module_path = Path(_syn.__file__).resolve()
+        if "site-packages" not in str(module_path).replace("\\", "/"):
+            return "editable"
+    except Exception:
+        pass
+    return "pip"
+
+
 def _cmd_upgrade(args) -> None:
-    """Upgrade Synthelion to the latest version via pip."""
+    """Upgrade Synthelion — detects how it was installed (pip/pip --user,
+    pipx, uv tool, or an editable/git checkout) and runs the command that
+    actually applies for that install, rather than always shelling out to
+    `pip install --upgrade` and leaving editable/pipx/uv installs either
+    silently unchanged or upgraded the "wrong" (non-idiomatic) way."""
     import subprocess
-    if getattr(args, "dry_run", False):
-        print("Would run: pip install --upgrade synthelion")
+
+    if getattr(args, "check", False):
+        info = check_pypi_version()
+        if info.get("error"):
+            print(f"Could not reach PyPI: {info['error']}", file=sys.stderr)
+            raise SystemExit(1)
+        if info["update_available"]:
+            print(f"Update available: v{info['current']} -> v{info['latest']}")
+        else:
+            print(f"Up to date (v{info['current']}).")
         return
-    print("Upgrading Synthelion…")
-    result = subprocess.run(
-        [sys.executable, "-m", "pip", "install", "--upgrade", "synthelion"],
-    )
+
+    method = _detect_install_method()
+
+    if method == "editable":
+        print("Editable install detected (pip install -e .) — Synthelion is running")
+        print("directly from a source checkout, not a packaged release.")
+        print("Update by pulling the latest source instead: git pull")
+        return
+    if method == "pipx":
+        cmd, desc = ["pipx", "upgrade", "synthelion"], "pipx upgrade synthelion"
+    elif method == "uv":
+        cmd, desc = ["uv", "tool", "upgrade", "synthelion"], "uv tool upgrade synthelion"
+    else:
+        cmd, desc = [sys.executable, "-m", "pip", "install", "--upgrade", "synthelion"], f"{sys.executable} -m pip install --upgrade synthelion"
+
+    if getattr(args, "dry_run", False):
+        print(f"Detected install method: {method}")
+        print(f"Would run: {desc}")
+        return
+
+    print(f"Detected install method: {method}")
+    print(f"Upgrading via: {desc}")
+    result = subprocess.run(cmd)
     if result.returncode == 0:
         import importlib
         import synthelion as _syn
@@ -1246,6 +1458,173 @@ def _cmd_review(args) -> None:
     print(f"Reviewed diff: {r.changed_files} file(s), +{r.additions}/-{r.deletions}, {r.total_issues} issue(s)")
     for c in r.comments:
         print(f"  {c}")
+
+
+def _cmd_retrieve(args) -> None:
+    """CCR lookup: the proxy (synthelion/plugins/proxy.py) appends a
+    `[ccr:xxxxxxxx]` marker after any string it compressed away enough of,
+    when `proxy.ccr_enabled` is on. Call this with that token to get the
+    original text back — same idea as PII's `[PG_n]` placeholders, but for
+    ordinary lossy compression instead of privacy masking."""
+    from synthelion.analytics.ccr_store import get_ccr_store
+    original = get_ccr_store().retrieve(args.token)
+    if original is None:
+        if args.json:
+            print(json.dumps({"error": "token not found or expired"}))
+        else:
+            print("ERROR: token not found or expired (CCR entries expire after proxy.ccr_ttl_seconds)", file=sys.stderr)
+        raise SystemExit(1)
+    if args.json:
+        print(json.dumps({"original": original}, ensure_ascii=False))
+    else:
+        print(original)
+
+
+def _cmd_launch(args) -> None:
+    """Start the proxy (unless --no-proxy-start) and launch an agent with its
+    base-URL env var already pointed at it — the single-command equivalent of
+    running `synthelion serve-proxy` in one terminal and setting
+    ANTHROPIC_BASE_URL/OPENAI_BASE_URL by hand in another."""
+    import os
+    import shutil
+    import subprocess
+    import time as _time
+
+    from synthelion.config import load_config
+
+    pcfg = load_config().get("proxy", {})
+    port = args.port or pcfg.get("port", 8788)
+    host = pcfg.get("host", "127.0.0.1")
+    base_url = f"http://{host}:{port}"
+
+    if args.agent == "cursor":
+        print("Cursor is an IDE, not a spawnable CLI — set this in Cursor's MCP/model settings:")
+        print(f"  base URL: {base_url}")
+        print("Then start the proxy yourself: synthelion serve-proxy")
+        return
+
+    if not args.no_proxy_start:
+        print(f"Starting proxy on {base_url} …")
+        subprocess.Popen(
+            [sys.executable, "-m", "synthelion.cli", "serve-proxy", "--host", host, "--port", str(port)],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        _time.sleep(0.8)  # give it a moment to bind before the agent's first request
+    else:
+        print(f"Assuming proxy already running on {base_url} …")
+
+    env = os.environ.copy()
+    if args.agent == "claude":
+        env["ANTHROPIC_BASE_URL"] = base_url
+        binary = shutil.which("claude")
+        cmd = [binary or "claude"]
+    elif args.agent == "codex":
+        env["OPENAI_BASE_URL"] = base_url
+        binary = shutil.which("codex")
+        cmd = [binary or "codex"]
+    elif args.agent == "aider":
+        env["OPENAI_API_BASE"] = base_url  # aider's own var name for this
+        env["OPENAI_BASE_URL"] = base_url
+        binary = shutil.which("aider")
+        cmd = [binary or "aider"]
+    else:
+        print(f"ERROR: unsupported agent '{args.agent}'", file=sys.stderr)
+        raise SystemExit(1)
+
+    extra = getattr(args, "agent_args", None) or []
+    if extra and extra[0] == "--":
+        extra = extra[1:]
+    cmd += extra
+
+    if not (binary or shutil.which(cmd[0])):
+        print(f"ERROR: '{cmd[0]}' not found in PATH — install it first.", file=sys.stderr)
+        raise SystemExit(1)
+
+    print(f"Launching: {' '.join(cmd)}")
+    result = subprocess.run(cmd, env=env)
+    raise SystemExit(result.returncode)
+
+
+def _cmd_learn(args) -> None:
+    """Deterministic pattern mining over the savings ledger and proxy log —
+    no ML, no fabricated insights: only things actually true about recent
+    activity (repeated privacy blocks on the same category, tools with
+    below-average compression efficiency). Writes a plain markdown section
+    to CLAUDE.md/AGENTS.md, same "AI-friendly project doc" spirit as
+    `synthelion wiki`, not an autonomous rewrite of the file."""
+    from synthelion.analytics.ledger import get_ledger
+    from synthelion.analytics.proxy_log import get_proxy_log
+
+    records = get_ledger().records_since(args.days)
+    proxy_records = [r for r in get_proxy_log().recent(2000) if r.get("ts")]
+
+    findings: list[str] = []
+
+    by_tool: dict[str, list[float]] = {}
+    for r in records:
+        before, after = r.get("tokens_before", 0), r.get("tokens_after", 0)
+        if before:
+            by_tool.setdefault(r.get("tool", "unknown"), []).append((before - after) / before * 100)
+    for tool, effs in by_tool.items():
+        avg = sum(effs) / len(effs)
+        if avg < 15 and len(effs) >= 5:
+            findings.append(f"- `{tool}` has averaged only {avg:.0f}% compression over {len(effs)} calls in the last {args.days} days — likely already-terse input, or a content type this level under-compresses.")
+
+    blocked = [r for r in proxy_records if r.get("blocked")]
+    if len(blocked) >= 3:
+        findings.append(f"- The proxy blocked {len(blocked)} requests for privacy risk in the last {args.days} days — if these are expected/whitelisted values, consider adding them to `privacy.whitelist`.")
+
+    failed = [r for r in proxy_records if not r.get("responded")]
+    if len(failed) >= 3:
+        upstreams = {}
+        for r in failed:
+            upstreams[r.get("upstream", "?")] = upstreams.get(r.get("upstream", "?"), 0) + 1
+        worst = max(upstreams, key=upstreams.get)
+        findings.append(f"- {upstreams[worst]} requests to `{worst}` failed to get a response in the last {args.days} days — consider adding a backup in `proxy.fallback_upstreams`.")
+
+    if not findings:
+        print(f"No actionable patterns found in the last {args.days} days.")
+        return
+
+    section = "\n## Synthelion — observed patterns\n\n" + "\n".join(findings) + "\n"
+    if args.dry_run:
+        print(section)
+        return
+
+    from pathlib import Path
+    path = Path(args.output)
+    existing = path.read_text(encoding="utf-8") if path.exists() else ""
+    marker = "## Synthelion — observed patterns"
+    if marker in existing:
+        import re
+        existing = re.sub(re.escape(marker) + r".*?(?=\n## |\Z)", section.strip() + "\n", existing, flags=re.DOTALL)
+    else:
+        existing = existing.rstrip() + "\n" + section if existing.strip() else section.lstrip()
+    path.write_text(existing, encoding="utf-8")
+    print(f"[OK] Wrote {len(findings)} finding(s) to {path}")
+
+
+def _cmd_memory(args) -> None:
+    from synthelion.analytics.shared_memory import get_shared_memory
+
+    mem = get_shared_memory()
+    if args.memory_cmd == "add":
+        added = mem.add(args.text, agent=args.agent)
+        print("[OK] Added." if added else "Already recorded (deduplicated).")
+    elif args.memory_cmd == "list":
+        notes = mem.recent(args.limit)
+        if args.json:
+            print(json.dumps(notes, ensure_ascii=False))
+            return
+        if not notes:
+            print("No shared-memory notes yet.")
+            return
+        for n in notes:
+            tag = f" [{n['agent']}]" if n.get("agent") else ""
+            print(f"{n['ts']}{tag}  {n['text']}")
+    elif args.memory_cmd == "clear":
+        removed = mem.clear()
+        print(f"[OK] Removed {removed} note(s).")
 
 
 def _cmd_wiki(args) -> None:

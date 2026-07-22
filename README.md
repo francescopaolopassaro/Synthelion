@@ -34,6 +34,7 @@ Supports 50+ languages out of the box. No AI model required. No configuration.
 - [Automatic prompt compression — Claude Code hook](#automatic-prompt-compression--claude-code-hook)
 - [Using Synthelion with all agents](#using-synthelion-with-all-agents--automatic-compression)
 - [Integrations](#integrations) (OpenAI, LangChain, Claude/OpenAI adapters, Python API, CLI)
+- [Local proxy — any agent, any provider](#local-proxy--any-agent-any-provider)
 - [Web dashboard](#web-dashboard)
 - [Cluster deployment](#cluster-deployment)
 - [Tools](#tools) (41 MCP tools)
@@ -59,6 +60,7 @@ Every token sent to a model costs money and time. Synthelion removes the words t
 - **Adaptive by design** — compression escalates automatically for larger inputs, results are cached by content hash, and repeated tool calls get diffed instead of resent in full.
 - **Safety-conscious by default** — credential-shaped text (API keys, tokens, PEM blocks) is redacted before it's ever persisted to disk; destructive-command text is flagged before compression could obscure it.
 - **MCP-native** — 41 tools, `readOnlyHint`-annotated where safe for parallel calls, plus first-class OpenAI/LangChain/Claude adapters and a plain Python API.
+- **Works even where MCP/hooks don't** — a [local reverse proxy](#local-proxy--any-agent-any-provider) enforces PII masking and compression server-side for any agent that supports a custom API base URL (Cursor, Aider, Codex CLI, Claude Code), with automatic failover across up to 10 backup providers and a circuit breaker, all behind the same firewall that protects the dashboard.
 - **Ops-ready** — a local multi-page dashboard, cluster/master-slave deployment, Docker/Kubernetes manifests, all included, none required.
 
 > Beyond every competitor we looked at, we care about security: Synthelion is the
@@ -219,10 +221,16 @@ open an issue with your methodology and we'll link it here.
 | Response-style compression (output-side, CJK-aware) | ✅ | — | — | — | — | ✅ (origin) |
 | PII detection + masking (33 countries, GDPR/AI Act compliance) | ✅ | — | — | — | — | — |
 | Prompt-injection guard (jailbreak/instruction-override screening) | ✅ | — | — | — | — | — |
+| Local reverse proxy (any agent, any provider, schema-agnostic) | ✅ | ✅ (origin, `headroom proxy`) | ✅ (proxy instead of MCP) | — | — | n/a |
+| Proxy: automatic failover across backup providers (up to 10) | ✅ | — (not found in public docs) | — | — | — | n/a |
+| Proxy: circuit breaker on repeated rate-limit/5xx | ✅ | — (not found in public docs) | — | — | — | n/a |
+| Proxy: WAF/firewall protecting the proxy surface itself | ✅ | — | — | — | — | n/a |
+| Proxy: enforced block-on-risk (request never reaches the provider) | ✅ | — | — | — | — | n/a |
+| Proxy request log is metadata-only — no prompt/response ever stored | ✅ | — (stores content when `--log-messages` is on) | — | — | — | n/a |
 
 **Not in this table:** `tokensave` — a Rust code-intelligence tool (Tree-sitter knowledge graph, dead-code/cycle detection, code-health scoring) that solves a genuinely different problem (structural understanding of a codebase) rather than context/token compression, so it isn't a like-for-like comparison here.
 
-**On headroom specifically:** the broadest-scope alternative we looked at — proxy architecture, persistent memory, vision-token optimization, and ML-based response-length prediction (fine-tuned MiniLM/SigLIP classifiers hosted on HuggingFace). That breadth comes at the cost of the zero-ML-models guarantee Synthelion makes: several of headroom's key decisions (image routing, response-length prediction) depend on downloaded, trained models rather than deterministic heuristics.
+**On headroom specifically:** the broadest-scope alternative we looked at — proxy architecture, persistent memory, vision-token optimization, and ML-based response-length prediction (fine-tuned MiniLM/SigLIP classifiers hosted on HuggingFace). That breadth comes at the cost of the zero-ML-models guarantee Synthelion makes: several of headroom's key decisions (image routing, response-length prediction) depend on downloaded, trained models rather than deterministic heuristics. Synthelion's proxy (new, see [below](#local-proxy--any-agent-any-provider)) closes the "does it actually work with any agent" gap headroom's proxy opened, and adds three things we didn't find in headroom's public docs: automatic failover across up to 10 backup providers when one doesn't respond, a circuit breaker that stops hammering an already-rate-limited upstream, and a firewall (WAF) protecting the proxy's own network surface — on a strictly metadata-only request log (duration, status, tokens saved; never the prompt or response body).
 
 ---
 
@@ -882,10 +890,132 @@ synthelion export --days 30 -o last_month.csv
 
 #### Self-upgrade
 
+Detects how Synthelion was actually installed — plain pip, `pip --user`, pipx, `uv tool`, or an editable/git checkout — and runs the command that really applies, instead of always shelling out to `pip install --upgrade` (which silently no-ops on an editable install and isn't the idiomatic path for pipx/uv-tool).
+
 ```bash
-synthelion upgrade            # pip install --upgrade synthelion
-synthelion upgrade --dry-run  # show what would run, don't run it
+synthelion upgrade             # detects install method, runs the matching upgrade command
+synthelion upgrade --dry-run   # show what would run, don't run it
+synthelion upgrade --check     # report the latest PyPI version without upgrading
 ```
+
+---
+
+## Local proxy — any agent, any provider
+
+Every other integration in this README (MCP tools, hooks, Rules/AGENTS.md instructions) only enforces PII masking and compression if the *model chooses to call a tool* — that's true for Cursor and Aider today, and even Claude Code needs its `UserPromptSubmit` hook wired up. The proxy is different: it's a local HTTP server that sits between your agent and the real Anthropic/OpenAI/Gemini/whatever API, so masking and compression happen **server-side, before the request ever reaches the provider** — no cooperation from the agent required.
+
+```bash
+synthelion serve-proxy                 # foreground, default 127.0.0.1:8788
+synthelion serve-proxy --port 9000     # custom port
+```
+
+Then point your agent's base-URL setting at it — same mechanism every major agent already supports for custom endpoints/gateways:
+
+```bash
+export ANTHROPIC_BASE_URL=http://127.0.0.1:8788   # Claude Code, Claude-SDK-based agents
+export OPENAI_BASE_URL=http://127.0.0.1:8788       # Aider, Codex CLI, any OpenAI-SDK agent
+```
+
+Your agent's own API key still flows straight through in the request headers — the proxy never sees, stores, or needs it. It only touches the request *body*.
+
+### How a request is handled
+
+1. **Firewall first.** The same WAF that protects the dashboard (SQLi/XSS/path-traversal/command-injection pattern matching, IP allow/block lists, auto-ban, rate limiting) gates every proxy request too — it's a second internet-facing surface, not an exempt one.
+2. **Recursive, schema-agnostic compression.** The request body is walked as JSON; every string value above ~20 characters — regardless of which field it's nested under — goes through the same privacy pre-pass + NLP compression `synthelion compress` uses elsewhere. This is *why* it works for "any provider and wire format": it never assumes Anthropic's or OpenAI's exact message schema, it just compresses text wherever it finds it.
+3. **Enforced block-on-risk.** If `privacy.block_on_risk` is on and a value crosses the risk threshold, the proxy responds `400` with the full PII/compliance breakdown and the request **never reaches the provider** — not masked-and-continue, an outright stop, the same posture as Claude Code's hook but now available to every agent.
+4. **Routing.** Requests are matched by path prefix — `/v1/messages*` → `proxy.anthropic_upstream`, `/v1/chat/completions` and friends → `proxy.openai_upstream` (this also covers any OpenAI-*compatible* provider: Groq, OpenRouter, Together, Azure OpenAI, Mistral, DeepSeek, xAI, local vLLM/Ollama shims — just point the config at theirs), `/v1beta/models*` → `proxy.gemini_upstream`. **Custom routes** let you override or extend this for any other provider/path, checked first — the dashboard's Proxy page can pre-fill the upstream URL from a live provider list (one explicit, on-demand fetch, never automatic — same policy as the PyPI update check).
+5. **Failover, up to 10 providers deep.** If the resolved upstream doesn't respond — connection refused, DNS failure, TLS error, timeout, `429`, or a `5xx` — the proxy automatically retries the *same* request against each configured backup upstream in order, before giving up. Once a response's headers have started streaming to your agent, no more failover happens for that request (bytes already sent can't be taken back).
+6. **Circuit breaker.** After N rate-limit/`5xx` responses from one upstream within a time window (defaults: 3 within 60s), that upstream is skipped for a cooldown period (default 30s) instead of getting hammered further — requests fail over to the next candidate immediately, or fail fast if none are left.
+7. **Streaming passthrough.** Responses (including SSE) are relayed chunk by chunk as they arrive — the proxy never buffers a full response before forwarding it.
+8. **Rolling-history compression.** Once a `messages` array reaches a turn threshold (default 6), everything except the most recent half compresses at `aggressive` instead of the configured default — older turns shrink harder, recent ones stay closer to full detail. Never merges or drops messages, so it stays valid for every provider's exact schema.
+9. **CCR — reversible compression, opt-in.** When a string's compression saves enough tokens, the original is cached locally and a `[ccr:token]` marker is appended to the compressed text. An agent that decides it needs the full detail back calls `synthelion retrieve --token <token>` (or the `retrieve_compressed_text` MCP tool) — entries expire after a configurable TTL (default 1h).
+10. **Response cache, exact-match only.** An identical `(upstream, path, body)` within the TTL is served from a local cache instead of calling the provider again. Deliberately *not* embedding-similarity/semantic caching — consistent with Synthelion's zero-ML-models stance, two prompts that mean the same thing but aren't byte-identical are two separate entries.
+11. **Daily budget cap.** Optional — once the day's estimated spend (same per-token price estimate the dashboard's cost KPI uses) crosses a configured USD limit, further requests are refused until the next UTC day.
+12. **Output shaping, opt-in.** Appends a short "be terse, don't restate context" instruction to the system prompt — detected for both Anthropic's `system` field and an OpenAI-shaped `system`/`developer` message, silently skipped for any other shape.
+
+### What gets logged — and what never does
+
+Every call appends one structured, JSONL record: timestamp, method, path, which upstream served it, HTTP status, duration, whether it was blocked, and tokens before/after. **The prompt, the response, and any masked/compressed text are never written anywhere.** The dashboard's Proxy page reads this feed directly.
+
+### `synthelion launch` — start the proxy and an agent together, in one command
+
+```bash
+synthelion launch claude              # starts the proxy, then runs `claude` with ANTHROPIC_BASE_URL set
+synthelion launch codex               # same, for Codex CLI (OPENAI_BASE_URL)
+synthelion launch aider               # same, for Aider
+synthelion launch cursor              # Cursor's an IDE, not a spawnable CLI — prints the base URL to paste in instead
+synthelion launch claude --no-proxy-start   # proxy already running elsewhere; just set env vars and launch
+```
+
+### Cross-agent shared memory
+
+Notes any agent can write and any agent can read back — deduplicated by exact content, so two different sessions both discovering "this repo uses pnpm, not npm" only stores it once. Available as CLI (`synthelion memory add/list/clear`) and as MCP tools (`memory_add`, `memory_recall`) for agents with MCP support. This is a small, durable, cross-agent fact store — not RAG/semantic search over a large corpus (that already exists per-session via the vector-store-backed session memory).
+
+### `synthelion learn` — deterministic pattern mining, not ML
+
+Scans the savings ledger and proxy log for actionable, *real* patterns — a tool averaging low compression efficiency, repeated privacy blocks on the same category, an upstream failing repeatedly — and appends findings to `CLAUDE.md`/`AGENTS.md` as plain markdown. No fabricated insights, no trained model: every line is something that's actually true about recent activity, in keeping with Synthelion's zero-ML-models stance.
+
+```bash
+synthelion learn --dry-run     # print findings without writing anything
+synthelion learn               # append to CLAUDE.md
+synthelion learn --output AGENTS.md --days 30
+```
+
+### Configuration
+
+All of this lives under the `proxy` key in `~/.synthelion/config.json` (see [`synthelion configure`](#update)) and is fully editable from the dashboard's **Proxy** page (Status / Routes / Reliability / Advanced / Logs tabs) — no config file editing required:
+
+```json
+{
+  "proxy": {
+    "enabled": false,
+    "host": "127.0.0.1",
+    "port": 8788,
+    "anthropic_upstream": "https://api.anthropic.com",
+    "openai_upstream": "https://api.openai.com",
+    "gemini_upstream": "https://generativelanguage.googleapis.com",
+    "default_upstream": "",
+    "custom_routes": [],
+    "fallback_upstreams": [],
+    "circuit_breaker_enabled": true,
+    "circuit_breaker_threshold": 3,
+    "circuit_breaker_window_seconds": 60,
+    "circuit_breaker_cooldown_seconds": 30,
+    "rolling_history_enabled": true,
+    "rolling_history_threshold": 6,
+    "ccr_enabled": false,
+    "ccr_min_tokens_saved": 15,
+    "ccr_ttl_seconds": 3600,
+    "response_cache_enabled": false,
+    "response_cache_ttl_seconds": 120,
+    "response_cache_max_entries": 200,
+    "daily_budget_usd": 0,
+    "output_shaping_enabled": false
+  }
+}
+```
+
+**Off by default, strictly additive.** The proxy never replaces, requires, or changes the behavior of the MCP/hook integrations described earlier in this README — `synthelion install --agent claude|cursor|aider|codex` keeps working exactly the same whether the proxy is running or not. Use MCP/hooks where the agent supports them well (Claude Code, Codex CLI's AGENTS.md), and add the proxy where it doesn't (Cursor, Aider) — or run both.
+
+![Synthelion dashboard — proxy status](docs/dashboard-proxy-status.png)
+
+**Status**: start/stop the proxy from the dashboard, see its PID and bound address, and edit the four built-in upstream URLs.
+
+![Synthelion dashboard — proxy routes](docs/dashboard-proxy-routes.png)
+
+**Routes**: add/remove custom `path prefix → upstream` overrides, each independently deletable, with a "pick a provider" convenience — fetches a live provider list on demand (never automatic) and pre-fills the upstream URL.
+
+![Synthelion dashboard — proxy reliability](docs/dashboard-proxy-reliability.png)
+
+**Reliability**: manage the failover chain (add/remove backup upstreams, up to 10, each individually deletable) and tune the circuit breaker's threshold/window/cooldown.
+
+![Synthelion dashboard — proxy advanced](docs/dashboard-proxy-advanced.png)
+
+**Advanced**: rolling-history compression, CCR, response cache, daily budget cap, and output shaping — every proxy setting is reachable here, none require editing `config.json` by hand.
+
+![Synthelion dashboard — proxy logs](docs/dashboard-proxy-logs.png)
+
+**Logs**: the metadata-only request feed described above — duration, status, tokens saved, blocked/failed — read straight from the JSONL log, never the prompt itself.
 
 ---
 
@@ -934,7 +1064,9 @@ UI built with [Material Dashboard Free](https://www.creative-tim.com/product/mat
 
 ![Synthelion dashboard — version](docs/dashboard-version.png)
 
-**Version**: checks PyPI only when you click "Check for updates" — never automatically — and can trigger `pip install --upgrade synthelion` from the button next to it.
+**Version**: checks PyPI only when you click "Check for updates" — never automatically — and can trigger `pip install --upgrade synthelion` from the button next to it; since the dashboard's own running process doesn't pick up an upgraded package automatically, a "Restart dashboard now" button appears right after, which re-execs the process in place (same host/port) rather than leaving you to find a terminal.
+
+**Proxy**: manage the [local privacy/compression proxy](#local-proxy--any-agent-any-provider) end to end — Start/Stop, upstream URLs, custom routes (with a "pick a provider" convenience list, fetched on demand), failover chain, circuit-breaker tuning, and a metadata-only log of recent calls (duration, status, tokens saved — never the prompt itself).
 
 ![Synthelion dashboard — profile](docs/dashboard-profile.png)
 

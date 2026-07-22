@@ -34,6 +34,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
 
+from synthelion.analytics.proxy_log import get_proxy_log
 from synthelion.plugins import dashboard_auth
 
 _ASSETS_DIR = Path(__file__).parent / "dashboard_assets"
@@ -70,7 +71,7 @@ _STATIC_FILES = {
 _PAGE_ROUTES = frozenset({
     "/", "/index.html", "/overview", "/charts", "/sessions", "/requests",
     "/decisions", "/settings", "/doctor", "/version", "/profile", "/notifications", "/cluster",
-    "/privacy", "/security",
+    "/privacy", "/security", "/proxy",
 })
 
 # Node-to-node cluster endpoints authenticate with the cluster's shared
@@ -179,6 +180,13 @@ class _DashboardHandler(BaseHTTPRequestHandler):
                 self._serve_json(self._waf_events(qs))
             elif path == "/api/waf/ip-rules":
                 self._serve_json(self._waf_ip_rules())
+            elif path == "/api/proxy/status":
+                self._serve_json(self._proxy_status())
+            elif path == "/api/proxy/logs":
+                limit = int(qs.get("limit", ["100"])[0])
+                self._serve_json({"logs": get_proxy_log().recent(limit)})
+            elif path == "/api/proxy/providers":
+                self._serve_json(self._proxy_providers())
             else:
                 self._error(404, "Not found")
         except Exception as exc:  # noqa: BLE001 - never let one bad request kill the server
@@ -233,6 +241,8 @@ class _DashboardHandler(BaseHTTPRequestHandler):
                 self._serve_json(self._prune_decisions())
             elif path == "/api/upgrade":
                 self._serve_json(self._run_upgrade())
+            elif path == "/api/restart":
+                self._serve_json(self._restart_dashboard())
             elif path == "/api/cluster/action":
                 self._serve_json(self._cluster_action())
             elif path == "/api/privacy-test":
@@ -241,6 +251,10 @@ class _DashboardHandler(BaseHTTPRequestHandler):
                 self._serve_json(self._waf_add_ip_rule())
             elif path == "/api/waf/ip-rules/delete":
                 self._serve_json(self._waf_delete_ip_rule())
+            elif path == "/api/proxy/start":
+                self._serve_json(self._proxy_start())
+            elif path == "/api/proxy/stop":
+                self._serve_json(self._proxy_stop())
             else:
                 self._error(404, "Not found")
         except Exception as exc:  # noqa: BLE001 - never let one bad request kill the server
@@ -552,6 +566,161 @@ class _DashboardHandler(BaseHTTPRequestHandler):
             "success": result.returncode == 0,
             "output": (result.stdout or "") + (result.stderr or ""),
         }
+
+    @staticmethod
+    def _restart_dashboard() -> dict:
+        """Re-exec this process in place (same host/port, same argv) so a
+        freshly-`pip install --upgrade`d Synthelion actually takes effect —
+        upgrading the package on disk doesn't change what's already loaded in
+        this running process's memory, so without this the "Upgrade now"
+        button silently kept serving the old code until someone found a
+        terminal and killed/relaunched `synthelion serve-dashboard` by hand.
+
+        Re-launches via `<python> -m synthelion.cli <original argv[1:]>`
+        rather than re-invoking sys.argv[0] directly, since argv[0] may be a
+        platform-specific console-script wrapper (e.g. a Windows .exe) that
+        `os.execv` can't treat as a script — `-m synthelion.cli` works
+        identically regardless of how the process was originally launched.
+        """
+        import os
+        import sys
+        import threading
+        import time
+
+        def _do_restart() -> None:
+            time.sleep(0.5)  # let the HTTP response for this request flush first
+            python_exe = sys.executable
+            os.execv(python_exe, [python_exe, "-m", "synthelion.cli"] + sys.argv[1:])
+
+        threading.Thread(target=_do_restart, daemon=False).start()
+        return {"restarting": True}
+
+    # ── proxy (start/stop/status) ─────────────────────────────────────────────
+    #
+    # The proxy (synthelion/plugins/proxy.py) is a separate, opt-in process —
+    # managing it here just means spawning/killing that subprocess and
+    # tracking its PID in ~/.synthelion/proxy.pid, the same way the dashboard
+    # itself is a separate process from the MCP server. Starting/stopping the
+    # proxy never touches, restarts, or otherwise affects the MCP/hook
+    # integrations (`synthelion install --agent ...`) — they're independent.
+
+    @staticmethod
+    def _proxy_pid_path() -> Path:
+        return Path.home() / ".synthelion" / "proxy.pid"
+
+    @staticmethod
+    def _pid_alive(pid: int) -> bool:
+        import platform
+        import subprocess
+        if platform.system() == "Windows":
+            result = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {pid}"], capture_output=True, text=True,
+            )
+            return str(pid) in result.stdout
+        import os
+        try:
+            os.kill(pid, 0)
+        except (OSError, ProcessLookupError):
+            return False
+        return True
+
+    def _proxy_status(self) -> dict:
+        from synthelion.config import load_config
+        cfg = load_config().get("proxy", {})
+        pid_path = self._proxy_pid_path()
+        pid = None
+        running = False
+        if pid_path.exists():
+            try:
+                pid = int(pid_path.read_text(encoding="utf-8").strip())
+                running = self._pid_alive(pid)
+            except (ValueError, OSError):
+                pass
+        return {
+            "enabled": cfg.get("enabled", False), "running": running, "pid": pid,
+            "host": cfg.get("host"), "port": cfg.get("port"),
+            "anthropic_upstream": cfg.get("anthropic_upstream"),
+            "openai_upstream": cfg.get("openai_upstream"),
+        }
+
+    def _proxy_start(self) -> dict:
+        import subprocess
+        import sys
+
+        pid_path = self._proxy_pid_path()
+        if pid_path.exists():
+            try:
+                existing_pid = int(pid_path.read_text(encoding="utf-8").strip())
+                if self._pid_alive(existing_pid):
+                    return {"status": "already_running", "pid": existing_pid}
+            except (ValueError, OSError):
+                pass
+
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "synthelion.cli", "serve-proxy"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        pid_path.parent.mkdir(parents=True, exist_ok=True)
+        pid_path.write_text(str(proc.pid), encoding="utf-8")
+        return {"status": "started", "pid": proc.pid}
+
+    def _proxy_stop(self) -> dict:
+        pid_path = self._proxy_pid_path()
+        if not pid_path.exists():
+            return {"status": "not_running"}
+        try:
+            pid = int(pid_path.read_text(encoding="utf-8").strip())
+        except (ValueError, OSError):
+            pid_path.unlink(missing_ok=True)
+            return {"status": "not_running"}
+        if not self._pid_alive(pid):
+            pid_path.unlink(missing_ok=True)
+            return {"status": "not_running"}
+
+        import platform
+        import subprocess
+        try:
+            if platform.system() == "Windows":
+                subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True)
+            else:
+                import os
+                import signal
+                os.kill(pid, signal.SIGTERM)
+        except Exception:
+            pass
+        pid_path.unlink(missing_ok=True)
+        return {"status": "stopped", "pid": pid}
+
+    @staticmethod
+    def _proxy_providers() -> dict:
+        """On-demand only (never called automatically) — fetches a provider
+        list so the Proxy page can offer a "pick a provider" convenience
+        instead of the user hand-typing base URLs. Sourced from
+        digitalsolutions.it's own synced mirror (same underlying data as
+        models.dev, refreshed periodically server-side) rather than models.dev
+        directly, since the latter isn't reachable from every network this
+        runs on. Consistent with the project's only other outbound call
+        (check_pypi_version): explicit user action, not a background poll."""
+        import json as _json
+        import urllib.request
+
+        try:
+            req = urllib.request.Request(
+                "https://www.digitalsolutions.it/IaModels?handler=DownloadProviders",
+                headers={"User-Agent": "Synthelion-Dashboard"},
+            )
+            with urllib.request.urlopen(req, timeout=8.0) as resp:
+                data = _json.loads(resp.read())
+        except Exception as exc:  # noqa: BLE001
+            return {"error": str(exc), "providers": []}
+
+        providers = [
+            {"id": p.get("id", ""), "name": p.get("name", p.get("id", "")), "api": p.get("api", "")}
+            for p in data
+            if isinstance(p, dict) and p.get("api")
+        ]
+        providers.sort(key=lambda p: p["name"].lower())
+        return {"providers": providers}
 
     # ── cluster (master/slave) ──────────────────────────────────────────────
     #

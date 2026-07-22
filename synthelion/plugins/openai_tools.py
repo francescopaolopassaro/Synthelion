@@ -894,6 +894,56 @@ def get_tool_definitions() -> list[dict]:
                 },
             },
         },
+        {
+            "type": "function",
+            "function": {
+                "name": "retrieve_compressed_text",
+                "description": (
+                    "Retrieves the original text behind a [ccr:xxxxxxxx] marker — appears in proxy "
+                    "responses when proxy.ccr_enabled is on and a string was compressed enough to be "
+                    "worth caching. Same idea as restore_privacy_text, but for ordinary lossy "
+                    "compression instead of PII masking. Entries expire after proxy.ccr_ttl_seconds."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {"token": {"type": "string", "description": "The token from a [ccr:token] marker."}},
+                    "required": ["token"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "memory_add",
+                "description": (
+                    "Adds a note to Synthelion's cross-agent shared memory — visible to every agent "
+                    "(Claude Code, Cursor, Aider, Codex CLI, ...) that calls memory_recall, not just "
+                    "the one that wrote it. Deduplicated by exact text: adding the same note twice is a "
+                    "no-op. For small, durable, cross-agent facts (\"this repo uses pnpm, not npm\"), "
+                    "not for large-scale semantic search."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "text": {"type": "string", "description": "The note to remember."},
+                        "agent": {"type": "string", "description": "Name of the agent/tool writing this (optional)."},
+                    },
+                    "required": ["text"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "memory_recall",
+                "description": "Lists the most recent notes from Synthelion's cross-agent shared memory (see memory_add).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"limit": {"type": "integer", "description": "Max notes to return. Default: 20."}},
+                    "required": [],
+                },
+            },
+        },
     ]
 
 
@@ -1150,7 +1200,40 @@ def execute_tool(name: str, arguments: dict) -> dict:
     if name == "get_ai_transparency_notice":
         return _exec_get_ai_transparency_notice(arguments)
 
+    if name == "retrieve_compressed_text":
+        return _exec_retrieve_compressed_text(arguments)
+
+    if name == "memory_add":
+        return _exec_memory_add(arguments)
+
+    if name == "memory_recall":
+        return _exec_memory_recall(arguments)
+
     return {"error": f"Unknown tool: {name}"}
+
+
+def _exec_retrieve_compressed_text(arguments: dict) -> dict:
+    from synthelion.analytics.ccr_store import get_ccr_store
+    token = arguments.get("token", "")
+    original = get_ccr_store().retrieve(token)
+    if original is None:
+        return {"error": "token not found or expired"}
+    return {"original": original}
+
+
+def _exec_memory_add(arguments: dict) -> dict:
+    from synthelion.analytics.shared_memory import get_shared_memory
+    text = arguments.get("text", "")
+    if not text.strip():
+        return {"error": "text is required"}
+    added = get_shared_memory().add(text, agent=arguments.get("agent", ""))
+    return {"added": added}
+
+
+def _exec_memory_recall(arguments: dict) -> dict:
+    from synthelion.analytics.shared_memory import get_shared_memory
+    limit = int(arguments.get("limit", 20))
+    return {"notes": get_shared_memory().recent(limit)}
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────

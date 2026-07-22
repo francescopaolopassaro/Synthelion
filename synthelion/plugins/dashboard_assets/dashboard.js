@@ -653,6 +653,292 @@
     }
   }
 
+  // ── proxy ─────────────────────────────────────────────────────────────────
+
+  let _proxyRoutes = [];
+  let _proxyFallbacks = [];
+
+  async function loadProxyStatus() {
+    try {
+      const s = await fetchJson("/api/proxy/status");
+      const badge = document.getElementById("proxy-state-badge");
+      badge.textContent = s.running ? "Running" : "Stopped";
+      badge.className = "badge " + (s.running ? "bg-gradient-success" : "bg-gradient-secondary");
+      document.getElementById("proxy-address").textContent = `${s.host}:${s.port}`;
+      document.getElementById("proxy-pid").textContent = s.pid || "–";
+    } catch (err) {
+      document.getElementById("proxy-control-status").textContent = "Error: " + err.message;
+    }
+  }
+
+  document.getElementById("proxy-start-btn").addEventListener("click", async () => {
+    const status = document.getElementById("proxy-control-status");
+    status.textContent = "Starting…";
+    status.className = "text-sm text-secondary";
+    try {
+      const r = await postJson("/api/proxy/start", {});
+      status.textContent = r.status === "already_running" ? "Already running." : "Started.";
+      status.className = "text-sm text-success";
+      setTimeout(loadProxyStatus, 800);
+    } catch (err) {
+      status.textContent = "Error: " + err.message;
+      status.className = "text-sm text-danger";
+    }
+  });
+
+  document.getElementById("proxy-stop-btn").addEventListener("click", async () => {
+    const status = document.getElementById("proxy-control-status");
+    status.textContent = "Stopping…";
+    status.className = "text-sm text-secondary";
+    try {
+      const r = await postJson("/api/proxy/stop", {});
+      status.textContent = r.status === "not_running" ? "Was not running." : "Stopped.";
+      status.className = "text-sm text-success";
+      setTimeout(loadProxyStatus, 500);
+    } catch (err) {
+      status.textContent = "Error: " + err.message;
+      status.className = "text-sm text-danger";
+    }
+  });
+
+  async function loadProxyConfig() {
+    try {
+      const { config } = await fetchJson("/api/config");
+      const p = config.proxy || {};
+      document.getElementById("proxy-enabled").checked = !!p.enabled;
+      document.getElementById("proxy-host").value = p.host || "127.0.0.1";
+      document.getElementById("proxy-port").value = p.port || 8788;
+      document.getElementById("proxy-anthropic-upstream").value = p.anthropic_upstream || "";
+      document.getElementById("proxy-openai-upstream").value = p.openai_upstream || "";
+      document.getElementById("proxy-gemini-upstream").value = p.gemini_upstream || "";
+      document.getElementById("proxy-default-upstream").value = p.default_upstream || "";
+      document.getElementById("proxy-cb-enabled").checked = p.circuit_breaker_enabled !== false;
+      document.getElementById("proxy-cb-threshold").value = p.circuit_breaker_threshold ?? 3;
+      document.getElementById("proxy-cb-window").value = p.circuit_breaker_window_seconds ?? 60;
+      document.getElementById("proxy-cb-cooldown").value = p.circuit_breaker_cooldown_seconds ?? 30;
+      document.getElementById("proxy-rh-enabled").checked = p.rolling_history_enabled !== false;
+      document.getElementById("proxy-rh-threshold").value = p.rolling_history_threshold ?? 6;
+      document.getElementById("proxy-ccr-enabled").checked = !!p.ccr_enabled;
+      document.getElementById("proxy-ccr-min-saved").value = p.ccr_min_tokens_saved ?? 15;
+      document.getElementById("proxy-ccr-ttl").value = p.ccr_ttl_seconds ?? 3600;
+      document.getElementById("proxy-cache-enabled").checked = !!p.response_cache_enabled;
+      document.getElementById("proxy-cache-ttl").value = p.response_cache_ttl_seconds ?? 120;
+      document.getElementById("proxy-cache-max").value = p.response_cache_max_entries ?? 200;
+      document.getElementById("proxy-budget").value = p.daily_budget_usd ?? 0;
+      document.getElementById("proxy-output-shaping").checked = !!p.output_shaping_enabled;
+      _proxyRoutes = (p.custom_routes || []).slice();
+      _proxyFallbacks = (p.fallback_upstreams || []).slice();
+      renderProxyRoutes();
+      renderProxyFallbacks();
+    } catch (err) {
+      document.getElementById("proxy-upstreams-status").textContent = "Error: " + err.message;
+    }
+  }
+
+  function renderProxyRoutes() {
+    const tbody = document.getElementById("proxy-routes-table");
+    if (!_proxyRoutes.length) {
+      tbody.innerHTML = '<tr><td colspan="4" class="text-secondary text-sm">No custom routes — built-in Anthropic/OpenAI/Gemini routing applies.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = _proxyRoutes.map((r, i) => `
+      <tr>
+        <td class="text-sm">${escapeHtml(r.label || "")}</td>
+        <td class="text-sm"><code>${escapeHtml(r.path_prefix || "")}</code></td>
+        <td class="text-sm">${escapeHtml(r.upstream || "")}</td>
+        <td><button type="button" class="btn btn-link text-danger p-0 m-0 proxy-route-remove" data-idx="${i}">Remove</button></td>
+      </tr>`).join("");
+    tbody.querySelectorAll(".proxy-route-remove").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        _proxyRoutes.splice(Number(btn.dataset.idx), 1);
+        renderProxyRoutes();
+        saveProxyRoutes();
+      });
+    });
+  }
+
+  function renderProxyFallbacks() {
+    const el = document.getElementById("proxy-fallback-list");
+    if (!_proxyFallbacks.length) {
+      el.innerHTML = '<span class="text-secondary text-sm">No backup upstreams configured.</span>';
+      return;
+    }
+    el.innerHTML = _proxyFallbacks.map((url, i) => `
+      <span class="badge bg-gradient-secondary me-1 mb-1">
+        ${escapeHtml(url)} <a href="#" class="text-white proxy-fallback-remove" data-idx="${i}" style="text-decoration:none">&times;</a>
+      </span>`).join("");
+    el.querySelectorAll(".proxy-fallback-remove").forEach((a) => {
+      a.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        _proxyFallbacks.splice(Number(a.dataset.idx), 1);
+        renderProxyFallbacks();
+        saveProxyFallbacks();
+      });
+    });
+  }
+
+  async function saveProxyRoutes() {
+    try {
+      await postJson("/api/config", { proxy: { custom_routes: _proxyRoutes } });
+    } catch (err) {
+      document.getElementById("proxy-upstreams-status").textContent = "Error saving routes: " + err.message;
+    }
+  }
+
+  async function saveProxyFallbacks() {
+    try {
+      await postJson("/api/config", { proxy: { fallback_upstreams: _proxyFallbacks } });
+    } catch (err) {
+      document.getElementById("proxy-reliability-status").textContent = "Error saving fallbacks: " + err.message;
+    }
+  }
+
+  document.getElementById("proxy-save-upstreams-btn").addEventListener("click", async () => {
+    const status = document.getElementById("proxy-upstreams-status");
+    try {
+      await postJson("/api/config", {
+        proxy: {
+          enabled: document.getElementById("proxy-enabled").checked,
+          host: document.getElementById("proxy-host").value.trim(),
+          port: parseInt(document.getElementById("proxy-port").value, 10) || 8788,
+          anthropic_upstream: document.getElementById("proxy-anthropic-upstream").value.trim(),
+          openai_upstream: document.getElementById("proxy-openai-upstream").value.trim(),
+          gemini_upstream: document.getElementById("proxy-gemini-upstream").value.trim(),
+          default_upstream: document.getElementById("proxy-default-upstream").value.trim(),
+        },
+      });
+      status.textContent = "Saved. Restart the proxy for changes to take effect.";
+      status.className = "text-sm text-success";
+    } catch (err) {
+      status.textContent = "Error: " + err.message;
+      status.className = "text-sm text-danger";
+    }
+  });
+
+  document.getElementById("proxy-save-reliability-btn").addEventListener("click", async () => {
+    const status = document.getElementById("proxy-reliability-status");
+    try {
+      await postJson("/api/config", {
+        proxy: {
+          circuit_breaker_enabled: document.getElementById("proxy-cb-enabled").checked,
+          circuit_breaker_threshold: parseInt(document.getElementById("proxy-cb-threshold").value, 10) || 3,
+          circuit_breaker_window_seconds: parseInt(document.getElementById("proxy-cb-window").value, 10) || 60,
+          circuit_breaker_cooldown_seconds: parseInt(document.getElementById("proxy-cb-cooldown").value, 10) || 30,
+        },
+      });
+      status.textContent = "Saved. Restart the proxy for changes to take effect.";
+      status.className = "text-sm text-success";
+    } catch (err) {
+      status.textContent = "Error: " + err.message;
+      status.className = "text-sm text-danger";
+    }
+  });
+
+  document.getElementById("proxy-save-advanced-btn").addEventListener("click", async () => {
+    const status = document.getElementById("proxy-advanced-status");
+    try {
+      await postJson("/api/config", {
+        proxy: {
+          rolling_history_enabled: document.getElementById("proxy-rh-enabled").checked,
+          rolling_history_threshold: parseInt(document.getElementById("proxy-rh-threshold").value, 10) || 6,
+          ccr_enabled: document.getElementById("proxy-ccr-enabled").checked,
+          ccr_min_tokens_saved: parseInt(document.getElementById("proxy-ccr-min-saved").value, 10) || 15,
+          ccr_ttl_seconds: parseInt(document.getElementById("proxy-ccr-ttl").value, 10) || 3600,
+          response_cache_enabled: document.getElementById("proxy-cache-enabled").checked,
+          response_cache_ttl_seconds: parseInt(document.getElementById("proxy-cache-ttl").value, 10) || 120,
+          response_cache_max_entries: parseInt(document.getElementById("proxy-cache-max").value, 10) || 200,
+          daily_budget_usd: parseFloat(document.getElementById("proxy-budget").value) || 0,
+          output_shaping_enabled: document.getElementById("proxy-output-shaping").checked,
+        },
+      });
+      status.textContent = "Saved. Restart the proxy for changes to take effect.";
+      status.className = "text-sm text-success";
+    } catch (err) {
+      status.textContent = "Error: " + err.message;
+      status.className = "text-sm text-danger";
+    }
+  });
+
+  document.getElementById("proxy-route-add-btn").addEventListener("click", () => {
+    const label = document.getElementById("proxy-route-label").value.trim();
+    const prefix = document.getElementById("proxy-route-prefix").value.trim();
+    const upstream = document.getElementById("proxy-route-upstream").value.trim();
+    if (!prefix || !upstream) return;
+    _proxyRoutes.push({ label, path_prefix: prefix, upstream });
+    document.getElementById("proxy-route-label").value = "";
+    document.getElementById("proxy-route-prefix").value = "/";
+    document.getElementById("proxy-route-upstream").value = "";
+    renderProxyRoutes();
+    saveProxyRoutes();
+  });
+
+  document.getElementById("proxy-fallback-add-btn").addEventListener("click", () => {
+    const input = document.getElementById("proxy-fallback-input");
+    const url = input.value.trim();
+    if (!url) return;
+    if (_proxyFallbacks.length >= 10) {
+      document.getElementById("proxy-reliability-status").textContent = "Maximum of 10 backup upstreams.";
+      return;
+    }
+    _proxyFallbacks.push(url);
+    input.value = "";
+    renderProxyFallbacks();
+    saveProxyFallbacks();
+  });
+
+  document.getElementById("proxy-load-providers-btn").addEventListener("click", async () => {
+    const select = document.getElementById("proxy-provider-picker");
+    select.innerHTML = '<option value="">Loading…</option>';
+    try {
+      const { providers, error } = await fetchJson("/api/proxy/providers");
+      if (error) {
+        select.innerHTML = `<option value="">Error: ${escapeHtml(error)}</option>`;
+        return;
+      }
+      select.innerHTML = '<option value="">Pick a provider…</option>' +
+        providers.map((p) => `<option value="${escapeHtml(p.api)}" data-name="${escapeHtml(p.name)}">${escapeHtml(p.name)}</option>`).join("");
+    } catch (err) {
+      select.innerHTML = `<option value="">Error: ${escapeHtml(err.message)}</option>`;
+    }
+  });
+
+  document.getElementById("proxy-provider-picker").addEventListener("change", (ev) => {
+    const opt = ev.target.selectedOptions[0];
+    if (!opt || !opt.value) return;
+    document.getElementById("proxy-route-upstream").value = opt.value;
+    document.getElementById("proxy-route-label").value = opt.dataset.name || "";
+  });
+
+  async function loadProxyLogs() {
+    const tbody = document.getElementById("proxy-logs-table");
+    try {
+      const { logs } = await fetchJson("/api/proxy/logs?limit=100");
+      if (!logs.length) {
+        tbody.innerHTML = '<tr><td colspan="8" class="text-sm text-secondary">No proxy calls yet.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = logs.map((l) => {
+        let resultCls = "text-success", resultText = "OK";
+        if (l.blocked) { resultCls = "text-warning"; resultText = "Blocked (privacy)"; }
+        else if (!l.responded) { resultCls = "text-danger"; resultText = "Failed"; }
+        const saved = l.tokens_before > 0 ? `${Math.round((1 - l.tokens_after / l.tokens_before) * 100)}%` : "–";
+        return `
+        <tr>
+          <td class="text-sm">${new Date(l.ts).toLocaleTimeString()}</td>
+          <td class="text-sm">${escapeHtml(l.method || "")}</td>
+          <td class="text-sm">${escapeHtml(l.path || "")}</td>
+          <td class="text-sm">${escapeHtml((l.upstream || "").replace(/^https?:\/\//, ""))}</td>
+          <td class="text-sm text-end">${l.status_code ?? "–"}</td>
+          <td class="text-sm text-end">${Math.round(l.duration_ms)}ms</td>
+          <td class="text-sm text-end">${saved}</td>
+          <td class="text-sm ${resultCls}">${resultText}</td>
+        </tr>`;
+      }).join("");
+    } catch (err) {
+      tbody.innerHTML = `<tr><td colspan="8" class="text-sm text-danger">Error: ${escapeHtml(err.message)}</td></tr>`;
+    }
+  }
+
   // ── doctor / version / upgrade ───────────────────────────────────────────
 
   function doctorIcon(status) {
@@ -704,24 +990,58 @@
   document.getElementById("version-upgrade-btn").addEventListener("click", async () => {
     const status = document.getElementById("version-status");
     const btn = document.getElementById("version-upgrade-btn");
+    const restartBtn = document.getElementById("version-restart-btn");
     btn.disabled = true;
     status.textContent = "Upgrading — this can take a minute…";
     status.className = "text-sm text-secondary";
     try {
       const r = await postJson("/api/upgrade", {});
       if (r.success) {
-        status.textContent = "Upgraded. Restart the dashboard/MCP server to activate.";
+        status.textContent = "Upgraded. The MCP server needs a manual restart (by your agent/host) — the dashboard can restart itself below.";
         status.className = "text-sm text-success";
+        btn.style.display = "none";
+        restartBtn.style.display = "";
       } else {
         status.textContent = "Upgrade failed — see server log.";
         status.className = "text-sm text-danger";
+        btn.disabled = false;
       }
     } catch (err) {
       status.textContent = "Error: " + err.message;
       status.className = "text-sm text-danger";
-    } finally {
       btn.disabled = false;
     }
+  });
+
+  document.getElementById("version-restart-btn").addEventListener("click", async () => {
+    const status = document.getElementById("version-status");
+    const btn = document.getElementById("version-restart-btn");
+    btn.disabled = true;
+    status.textContent = "Restarting dashboard…";
+    status.className = "text-sm text-secondary";
+    try {
+      await postJson("/api/restart", {});
+    } catch {
+      // The connection drops as soon as the process re-execs — expected, not an error.
+    }
+    let attempts = 0;
+    const poll = setInterval(async () => {
+      attempts += 1;
+      try {
+        const res = await fetch(window.location.origin + "/login", { method: "GET" });
+        if (res.ok || res.status === 200) {
+          clearInterval(poll);
+          window.location.reload();
+        }
+      } catch {
+        // still restarting — server not accepting connections yet
+      }
+      if (attempts > 30) {
+        clearInterval(poll);
+        status.textContent = "Restart is taking longer than expected — reload the page manually.";
+        status.className = "text-sm text-warning";
+      }
+    }, 1000);
   });
 
   // ── sessions cleanup ─────────────────────────────────────────────────────
@@ -1020,7 +1340,7 @@
     overview: "Overview", charts: "Charts", sessions: "Sessions", requests: "Recent requests",
     decisions: "Decisions", settings: "Settings", profile: "Profile", notifications: "Notifications",
     cluster: "Cluster", doctor: "Doctor", version: "Version", privacy: "Privacy",
-    security: "Security",
+    security: "Security", proxy: "Proxy",
   };
 
   function pageForPath(path) {
@@ -1047,6 +1367,11 @@
     if (name === "security") {
       loadWafIpRules();
       loadWafEvents();
+    }
+    if (name === "proxy") {
+      loadProxyStatus();
+      loadProxyConfig();
+      loadProxyLogs();
     }
   }
 
