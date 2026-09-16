@@ -36,12 +36,20 @@ _N_LAYERS = 2
 _FFN_DIM = 512
 _DROPOUT = 0.1
 _MAX_SEQ = 96          # training window length
-_VOCAB_SIZE = 15000    # larger vocab for 10 languages (~14 MB checkpoint)
+_VOCAB_SIZE = 60000    # large fixed vocab; OOV words fall back to char-ngram hashing.
+                       # Model weight is dominated by (vocab + 8192 buckets) * d_model * 4B.
+                       # With 60k vocab the checkpoint stays well below 50 MB (~37 MB).
 _KEEP_THRESHOLD = 0.6  # inference threshold stored in config
-_MIN_COMPRESSION = 0.6 # target minimum compression ratio (rank-based drop)
+_MIN_COMPRESSION = 0.65 # target minimum compression ratio (rank-based drop)
 
-# Default training scope: 10 languages covering the key families
-_DEFAULT_LANGS = ["en", "it", "de", "fr", "es", "ru", "uk", "hi", "zh", "ja"]
+# All European languages available in the corpus, plus the original set.
+_EUROPEAN_LANGS = [
+    "af", "be", "bg", "ca", "cs", "da", "el", "et", "eu", "fi",
+    "ga", "gl", "hr", "hu", "is", "la", "lt", "lv", "mk", "nl",
+    "no", "pl", "pt", "ro", "sk", "sl", "sq", "sr", "sv",
+]
+_BASE_LANGS = ["en", "it", "de", "fr", "es", "ru", "uk", "hi", "zh", "ja"]
+_DEFAULT_LANGS = _BASE_LANGS + _EUROPEAN_LANGS
 
 
 def _reservoir_sample(path: Path, max_examples: int, rng: random.Random, max_bytes: int) -> list[str]:
@@ -395,13 +403,14 @@ def train(
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Train the SynthelionML multilingual compressor")
     ap.add_argument("--corpora-dir", type=Path, default=Path("devtools/wikipedia_corpus"))
-    ap.add_argument("--langs", default=None, help="Comma-separated ISO 639-1 codes; default: en,it,de,fr,es,ru,uk,hi,zh,ja")
+    ap.add_argument("--langs", default=None,
+                    help="Comma-separated ISO 639-1 codes; default: all European + base set")
     ap.add_argument("--max-examples-per-lang", type=int, default=2000)
     ap.add_argument("--max-bytes-per-lang", type=int, default=50_000_000,
                     help="Stop reading each corpus file after this many bytes")
     ap.add_argument("--vocab-size", type=int, default=_VOCAB_SIZE)
     ap.add_argument("--epochs", type=int, default=4)
-    ap.add_argument("--batch-size", type=int, default=32)
+    ap.add_argument("--batch-size", type=int, default=64)
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--eval-split", type=float, default=0.05)
     ap.add_argument("--output-dir", type=Path, default=Path("synthelion/ml_models/synthelionml"))

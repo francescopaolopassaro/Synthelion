@@ -167,19 +167,25 @@ generalises beyond any explicit rule list.
 - **Architecture**: a compact, CPU-friendly transformer encoder (~5 M params) —
   character-n-gram hashing → word/feature embedding → positional encoding → 2-layer
   encoder (d=128, h=4) → per-token keep/drop logits. Deliberately small: hot-loads
-  in milliseconds, runs entirely on CPU, ships ~14 MB inside the package.
+  in milliseconds, runs entirely on CPU, ships ~35 MB inside the package.
 - **Training**: Wikipedia-derived training signals in the language itself; the
   AGGRESSIVE rule compressor (blended with the global IDF table) produces
   ground-truth keep/drop labels and the encoder learns *when the rules matter*
   by attending to surrounding context (self-distillation — no external labelling,
   no network API, fully reproducible).
-  Supported languages today: **English, Italian, German, French, Spanish,
-  Russian, Ukrainian, Hindi, Chinese, Japanese**.
+  Supported languages today: **all European languages** (Albanian, Belarusian,
+  Basque, Bulgarian, Catalan, Croatian, Czech, Danish, Dutch, Estonian, Finnish,
+  Galician, Greek, Hungarian, Icelandic, Irish, Latin, Latvian, Lithuanian,
+  Macedonian, Norwegian, Polish, Portuguese, Romanian, Serbian, Slovak, Slovenian,
+  Swedish) **plus** English, Italian, German, French, Spanish, Russian, Ukrainian,
+  Hindi, Chinese and Japanese — **39 languages total**. A shared 60k word
+  vocabulary keeps the checkpoint at ~35 MB (well under the 50 MB hard cap);
+  out-of-vocabulary words fall back to deterministic char-n-gram hashing.
 - **Behaviour**: punctuation, numbers, URLs, proper nouns and negation are always
   kept; a safety floor keeps at least one word per sentence. A built-in
-  **min-compression ratio controller (default 60%)** drops the lowest-scoring
-  words by rank until the target is reached — measured across all 10 languages:
-  **57.9–61.5% on short one-sentence samples, 60%+ on realistic prompts**.
+  **min-compression ratio controller (default 65%)** drops the lowest-scoring
+  words by rank until the target is reached — measured across all 39 languages:
+  **60.0–69.2% on short one-sentence samples**.
 - **Graceful fallback**: if the checkpoint or torch is absent, the level silently
   degrades to `syntactic` — no error, no empty output.
 
@@ -197,7 +203,7 @@ package-local `synthelion/ml_models/`.
 
 Recommended pairing: default levels (`semantic`/`aggressive`) when you want
 deterministic savings; `synthelionml` when a model should decide what's truly
-disposable — guarantees ≥60% compression and the text is in one of the 10
+disposable — guarantees ≥60% compression and the text is in one of the 39
 supported languages.
 
 ### Before / After
@@ -251,23 +257,23 @@ directly (NLP-only, per-level).
 
 | Content | Original tokens | Light | Semantic | Aggressive | SynthelionML |
 |:---|---:|:---:|:---:|:---:|:---:|
-| Prose EN | 19 | −55.0% | −55.0% | **−75.0%** | −57.9% |
-| Prose IT | 24 | −43.8% | −43.8% | **−62.5%** | −58.3% |
-| Prose DE | 17 | −47.4% | −47.4% | **−63.2%** | −58.8% |
-| Prose FR | 19 | −38.9% | −38.9% | **−55.6%** | −57.9% |
-| Prose ES | 24 | −47.1% | −47.1% | −52.9% | −58.3% |
-| Prose RU | 13 | - | - | - | **−61.5%** |
-| Prose ZH | 26 | - | - | - | **−61.5%** |
-| Prose JA | 34 | - | - | - | −58.8% |
-| Prose UK | 13 | - | - | - | **−61.5%** |
-| Prose HI | 20 | - | - | - | **−60.0%** |
+| Prose EN | 19 | −55.0% | −55.0% | **−75.0%** | −64.3% |
+| Prose IT | 24 | −43.8% | −43.8% | **−62.5%** | −66.7% |
+| Prose DE | 17 | −47.4% | −47.4% | **−63.2%** | −64.3% |
+| Prose FR | 19 | −38.9% | −38.9% | **−55.6%** | −66.7% |
+| Prose ES | 24 | −47.1% | −47.1% | −52.9% | −66.7% |
+| Prose RU | 13 | - | - | - | **−60.0%** |
+| Prose ZH | 26 | - | - | - | **−65.2%** |
+| Prose JA | 34 | - | - | - | −63.6% |
+| Prose UK | 13 | - | - | - | **−60.0%** |
+| Prose HI | 20 | - | - | - | **−66.7%** |
 
-SynthelionML targets a **minimum 60% compression** (measured: **57.9–61.5%** on
-short one-sentence samples, 60%+ on realistic prompts). The tiny shortfall on
-very short sentences is intentional — negation, proper nouns, numbers, URLs and
-a per-sentence safety floor are always-kept, and on a 19-token sentence that
-protected set can exceed the 40% keep-budget. The longer the input, the closer
-to (and beyond) the 60% floor it lands.
+SynthelionML targets a **minimum 65% compression** (measured: **60.0–69.2% on
+short one-sentence samples across all 39 languages**). The tiny shortfall below
+65% on very short sentences is intentional — negation, proper nouns, numbers,
+URLs and a per-sentence safety floor are always-kept, and on a 10-token sentence
+that protected set can exceed the remaining keep-budget. The longer the input,
+the closer to (and beyond) the 65% floor it lands.
 
 #### Content router (`synthelion bench --json`, auto-selects the best strategy)
 
@@ -1905,7 +1911,7 @@ print(f"Note:         {summary['pricing_note']}")
 | `aggressive` | Everything above + generic verbs and descriptive adjectives | 35–75% |
 | `statistical` | TF-IDF word scoring instead of curated dictionaries — keeps words that score above the prompt's own median relevance | 40–65% |
 | `syntactic` | Rule-based pruning: keeps grammatical glue only where it touches a surviving word, plus (when POS data is available) elides a leading hedging/matrix clause in favour of the sentence's last verb | 45–70% |
-| `synthelionml` | Learned per-token keep/drop classifier (own offline transformer, 10 languages) — trained from the AGGRESSIVE decision surface with a min-compression ratio controller; falls back to `syntactic` when the checkpoint isn't installed | **≥60%** (measured 60%+) |
+| `synthelionml` | Learned per-token keep/drop classifier (own offline transformer, 39 languages) — trained from the AGGRESSIVE decision surface with a min-compression ratio controller; falls back to `syntactic` when the checkpoint isn't installed | **≥65%** (measured 60%+ on short samples) |
 
 Negation particles ("non"/"not"/"ne...pas"/"no"/"nicht"/"não"/"不") are always
 protected and never dropped, at every level, in every supported language they

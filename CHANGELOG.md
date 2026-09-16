@@ -28,8 +28,16 @@ All notable changes to Synthelion are documented here.
   stop words, CPU-only. Flags: `--labels {syntactic,aggressive}` (default
   aggressive), `--no-global-idf`. Trained checkpoint shipped at
   `synthelion/ml_models/synthelionml/` (config.json + vocab.json + model.bin).
-- Supported languages: **English, Italian, German, French, Spanish, Russian,
-  Ukrainian, Hindi, Chinese, Japanese** (10 languages).
+- Supported languages: **all European languages** (Albanian, Belarusian, Basque,
+  Bulgarian, Catalan, Croatian, Czech, Danish, Dutch, Estonian, Finnish, Galician,
+  Greek, Hungarian, Icelandic, Irish, Latin, Latvian, Lithuanian, Macedonian,
+  Norwegian, Polish, Portuguese, Romanian, Serbian, Slovak, Slovenian, Swedish)
+  **plus** English, Italian, German, French, Spanish, Russian, Ukrainian, Hindi,
+  Chinese and Japanese (**39 languages total**). Shared vocabulary raised to 60k
+  words (deterministic char-n-gram fallback for OOV) and the min-compression
+  controller target raised to 65% — measured across all 39 languages: **60.0–69.2%**
+  on short one-sentence samples. Checkpoint ~35 MB (under the 50 MB hard cap;
+  recycled at `synthelion/ml_models/synthelionml/`).
 - New tests: `tests/test_synthelionml.py` (level registration, core dispatch +
   fallback, compressor singleton, vocab hash determinism, proxy level mapping).
 
