@@ -36,12 +36,12 @@ _N_LAYERS = 2
 _FFN_DIM = 512
 _DROPOUT = 0.1
 _MAX_SEQ = 96          # training window length
-_VOCAB_SIZE = 10000    # light for CPU-only inference (~12 MB checkpoint)
+_VOCAB_SIZE = 15000    # larger vocab for 10 languages (~14 MB checkpoint)
 _KEEP_THRESHOLD = 0.6  # inference threshold stored in config
+_MIN_COMPRESSION = 0.6 # target minimum compression ratio (rank-based drop)
 
-# Default training scope: kept deliberately small so the checkpoint file stays
-# light for CPU-only inference.  Extend for more languages by passing --langs.
-_DEFAULT_LANGS = ["en", "it", "de", "fr", "es"]
+# Default training scope: 10 languages covering the key families
+_DEFAULT_LANGS = ["en", "it", "de", "fr", "es", "ru", "uk", "hi", "zh", "ja"]
 
 
 def _reservoir_sample(path: Path, max_examples: int, rng: random.Random, max_bytes: int) -> list[str]:
@@ -83,16 +83,24 @@ def _build_examples(
     iso3: str,
     provider,
     generic_fallback,
+    label_source: str = "aggressive",
+    global_idf=None,
 ) -> list[tuple[list[str], list[int], list[list[float]]]]:
-    """Turn lines into (words, keep_labels, features) using the SYNTACTIC keep-mask.
+    """Turn lines into (words, keep_labels, features) using the selected label source.
 
-    The label is 1 when the token survives the rule-based SYNTACTIC compressor —
-    our own ground truth. Only word tokens are modelled (punctuation is dropped
-    by every compression level and is never part of the learned decision).
-    Features are computed per language so training and inference see the same
-    stopword signal (no train/serve skew).
+    ``label_source="syntactic"``: self-distillation from the SYNTACTIC compressor.
+    ``label_source="aggressive"``: self-distillation from the AGGRESSIVE compressor
+    (with optional global IDF blend) — more aggressive ground truth.
+
+    Only word tokens are modelled; punctuation is never part of the learned
+    decision.  Features are computed per language so training and inference see
+    the same stopword signal (no train/serve skew).
     """
-    from synthelion.core import _syntactic_keep_mask, _tokenize
+    from synthelion.core import (
+        _syntactic_keep_mask,
+        _aggressive_keep_mask,
+        _tokenize,
+    )
     from synthelion.synthelionml import _word_features
 
     fw = provider.get_function_words(iso3)
@@ -106,7 +114,10 @@ def _build_examples(
         tokens = _tokenize(text)
         if not any(not t.is_punct for t in tokens):
             continue
-        keep, _ = _syntactic_keep_mask(tokens, fw, lemmas, proper, iso3, generic, pos_tags)
+        if label_source == "aggressive":
+            keep, _ = _aggressive_keep_mask(tokens, fw, lemmas, proper, iso3, generic, pos_tags, global_idf)
+        else:
+            keep, _ = _syntactic_keep_mask(tokens, fw, lemmas, proper, iso3, generic, pos_tags)
         words: list[str] = []
         labels: list[int] = []
         feats: list[list[float]] = []
@@ -179,6 +190,8 @@ def train(
     output_dir: Path,
     seed: int,
     max_bytes_per_lang: int,
+    label_source: str = "aggressive",
+    use_global_idf: bool = True,
 ) -> None:
     import numpy as np
     import torch
@@ -193,8 +206,19 @@ def train(
 
     provider = FunctionWordProvider()
     generic_fallback = frozenset()
-    # Build the iso1 (2-letter) → iso3 (3-letter) map from the bundled word data
-    # so we can pass correct language codes to the SYNTACTIC label generator.
+
+    # Optional global IDF for aggressive labels (mirrors production behaviour)
+    global_idf = None
+    if use_global_idf:
+        try:
+            from synthelion.global_idf_provider import GlobalIdfProvider
+            global_idf = GlobalIdfProvider()
+            _log.info("Global IDF loaded (aggressive labels)")
+        except Exception as exc:
+            _log.warning("Could not load GlobalIdfProvider: %s", exc)
+            global_idf = None
+
+    # Build the iso1 → iso3 map from the bundled word data
     iso1_to_iso3 = {v[0]: k for k, v in provider._load_index().items()}
 
     all_examples: list[tuple[list[str], list[int], list[list[float]]]] = []
@@ -210,7 +234,7 @@ def train(
         if not texts:
             _log.warning("  skip %s: empty sample", lang)
             continue
-        ex = _build_examples(texts, iso3, provider, generic_fallback)
+        ex = _build_examples(texts, iso3, provider, generic_fallback, label_source, global_idf)
         all_examples.extend(ex)
         lang_use[lang] = len(ex)
         _log.info("  %-3s (iso3=%s) sampled=%d kept=%d", lang, iso3, len(texts), len(ex))
@@ -338,6 +362,8 @@ def train(
         "max_seq_len": _MAX_SEQ,
         "vocab_size": len(word2id),
         "keep_threshold": _KEEP_THRESHOLD,
+        "min_compression": _MIN_COMPRESSION,
+        "label_source": label_source,
         "trained_languages": sorted(lang_use.keys()),
         "languages_used": len(lang_use),
         "training_examples": len(train_examples),
@@ -358,8 +384,9 @@ def train(
             "  devtools/train_synthelionml.py\n\n"
             "Training data: Synthelion's Wikipedia corpora "
             f"({len(lang_use)} languages).\n"
-            "Ground-truth labels: Synthelion's rule-based SYNTACTIC compressor\n"
-            "  (self-distillation). Architecture is own transformer encoder.\n"
+            f"Label source: {label_source} compressor (self-distillation)\n"
+            "Architecture: own transformer encoder.\n"
+            f"Min compression: {_MIN_COMPRESSION:.0%} (rank-based ratio controller).\n"
             "Runtime: fully offline, CPU-only.\n"
         )
     _log.info("Checkpoint saved to %s (model.bin, config.json, vocab.json)", output_dir)
@@ -368,17 +395,21 @@ def train(
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Train the SynthelionML multilingual compressor")
     ap.add_argument("--corpora-dir", type=Path, default=Path("devtools/wikipedia_corpus"))
-    ap.add_argument("--langs", default=None, help="Comma-separated ISO 639-1 codes; default: en,it,de,fr,es")
-    ap.add_argument("--max-examples-per-lang", type=int, default=1200)
-    ap.add_argument("--max-bytes-per-lang", type=int, default=40_000_000,
+    ap.add_argument("--langs", default=None, help="Comma-separated ISO 639-1 codes; default: en,it,de,fr,es,ru,uk,hi,zh,ja")
+    ap.add_argument("--max-examples-per-lang", type=int, default=2000)
+    ap.add_argument("--max-bytes-per-lang", type=int, default=50_000_000,
                     help="Stop reading each corpus file after this many bytes")
     ap.add_argument("--vocab-size", type=int, default=_VOCAB_SIZE)
-    ap.add_argument("--epochs", type=int, default=3)
+    ap.add_argument("--epochs", type=int, default=4)
     ap.add_argument("--batch-size", type=int, default=32)
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--eval-split", type=float, default=0.05)
     ap.add_argument("--output-dir", type=Path, default=Path("synthelion/ml_models/synthelionml"))
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--labels", choices=["syntactic", "aggressive"], default="aggressive",
+                    help="Training label source: syntactic (conservative) or aggressive (target ≥60%)")
+    ap.add_argument("--no-global-idf", action="store_true",
+                    help="Disable global IDF in aggressive label generation")
     args = ap.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -404,6 +435,8 @@ def main(argv: list[str] | None = None) -> int:
         args.output_dir,
         args.seed,
         args.max_bytes_per_lang,
+        label_source=args.labels,
+        use_global_idf=not args.no_global_idf,
     )
     return 0
 

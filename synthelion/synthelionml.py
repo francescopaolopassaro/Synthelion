@@ -345,6 +345,7 @@ class SynthelionMLCompressor:
         self._device = None
         self._loaded = False
         self._threshold = 0.5
+        self._min_compression = 0.0
 
         if self._model_path is not None:
             self._load()
@@ -379,6 +380,7 @@ class SynthelionMLCompressor:
             self._vocab = vocab
             self._config = config
             self._threshold = config.get("keep_threshold", 0.5)
+            self._min_compression = config.get("min_compression", 0.0)
             self._loaded = True
             _log.info("SynthelionML loaded from %s", self._model_path)
         except Exception as exc:
@@ -397,6 +399,7 @@ class SynthelionMLCompressor:
         iso3: str,
         pos_tags: dict[str, str],
         budget: int | None = None,
+        min_compression: float | None = None,
     ) -> list[str]:
         """Classify each word token as keep/drop and return surviving strings.
 
@@ -404,34 +407,46 @@ class SynthelionMLCompressor:
         dropped, protected tokens / numbers / URLs are always kept, and the model
         decides on plain content words.
 
-        `budget` caps the number of surviving word tokens. When set, the keep
-        threshold is computed dynamically so the result never exceeds the budget
-        (if the model is unavailable the whole budget logic is a no-op).
+        ``budget`` caps the number of surviving word tokens.  ``min_compression``
+        (0.0–1.0) guarantees a minimum compression ratio — the lowest-scoring
+        words are dropped by rank until the target ratio is reached, always
+        respecting the always-keep set.  Both are honoured independently; when
+        neither is set the static ``self._threshold`` controls the cutoff.
         """
         if not self._loaded or self._model is None:
             return [t.text for t in tokens if not t.is_punct]
 
-        # Only plain content words are scored; protected/number/URL tokens always survive.
+        from synthelion.core import _is_negation
+
+        # ---- Always-keep classification ----
         keep_set: set[int] = set()
         word_indices: list[int] = []   # token indices the model must score
         word_strings: list[str] = []
+        n_words = 0  # total non-punct tokens
 
         for i, tok in enumerate(tokens):
             if tok.is_punct:
                 continue
+            n_words += 1
             if tok.protected or _is_number(tok.text) or _looks_like_url_or_email(tok.text):
                 keep_set.add(i)
                 continue
             if _is_proper(tok.text, proper_nouns):
                 keep_set.add(i)
                 continue
+            if _is_negation(tok.text, iso3):
+                keep_set.add(i)
+                continue
             word_indices.append(i)
             word_strings.append(tok.text)
 
+        # ---- Model scoring ----
         if word_strings:
             scores = self._score_words(word_strings, fw, iso3)
+            mc = min_compression if min_compression is not None else (self._min_compression or None)
+
+            # Priority 1: explicit budget (absolute cap)
             if scores and budget is not None and budget > 0:
-                # Dynamic threshold: keep the strongest-scoring words up to budget.
                 reserved = len(keep_set)
                 room = max(0, budget - reserved)
                 if room > 0:
@@ -442,6 +457,18 @@ class SynthelionMLCompressor:
                 for j, orig_idx in enumerate(word_indices):
                     if scores[j] >= threshold:
                         keep_set.add(orig_idx)
+
+            # Priority 2: min_compression ratio (rank-based drop by keep-probability)
+            elif scores and mc is not None and mc > 0:
+                target_keep = max(1, math.ceil((1.0 - mc) * n_words))
+                reserved = len(keep_set)
+                room = max(0, target_keep - reserved)
+                if room > 0:
+                    order = sorted(range(len(scores)), key=lambda j: scores[j], reverse=True)
+                    for j in order[:room]:
+                        keep_set.add(word_indices[j])
+
+            # Fallback: static threshold
             else:
                 for j, orig_idx in enumerate(word_indices):
                     if scores[j] >= self._threshold:
@@ -457,6 +484,7 @@ class SynthelionMLCompressor:
         text: str,
         iso3: str | None = None,
         budget: int | None = None,
+        min_compression: float | None = None,
     ) -> str:
         """High-level compress: raw text → compressed text (no internal token types)."""
         from synthelion.core import _join_filtered, _tokenize
@@ -473,7 +501,9 @@ class SynthelionMLCompressor:
         proper = provider.get_proper_nouns(lang)
         pos_tags = provider.get_pos_tags(lang)
 
-        filtered = self.compress_tokens(_tokenize(text), fw, lemmas, proper, lang, pos_tags, budget=budget)
+        mc = min_compression if min_compression is not None else self._min_compression
+        filtered = self.compress_tokens(_tokenize(text), fw, lemmas, proper, lang, pos_tags,
+                                        budget=budget, min_compression=mc or None)
         return _join_filtered(filtered)
 
     # ------------------------------------------------------------------

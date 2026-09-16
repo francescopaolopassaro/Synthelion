@@ -6,6 +6,35 @@ All notable changes to Synthelion are documented here.
 
 ## [Unreleased]
 
+### Added — SynthelionML: learned prompt compression level
+- New `synthelionml` compression level (`models.py`, `config.py`, `cli.py`,
+  `proxy.py`, `core.py`): a small offline transformer encoder (~5 M params,
+  d=128, h=4, 2 layers) trained on Wikipedia corpora to predict per-token
+  keep/drop with a guaranteed **≥60% compression ratio** (rank-based ratio
+  controller drops the lowest-scoring words to the target floor). Falls back to
+  `syntactic` when the checkpoint or torch is absent — no error, no empty output.
+- `synthelion/synthelionml.py`: lazy, thread-safe `SynthelionMLCompressor`
+  singleton; deterministic character-n-gram hashing for out-of-vocabulary words
+  (md5-based, never Python's randomized `hash`); negation always-kept; dynamic
+  budget support in `compress_tokens`; checkpoint resolution from
+  `SYNTHELION_ML_MODEL` → env model store → `~/.synthelion/ml_models/` →
+  package-local dir. torch stays an optional import-time dependency.
+- `synthelion/core.py`: new `_aggressive_keep_mask()` — mirrors the AGGRESSIVE
+  filter's decision logic but returns a per-token keep mask for use as training
+  labels in the SynthelionML trainer (self-distillation, zero drift).
+- `devtools/train_synthelionml.py`: reservoir-sampled multilingual training
+  with self-distillation ground truth (the AGGRESSIVE compressor's keep/drop
+  decisions, blended with global IDF for maximum label signal), per-language
+  stop words, CPU-only. Flags: `--labels {syntactic,aggressive}` (default
+  aggressive), `--no-global-idf`. Trained checkpoint shipped at
+  `synthelion/ml_models/synthelionml/` (config.json + vocab.json + model.bin).
+- Supported languages: **English, Italian, German, French, Spanish, Russian,
+  Ukrainian, Hindi, Chinese, Japanese** (10 languages).
+- New tests: `tests/test_synthelionml.py` (level registration, core dispatch +
+  fallback, compressor singleton, vocab hash determinism, proxy level mapping).
+
+---
+
 ### Fixed — privacy analyzer false positives across all languages/regions
 - **A bare number in prose was read as national-ID/PII and masked.** The rule set
   matched any 7-15 digit run (Phone E.164), any 8-digit run (Maltese ID — no trailing

@@ -918,6 +918,73 @@ def _syntactic_keep_mask(
     return keep, is_func
 
 
+def _aggressive_keep_mask(
+    tokens: list[_Token],
+    fw: frozenset[str],
+    lemmas: dict[str, str],
+    proper_nouns: frozenset[str],
+    iso3: str,
+    generic: frozenset[str],
+    pos_tags: dict[str, str],
+    global_idf: "GlobalIdfProvider | None" = None,
+) -> tuple[list[bool], list[bool]]:
+    """Per-token keep mask using the AGGRESSIVE filter's decision logic.
+
+    Mirrors ``_filter_aggressive`` exactly but returns per-token booleans like
+    ``_syntactic_keep_mask``, for use as training labels in the SynthelionML
+    trainer.  Also returns ``is_func`` (always False here — kept for signature
+    consistency with the syntactic variant).
+    """
+    group = _lang_group(iso3)
+    is_proper = _detect_proper_nouns(tokens, iso3, proper_nouns)
+    use_global = global_idf is not None and global_idf.has_data(iso3)
+    n = len(tokens)
+
+    keep = [False] * n
+
+    for i, tok in enumerate(tokens):
+        if tok.is_punct:
+            continue
+        if tok.protected:
+            keep[i] = True
+            continue
+        if is_proper[i]:
+            keep[i] = True
+            continue
+        if _is_number(tok.text):
+            keep[i] = True
+            continue
+        if len(tok.text) <= 1 and not tok.text[0:1].isalpha():
+            continue
+        lower = tok.text.lower()
+        if lower in fw:
+            continue
+        normalized = _lemma_or_lower(tok.text, lemmas, pos_tags)
+        if len(normalized) <= 1:
+            continue
+        if normalized in fw or normalized in generic:
+            continue
+        if _is_descriptive(normalized, group):
+            continue
+        if use_global and _is_globally_ubiquitous(normalized, iso3, global_idf):
+            continue
+        keep[i] = True
+
+    # Safety floor: at least one word per sentence (mirrors _filter_aggressive fallback).
+    sentence_of, sentence_count = _sentence_index_of(tokens)
+    sentence_has_keep = [False] * sentence_count
+    for i in range(n):
+        if keep[i]:
+            sentence_has_keep[sentence_of[i]] = True
+    for i, tok in enumerate(tokens):
+        if sentence_has_keep[sentence_of[i]] or tok.is_punct:
+            continue
+        keep[i] = True
+        sentence_has_keep[sentence_of[i]] = True
+
+    return keep, [False] * n
+
+
 def _filter_syntactic(
     tokens: list[_Token],
     fw: frozenset[str],
