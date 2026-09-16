@@ -36,11 +36,11 @@ _N_LAYERS = 2
 _FFN_DIM = 512
 _DROPOUT = 0.1
 _MAX_SEQ = 96          # training window length
-_VOCAB_SIZE = 60000    # large fixed vocab; OOV words fall back to char-ngram hashing.
+_VOCAB_SIZE = 70000    # large fixed vocab; OOV words fall back to char-ngram hashing.
                        # Model weight is dominated by (vocab + 8192 buckets) * d_model * 4B.
-                       # With 60k vocab the checkpoint stays well below 50 MB (~37 MB).
+                       # With 70k vocab the checkpoint stays well below 50 MB (~41 MB).
 _KEEP_THRESHOLD = 0.6  # inference threshold stored in config
-_MIN_COMPRESSION = 0.65 # target minimum compression ratio (rank-based drop)
+_MIN_COMPRESSION = 0.7 # target minimum compression ratio (rank-based drop)
 
 # All European languages available in the corpus, plus the original set.
 _EUROPEAN_LANGS = [

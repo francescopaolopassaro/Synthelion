@@ -178,14 +178,15 @@ generalises beyond any explicit rule list.
   Galician, Greek, Hungarian, Icelandic, Irish, Latin, Latvian, Lithuanian,
   Macedonian, Norwegian, Polish, Portuguese, Romanian, Serbian, Slovak, Slovenian,
   Swedish) **plus** English, Italian, German, French, Spanish, Russian, Ukrainian,
-  Hindi, Chinese and Japanese — **39 languages total**. A shared 60k word
-  vocabulary keeps the checkpoint at ~35 MB (well under the 50 MB hard cap);
+  Hindi, Chinese and Japanese — **39 languages total**. A shared 70k word
+  vocabulary keeps the checkpoint at ~41 MB (well under the 50 MB hard cap);
   out-of-vocabulary words fall back to deterministic char-n-gram hashing.
-- **Behaviour**: punctuation, numbers, URLs, proper nouns and negation are always
+- **Behaviour**: punctuation, numbers, URLs, proper nouns (including city/place
+  names via capitalisation + curated YAML lists) and negation are always
   kept; a safety floor keeps at least one word per sentence. A built-in
-  **min-compression ratio controller (default 65%)** drops the lowest-scoring
+  **min-compression ratio controller (default 70%)** drops the lowest-scoring
   words by rank until the target is reached — measured across all 39 languages:
-  **60.0–69.2% on short one-sentence samples**.
+  **63.6–71.4% on short one-sentence samples**.
 - **Graceful fallback**: if the checkpoint or torch is absent, the level silently
   degrades to `syntactic` — no error, no empty output.
 
@@ -257,23 +258,24 @@ directly (NLP-only, per-level).
 
 | Content | Original tokens | Light | Semantic | Aggressive | SynthelionML |
 |:---|---:|:---:|:---:|:---:|:---:|
-| Prose EN | 19 | −55.0% | −55.0% | **−75.0%** | −64.3% |
-| Prose IT | 24 | −43.8% | −43.8% | **−62.5%** | −66.7% |
-| Prose DE | 17 | −47.4% | −47.4% | **−63.2%** | −64.3% |
-| Prose FR | 19 | −38.9% | −38.9% | **−55.6%** | −66.7% |
-| Prose ES | 24 | −47.1% | −47.1% | −52.9% | −66.7% |
-| Prose RU | 13 | - | - | - | **−60.0%** |
-| Prose ZH | 26 | - | - | - | **−65.2%** |
-| Prose JA | 34 | - | - | - | −63.6% |
-| Prose UK | 13 | - | - | - | **−60.0%** |
-| Prose HI | 20 | - | - | - | **−66.7%** |
+| Prose EN | 14 | −55.0% | −55.0% | **−75.0%** | −71.4% |
+| Prose IT | 15 | −43.8% | −43.8% | −62.5% | −66.7% |
+| Prose DE | 14 | −47.4% | −47.4% | **−63.2%** | −71.4% |
+| Prose FR | 15 | −38.9% | −38.9% | **−55.6%** | −66.7% |
+| Prose ES | 15 | −47.1% | −47.1% | −52.9% | −66.7% |
+| Prose RU | 10 | - | - | - | **−70.0%** |
+| Prose ZH | 23 | - | - | - | −69.6% |
+| Prose JA | 33 | - | - | - | −69.7% |
+| Prose UK | 10 | - | - | - | **−70.0%** |
+| Prose HI | 18 | - | - | - | **−66.7%** |
 
-SynthelionML targets a **minimum 65% compression** (measured: **60.0–69.2% on
-short one-sentence samples across all 39 languages**). The tiny shortfall below
-65% on very short sentences is intentional — negation, proper nouns, numbers,
-URLs and a per-sentence safety floor are always-kept, and on a 10-token sentence
-that protected set can exceed the remaining keep-budget. The longer the input,
-the closer to (and beyond) the 65% floor it lands.
+SynthelionML targets a **minimum 70% compression** (measured: **63.6–71.4% on
+short one-sentence samples across all 39 languages**; EN sample 14→4 tokens =
+71.4%). The tiny shortfall below 70% on very short sentences is intentional —
+negation, proper nouns, numbers, URLs and a per-sentence safety floor are
+always-kept, and on a 10-token sentence that protected set can exceed the
+remaining keep-budget. The longer the input, the closer to (and beyond) the 70%
+floor it lands.
 
 #### Content router (`synthelion bench --json`, auto-selects the best strategy)
 
