@@ -227,9 +227,7 @@ def _process_text(
         from synthelion.privacy_analyzer import PrivacyAnalyzer, build_privacy_notice
         from synthelion.privacy_session import PrivacySession
 
-        analyzer = PrivacyAnalyzer()
-        if pcfg.get("whitelist"):
-            analyzer.add_to_whitelist(*pcfg["whitelist"])
+        analyzer = PrivacyAnalyzer.from_config(pcfg)
         session = PrivacySession() if pcfg.get("auto_masking") else None
         result = analyzer.analyze(text, pcfg.get("language", "en"), session=session, auto_masking=pcfg.get("auto_masking"))
 

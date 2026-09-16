@@ -84,6 +84,21 @@ _DEFAULT_CONFIG: dict[str, Any] = {
         # "Critical" risk (score bands: <=15 Safe, <=35 Low, <=60 Medium,
         # <=85 High, >85 Critical).
         "block_min_score": 61,
+        # Optional ML-assisted confirmation tier for PrivacyGuard. OFF by default:
+        # the regex+checksum pipeline is zero-ML and stays the default, because
+        # enabling this REQUIRES CPU usage (a local zero-shot NER model runs on
+        # every analyzed text). Models are bundled inside Synthelion and runtime
+        # is fully offline: install one once with `synthelion models install`,
+        # then point ml_model at its short name. ML only confirms genuinely
+        # sensitive bare values — it never overrides a failed checksum.
+        "use_ml": False,
+        # Local short name (no slashes) of a model installed under a model root
+        # (SYNTHELION_ML_MODELS_DIR, ~/.synthelion/ml_models, packaged
+        # synthelion/ml_models). `synthelion models install` names the default
+        # gliner_small-v2.1.
+        "ml_model": "gliner_small-v2.1",
+        # Minimum entity-confidence (0-1) below which ML predictions are ignored.
+        "ml_min_confidence": 0.6,
     },
     "documents": {
         # Master switch for the mask-document CLI/MCP-tool/dashboard endpoint.

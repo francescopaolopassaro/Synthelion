@@ -120,9 +120,7 @@ class RagAgent:
             from synthelion.privacy_analyzer import PrivacyAnalyzer, PrivacyBlockedError, build_privacy_notice
             from synthelion.privacy_session import PrivacySession
 
-            analyzer = PrivacyAnalyzer()
-            if pcfg.get("whitelist"):
-                analyzer.add_to_whitelist(*pcfg["whitelist"])
+            analyzer = PrivacyAnalyzer.from_config(pcfg)
             session = PrivacySession() if pcfg["auto_masking"] else None
             presult = analyzer.analyze(text, pcfg["language"], session=session, auto_masking=pcfg["auto_masking"])
             privacy_score = presult.score

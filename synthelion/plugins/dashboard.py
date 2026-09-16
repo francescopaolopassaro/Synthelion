@@ -385,7 +385,7 @@ class _DashboardHandler(BaseHTTPRequestHandler):
         return {"config": load_config(), "path": str(path) if path else None}
 
     def _update_config(self) -> dict:
-        from synthelion.config import load_config, merge_config, save_config
+        from synthelion.config import load_config, merge_config, privacy_config, save_config
 
         partial = self._read_json_body()
         current = load_config()
@@ -404,7 +404,7 @@ class _DashboardHandler(BaseHTTPRequestHandler):
         text = body.get("text", "")
         language = body.get("language") or "en"
 
-        privacy = PrivacyAnalyzer().analyze(text, language, auto_masking=True)
+        privacy = PrivacyAnalyzer.from_config(privacy_config()).analyze(text, language, auto_masking=True)
         injection = PromptInjectionGuard().analyze(text)
         return {
             "privacy": {
@@ -414,6 +414,7 @@ class _DashboardHandler(BaseHTTPRequestHandler):
                 "compliance_flags": privacy.compliance_flags,
                 "masked_text": privacy.masked_text,
                 "match_count": privacy.match_count,
+                "ml_assisted_count": privacy.ml_assisted_count,
             },
             "prompt_injection": {
                 "score": injection.score,
@@ -460,9 +461,7 @@ class _DashboardHandler(BaseHTTPRequestHandler):
         suffix = Path(filename).suffix
         fmt = de.detect_format(filename)
 
-        analyzer = PrivacyAnalyzer()
-        if pcfg.get("whitelist"):
-            analyzer.add_to_whitelist(*pcfg["whitelist"])
+        analyzer = PrivacyAnalyzer.from_config(pcfg)
         session = PrivacySession()
 
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp_in:

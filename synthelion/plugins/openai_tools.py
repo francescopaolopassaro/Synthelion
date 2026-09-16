@@ -1020,9 +1020,7 @@ def execute_tool(name: str, arguments: dict) -> dict:
             from synthelion.privacy_analyzer import PrivacyAnalyzer, PrivacyBlockedError, build_privacy_notice
             from synthelion.privacy_session import PrivacySession
 
-            analyzer = PrivacyAnalyzer()
-            if pcfg.get("whitelist"):
-                analyzer.add_to_whitelist(*pcfg["whitelist"])
+            analyzer = PrivacyAnalyzer.from_config(pcfg)
             session = PrivacySession() if pcfg["auto_masking"] else None
             presult = analyzer.analyze(text, pcfg["language"], session=session, auto_masking=pcfg["auto_masking"])
 
@@ -1370,9 +1368,7 @@ def _exec_mask_document(arguments: dict) -> dict:
     from synthelion.cli import _default_masked_output_path
     output_path = arguments.get("output_path") or _default_masked_output_path(path, dcfg["output_suffix"])
 
-    analyzer = PrivacyAnalyzer()
-    if pcfg.get("whitelist"):
-        analyzer.add_to_whitelist(*pcfg["whitelist"])
+    analyzer = PrivacyAnalyzer.from_config(pcfg)
     session_id, session = _get_or_create_privacy_session(arguments.get("session_id"))
     count_before = session.count
 
@@ -1885,8 +1881,9 @@ def _get_privacy_analyzer():
     if _privacy_analyzer is None:
         with _privacy_analyzer_lock:
             if _privacy_analyzer is None:
+                from synthelion.config import privacy_config
                 from synthelion.privacy_analyzer import PrivacyAnalyzer
-                _privacy_analyzer = PrivacyAnalyzer()
+                _privacy_analyzer = PrivacyAnalyzer.from_config(privacy_config())
     return _privacy_analyzer
 
 

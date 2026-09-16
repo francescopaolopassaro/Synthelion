@@ -428,6 +428,11 @@
       document.getElementById("privacy-auto-masking").checked = config.privacy.auto_masking;
       document.getElementById("privacy-injection-guard").checked = config.privacy.prompt_injection_guard;
       document.getElementById("privacy-transparency-notice").checked = config.privacy.ai_transparency_notice;
+      document.getElementById("privacy-use-ml").checked = !!config.privacy.use_ml;
+      document.getElementById("privacy-ml-model").value = config.privacy.ml_model || "gliner_small-v2.1";
+      document.getElementById("privacy-ml-min-confidence").value = String(config.privacy.ml_min_confidence || 0.6);
+      markFilled("privacy-ml-model");
+      togglePrivacyMlFields();
       document.getElementById("privacy-block-on-risk").checked = config.privacy.block_on_risk;
       document.getElementById("privacy-block-min-score").value = String(config.privacy.block_min_score || 61);
       document.getElementById("privacy-language").value = config.privacy.language;
@@ -438,6 +443,12 @@
     } catch (err) {
       // non-critical — form just keeps its blank/default values
     }
+  }
+
+  function togglePrivacyMlFields() {
+    const enabled = document.getElementById("privacy-use-ml").checked;
+    const fields = document.getElementById("privacy-ml-fields");
+    if (fields) fields.style.display = enabled ? "" : "none";
   }
 
   async function savePrivacySettings() {
@@ -452,6 +463,9 @@
         auto_masking: document.getElementById("privacy-auto-masking").checked,
         prompt_injection_guard: document.getElementById("privacy-injection-guard").checked,
         ai_transparency_notice: document.getElementById("privacy-transparency-notice").checked,
+        use_ml: document.getElementById("privacy-use-ml").checked,
+        ml_model: document.getElementById("privacy-ml-model").value.trim() || "gliner_small-v2.1",
+        ml_min_confidence: Number(document.getElementById("privacy-ml-min-confidence").value) || 0.6,
         block_on_risk: document.getElementById("privacy-block-on-risk").checked,
         block_min_score: Number(document.getElementById("privacy-block-min-score").value),
         language: document.getElementById("privacy-language").value,
@@ -472,6 +486,8 @@
   }
 
   document.getElementById("privacy-save-btn").addEventListener("click", savePrivacySettings);
+
+  document.getElementById("privacy-use-ml").addEventListener("change", togglePrivacyMlFields);
 
   document.getElementById("privacy-whitelist-add-btn").addEventListener("click", () => {
     const input = document.getElementById("privacy-whitelist-input");

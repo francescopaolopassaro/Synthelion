@@ -55,6 +55,11 @@ redis = ["redis>=5.0"]
 postgres = ["psycopg[binary]>=3.1"]
 cluster = ["redis>=5.0", "psycopg[binary]>=3.1", "qdrant-client>=1.9"]
 documents = ["pypdf>=4.0", "python-docx>=1.1", "openpyxl>=3.1"]
+# ML tier for PrivacyGuard (privacy.use_ml). NO pip optional dependency on
+# purpose: `synthelion models install` handles the model download AND the
+# required libraries (gliner, torch, huggingface_hub) via a pip install call
+# at install time — the package itself stays lightweight (zero ML in its
+# dependency tree).
 all = [
     "openai>=1.0", "langchain-core>=0.1", "anthropic>=0.25", "crewai>=1.15,<2",
     "chromadb>=0.4", "qdrant-client>=1.9", "redis>=5.0", "psycopg[binary]>=3.1",
@@ -75,6 +80,10 @@ synthelion = [
     "worddata/*.br",
     "privacy_rules.yaml",
     "py.typed",
+    "ml_models/*",
+    "ml_models/*/*",
+    "ml_models/*/*/*",
+    "ml_models/*/*/*/*",
     "plugins/dashboard_assets/*.html",
     "plugins/dashboard_assets/*.css",
     "plugins/dashboard_assets/*.js",

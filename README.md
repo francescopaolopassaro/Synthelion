@@ -55,7 +55,7 @@ Supports 50+ languages out of the box. No AI model required. No configuration.
 Every token sent to a model costs money and time. Synthelion removes the words that carry no meaning — articles, prepositions, conjunctions, auxiliary verbs — and reduces inflected words to their base form. The model receives exactly the same information, just without the grammatical packaging.
 
 **Strengths:**
-- **Zero ML models, zero network calls** — every technique is a deterministic heuristic (curated word lists, BM25, TF-IDF, regex/structural detection). No embedding model to download, nothing phones home.
+- **Zero ML models by default, zero network calls** — the core compression and PrivacyGuard pipelines are purely deterministic heuristics (curated word lists, BM25, TF-IDF, regex + checksum validators). An optional **ML-assisted PrivacyGuard tier** is available for users who want higher recall on bare sensitive values (see below), but everything stays fully offline and self-contained.
 - **50+ languages out of the box**, no per-language configuration.
 - **Content-aware routing** — JSON, HTML, git diffs, logs, code, and prose each get a dedicated compression strategy instead of one generic pass; a universal anti-expansion guard means you never get back something bigger than what you sent in.
 - **Adaptive by design** — compression escalates automatically for larger inputs, results are cached by content hash, and repeated tool calls get diffed instead of resent in full.
@@ -110,12 +110,52 @@ Toggle it in `~/.synthelion/config.json` (or the dashboard's Settings → Privac
     "enabled": true,
     "auto_masking": true,
     "prompt_injection_guard": true,
+    "use_ml": false,
+    "ml_model": "gliner_small-v2.1",
+    "ml_min_confidence": 0.6,
     "language": "en",
     "ai_transparency_notice": false
   }
 }
 ```
 Setting `"enabled": false` restores exactly the pre-1.2.2 behavior — no privacy pre-pass at all.
+
+### Optional: ML-assisted PrivacyGuard (higher recall, offline, CPU)
+
+PrivacyGuard includes an opt-in **ML-assisted confirmation tier** for users who need higher recall on genuinely sensitive bare values — phone numbers, national-ID formats, credit cards — that appear in prose without a surrounding context keyword (e.g. a phone number in a log line, an IBAN in a spreadsheet header).
+
+The core regex + checksum pipeline intentionally trades away recall in favor of zero false positives: a bare 11-digit number in prose is never treated as a PESEL unless the word "pesel" is nearby. The ML tier fills that exact gap: it runs a **small zero-shot NER model** (GLiNER) over the text, and when it detects an entity whose label maps to the right rule family, it confirms the match — while a failed algorithmic checksum still vetoes detection no matter what the model says. ML never introduces false positives; it only recovers true positives the strict context gate trades away.
+
+**The model used:** [urchade/gliner_small-v2.1](https://huggingface.co/urchade/gliner_small-v2.1) — a lightweight, CPU-friendly zero-shot NER model (~460 MB) that takes a set of entity-type labels at inference time (no fine-tuning required).
+
+**Fully offline after install:** the model and all required libraries (gliner, torch, huggingface_hub) are downloaded once by a single command, then live entirely inside `~/.synthelion/ml_models/` (or a package-local dir). Synthelion never contacts the network at analysis time.
+
+```
+# One-time install — downloads the model + required libraries (needs network once)
+synthelion models install
+
+# Show what's installed and where
+synthelion models status
+```
+
+Then enable it in `~/.synthelion/config.json` (or toggle in the dashboard Settings → Privacy & Security):
+
+```json
+{
+  "privacy": {
+    "use_ml": true,
+    "ml_model": "gliner_small-v2.1",
+    "ml_min_confidence": 0.6
+  }
+}
+```
+
+Or use the flag from the CLI:
+```
+synthelion compress --text "your text" --privacy-ml
+```
+
+The ML tier uses CPU only (no GPU required) and is gated behind the `use_ml: false` default — the standard regex+checksum pipeline stays zero-ML unless you explicitly opt in. The model's entity labels are strictly mapped to rule categories: a "national identification number" label from the model confirms PESEL/BSN/OIB etc., but never creates a false phone detection, and vice versa.
 
 ### Before / After
 

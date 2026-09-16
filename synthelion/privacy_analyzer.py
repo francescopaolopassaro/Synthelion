@@ -23,6 +23,7 @@ from typing import Any
 import regex as re
 import yaml
 
+from synthelion.privacy_ml import MLSpan, get_ml_detector
 from synthelion.privacy_session import PrivacySession
 from synthelion.privacy_validators import get_validator
 
@@ -67,6 +68,9 @@ class PrivacyAnalysisResult:
     matches_per_category: dict[str, int] = field(default_factory=dict)
     masked_text: str = ""
     session: PrivacySession | None = None
+    # Count of matches that were confirmed via the optional ML tier
+    # (privacy.use_ml) instead of a context keyword. 0 unless ML is enabled.
+    ml_assisted_count: int = 0
 
     @property
     def is_safe_for_ai(self) -> bool:
@@ -85,6 +89,30 @@ _FINANCIAL_ID_CATEGORIES = frozenset({
     "Credit Card", "IBAN", "Italian VAT Number", "French Business ID (SIREN/SIRET)", "Polish VAT (NIP)",
     "Austrian VAT (UID)",
 })
+
+# Which analyzer category the optional ML tier's labels are allowed to confirm.
+# Strict on purpose: a "phone number" span must not turn a bare ID run into a
+# phone detection and an "ID number" span must not confirm the Phone rule — the
+# model's semantic judgment is coupled to the right rule family. Labels outside
+# this table confirm nothing.
+_ML_LABEL_CATEGORIES: dict[str, frozenset[str]] = {
+    "phone number": frozenset({"Phone E.164"}),
+    "email address": frozenset({"Email"}),
+    "credit card number": frozenset({"Credit Card"}),
+    "iban number": frozenset({"IBAN"}),
+    "bank account number": frozenset({"IBAN"}),
+    "bank account number (iban)": frozenset({"IBAN"}),
+    "national identification number": frozenset(_PERSONAL_ID_CATEGORIES - {"Email", "Phone E.164"}) | frozenset({"Maltese ID Number"}),
+    "tax identification number": frozenset({
+        "Italian Tax Code (CF)", "German Tax ID (Steuer-Id)", "Hungarian Tax ID",
+        "Portuguese Tax Number (NIF)", "Greek Tax Number (AFM)", "Polish VAT (NIP)",
+        "Italian VAT Number", "Spanish Tax/ID Number (NIF/NIE)", "Czech Business ID",
+    }),
+    "social security number": frozenset({"French Social Security (NIR)"}),
+    "gps coordinates": frozenset({"GPS Coordinates"}),
+    "passport number": frozenset(),
+    "driver's license number": frozenset(),
+}
 
 # (en, it, de, fr, es) localized message tables.
 _LOCALES: dict[str, dict[str, str]] = {
@@ -217,11 +245,45 @@ def build_privacy_notice(
 class PrivacyAnalyzer:
     """Thread-safe. One instance can be reused across calls/threads."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        use_ml: bool = False,
+        ml_model: str | None = None,
+        ml_min_confidence: float = 0.6,
+        ml_detector: Any | None = None,
+    ) -> None:
+        """``use_ml=False`` (the default) is exactly today's regex+checksum
+        analyzer, zero ML, no extra CPU. With ``use_ml=True`` the analysis asks
+        an optional zero-shot NER model (`privacy_ml.PrivacyMLDetector`) to
+        confirm genuinely-sensitive bare values that the context-keyword gate
+        would otherwise reject — see :func:`_match_is_confirmed`. ``ml_detector``
+        lets callers inject a detector (used by tests); it defaults to the
+        module-level cached :func:`privacy_ml.get_ml_detector`."""
         self._lock = threading.Lock()
         self._rules: list[CompiledRule] = []
         self._whitelist: set[str] = set()
+        self._use_ml = use_ml
+        self._ml_model = ml_model or "gliner_small-v2.1"
+        self._ml_min_confidence = ml_min_confidence
+        self._injected_ml_detector = ml_detector
         self._load_rules_from_text(_load_default_rules_text())
+
+    @classmethod
+    def from_config(cls, pcfg: dict[str, Any]) -> "PrivacyAnalyzer":
+        """Build an analyzer from an effective ``privacy_config()`` dict —
+        the config-keys used are ``use_ml``, ``ml_model``, ``ml_min_confidence``
+        and (list) ``whitelist``. Every production entry point (CLI, proxy,
+        dashboard, MCP/OpenAI tools, RagAgent) constructs through this one
+        factory so the optional ML tier follows the config everywhere."""
+        analyzer = cls(
+            use_ml=bool(pcfg.get("use_ml", False)),
+            ml_model=pcfg.get("ml_model") or None,
+            ml_min_confidence=float(pcfg.get("ml_min_confidence", 0.6) or 0.6),
+        )
+        whitelist = pcfg.get("whitelist")
+        if whitelist:
+            analyzer.add_to_whitelist(*whitelist)
+        return analyzer
 
     # ── rule loading ─────────────────────────────────────────────────────────
 
@@ -304,10 +366,15 @@ class PrivacyAnalyzer:
         detected: dict[str, tuple[int, bool]] = {}
         base_score = 0.0
         total_matches = 0
+        ml_assisted = 0
 
         with self._lock:
             rules_snapshot = list(self._rules)
             whitelist_snapshot = set(self._whitelist)
+
+        ml_spans: list[MLSpan] | None = None
+        if self._use_ml:
+            ml_spans = self._run_ml_detection(normalized)
 
         for rule in rules_snapshot:
             rule_matches = 0
@@ -315,10 +382,12 @@ class PrivacyAnalyzer:
             for m in rule.pattern.finditer(normalized):
                 if m.group() in whitelist_snapshot:
                     continue
-                if self._match_is_confirmed(rule, m, normalized):
+                if self._match_is_confirmed(rule, m, normalized, ml_spans):
                     any_valid = True
                     rule_matches += 1
                     total_matches += 1
+                    if rule.requires_context and ml_spans is not None and not self._context_is_ok(rule, m, normalized):
+                        ml_assisted += 1
             if rule_matches > 0:
                 detected[rule.category] = (rule_matches, any_valid)
                 weight = rule.base_weight * (1.3 if any_valid else 0.5) * (1.2 if rule.is_high_confidence else 0.8)
@@ -343,9 +412,12 @@ class PrivacyAnalyzer:
         )
 
         if auto_masking:
-            masked = self._mask_text(normalized, detected, rules_snapshot, whitelist_snapshot, session)
+            masked = self._mask_text(normalized, detected, rules_snapshot, whitelist_snapshot, session, ml_spans)
             result.masked_text = masked
             result.warning_message = result.warning_message + loc["masked_suffix"]
+
+        if ml_assisted:
+            result.ml_assisted_count = ml_assisted
 
         return result
 
@@ -360,37 +432,77 @@ class PrivacyAnalyzer:
 
     # ── internals ────────────────────────────────────────────────────────────
 
-    def _match_is_confirmed(self, rule: CompiledRule, m: re.Match, text: str) -> bool:
+    def _match_is_confirmed(self, rule: CompiledRule, m: re.Match, text: str, ml_spans: list[MLSpan] | None = None) -> bool:
         """Only "confirmed" matches count as a detection (and get masked).
 
-        Three tiers, mirroring the port's design intent:
+        Five rules, in order of precedence (a lower one never overrides a higher
+        one):
 
-        * A rule with a checksum validator is confirmed iff the validator passes —
-          a bare *format* match (e.g. an 11-digit number that fails PESEL/BSN/OIB)
-          is no longer detected or masked.
-        * A rule with ``requires_context: true`` is confirmed iff one of its
-          ``context_keywords`` appears near the match AND (when a validator is
-          present) the checksum passes — a random 9-13 digit number behaves like a
-          prose number, and even one that happens to pass a modulo-11 checksum is
-          not PII unless a domain keyword anchors it.
-        * A format-only rule with neither (strongly structured pattern such as Email,
-          IBAN prefix shape, JWT triple) is confirmed by the pattern alone.
+        * A rule with a checksum validator is NEVER confirmed by a value that
+          fails that checksum — the algorithmic validator is the ground truth,
+          and the optional ML tier cannot override it.
+        * A non-context rule (strong structure: Email, IBAN, ...) is confirmed by
+          the pattern alone.
+        * A ``requires_context`` rule is confirmed when a ``context_keywords``
+          term appears near the match AND the checksum passes (a random 9-13
+          digit number behaves like a prose number, and even one that happens to
+          pass a modulo-11 checksum is not PII unless a domain keyword anchors it).
+          A ``+``-prefixed number is E.164 by definition and counts as its own
+          anchor (the ``\\b\\+?`` boundary form could never capture the ``+``).
+        * Only when the context keyword is missing AND the checksum passes does
+          the optional ML tier step in: a ``privacy.use_ml`` entity span
+          overlapping the match confirms a genuinely sensitive bare value
+          (no context keyword needed). This recovers recall the strict gate
+          trades away without ever adding a false positive.
         """
-        if rule.requires_context:
-            # A `+`-prefixed number is E.164 by definition (the spec's canonical
-            # form is "+<cc><n>"), so it needs no prose keyword to be confirmed.
-            if rule.category == "Phone E.164" and m.group().startswith("+"):
-                return bool(rule.validator(m.group())) if rule.validator else True
-            if not rule.context_keywords:
-                return False
-            start = max(0, m.start() - _CONTEXT_WINDOW)
-            end = min(len(text), m.end() + _CONTEXT_WINDOW)
-            window = text[start:end].lower()
-            if not any(_keyword_in_window(k, window) for k in rule.context_keywords):
-                return False
-        if rule.validator is not None:
-            return bool(rule.validator(m.group()))
-        return True
+        if not rule.requires_context:
+            return self._checksum_is_ok(rule, m)
+        if not self._checksum_is_ok(rule, m):
+            return False
+        if self._context_is_ok(rule, m, text):
+            return True
+        # ML only ever confirms a *gated* rule whose checksum passed but whose
+        # context keyword is missing — and only when the span's entity label
+        # points at this rule's category (a "national ID" span must not confirm
+        # a phone detection, nor vice versa).
+        return bool(ml_spans) and any(
+            s.start < m.end() and s.end > m.start() and self._ml_label_matches(s.label, rule.category)
+            for s in ml_spans
+        )
+
+    @staticmethod
+    def _ml_label_matches(label: str, category: str) -> bool:
+        """Does an ML entity ``label`` (e.g. "national identification number")
+        authorize confirming ``category``? Labels outside the table confirm
+        nothing — see ``_ML_LABEL_CATEGORIES``."""
+        allowed = _ML_LABEL_CATEGORIES.get((label or "").strip().lower().rstrip("."))
+        return allowed is not None and category in allowed
+
+    @staticmethod
+    def _checksum_is_ok(rule: CompiledRule, m: re.Match) -> bool:
+        """True when the rule has no validator or the matched value passes it."""
+        return rule.validator is None or bool(rule.validator(m.group()))
+
+    def _context_is_ok(self, rule: CompiledRule, m: re.Match, text: str) -> bool:
+        """Context-keyword confirmation for ``requires_context`` rules. A
+        ``+``-prefixed phone is E.164 by definition and needs no prose keyword."""
+        if not rule.context_keywords:
+            return False
+        if rule.category == "Phone E.164" and m.group().startswith("+"):
+            return True
+        start = max(0, m.start() - _CONTEXT_WINDOW)
+        end = min(len(text), m.end() + _CONTEXT_WINDOW)
+        window = text[start:end].lower()
+        return any(_keyword_in_window(k, window) for k in rule.context_keywords)
+
+    def _run_ml_detection(self, text: str) -> list[MLSpan]:
+        """Run the optional ML layer once per analyzed text. Any failure (missing
+        package/model, no network, inference error) degrades gracefully to []."""
+        try:
+            detector = self._injected_ml_detector or get_ml_detector(self._ml_model, self._ml_min_confidence)
+            return detector.detect(text) if detector is not None else []
+        except Exception:
+            return []
 
     def _calculate_context_boost(
         self, text: str, detected: dict[str, tuple[int, bool]], rules: list[CompiledRule],
@@ -474,6 +586,7 @@ class PrivacyAnalyzer:
         rules: list[CompiledRule],
         whitelist: set[str],
         session: PrivacySession | None,
+        ml_spans: list[MLSpan] | None = None,
     ) -> str:
         intervals: list[tuple[int, int, str, str]] = []
         for rule in rules:
@@ -482,7 +595,7 @@ class PrivacyAnalyzer:
             for m in rule.pattern.finditer(text):
                 if m.group() in whitelist:
                     continue
-                if not self._match_is_confirmed(rule, m, text):
+                if not self._match_is_confirmed(rule, m, text, ml_spans):
                     continue
                 intervals.append((m.start(), m.end(), rule.category, m.group()))
 
