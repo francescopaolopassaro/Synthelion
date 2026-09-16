@@ -14,6 +14,7 @@ class CompressionLevel(Enum):
     # Ported from Caveman C# 1.4.1.
     STATISTICAL = 4  # TF-IDF word scoring instead of curated dictionaries
     SYNTACTIC = 5    # rule-based grammatical-glue pruning, POS-gated hedge-clause elision
+    SYNTHELION_ML = 6  # learned per-token keep/drop classifier (requires model checkpoint)
 
 
 class ContentType(Enum):

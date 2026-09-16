@@ -397,6 +397,7 @@ class _DashboardHandler(BaseHTTPRequestHandler):
         """Live PrivacyGuard tester for the Privacy & Security page — runs both
         PII detection and prompt-injection screening on submitted text. Never
         persists the submitted text anywhere."""
+        from synthelion.config import privacy_config
         from synthelion.privacy_analyzer import PrivacyAnalyzer
         from synthelion.prompt_injection_guard import PromptInjectionGuard
 

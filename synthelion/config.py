@@ -22,7 +22,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-_VALID_COMPRESSION_LEVELS = ("none", "light", "semantic", "aggressive", "statistical", "syntactic")
+_VALID_COMPRESSION_LEVELS = ("none", "light", "semantic", "aggressive", "statistical", "syntactic", "synthelionml")
 
 _DEFAULT_CONFIG: dict[str, Any] = {
     "compression": {

@@ -34,7 +34,7 @@ def main() -> None:
     # compress
     p_cmp = sub.add_parser("compress", help="Compress text to reduce LLM tokens")
     p_cmp.add_argument("--text", "-t", help="Text to compress (or use stdin)")
-    p_cmp.add_argument("--level", "-l", choices=["light", "semantic", "aggressive", "statistical", "syntactic"], default=None, help="Default: configured value (see `synthelion configure --show`), normally 'semantic'")
+    p_cmp.add_argument("--level", "-l", choices=["light", "semantic", "aggressive", "statistical", "syntactic", "synthelionml"], default=None, help="Default: configured value (see `synthelion configure --show`), normally 'semantic'")
     p_cmp.add_argument("--language", "-L", help="ISO 639-3 code (auto-detected if omitted)")
     p_cmp.add_argument("--json", action="store_true", help="Output as JSON")
 
@@ -271,7 +271,7 @@ def main() -> None:
     # models — offline PrivacyGuard ML models (bundled inside Synthelion, no
     # runtime network dependency; runtime only loads them from disk).
     p_models = sub.add_parser(
-        "models", help="Manage the locally bundled PrivacyGuard ML models (see the UI toggle "privacy.use_ml")"
+        "models", help="Manage the locally bundled PrivacyGuard ML models (see the UI toggle 'privacy.use_ml')"
     )
     models_sub = p_models.add_subparsers(dest="models_cmd", required=True)
     _p_models_install = models_sub.add_parser(
@@ -402,6 +402,7 @@ def _cmd_compress(args) -> None:
         "aggressive": CompressionLevel.AGGRESSIVE,
         "statistical": CompressionLevel.STATISTICAL,
         "syntactic": CompressionLevel.SYNTACTIC,
+        "synthelionml": CompressionLevel.SYNTHELION_ML,
     }
     if args.level is None:
         from synthelion.config import default_compression_level
@@ -690,12 +691,13 @@ def _cmd_models(args) -> None:
         for r in roots:
             print(f"  {'present' if r.is_dir() else 'absent':7} {r}")
         if not found:
-            print("\nNo ML models installed. Run `synthelion models install` "
+            print("\nNo PrivacyGuard ML models installed. Run `synthelion models install` "
                   "(one network call) to enable privacy.use_ml offline.")
-            return
-        print("\nInstalled models:")
-        for name, path, size in found:
-            print(f"  {name:24} {path}  ({size / (1024 * 1024):.1f} MB)")
+        else:
+            print("\nInstalled PrivacyGuard models:")
+            for name, path, size in found:
+                print(f"  {name:24} {path}  ({size / (1024 * 1024):.1f} MB)")
+        _report_synthelionml_status()
         return
 
     if args.models_cmd == "install":
@@ -710,6 +712,25 @@ def _cmd_models(args) -> None:
         print(f"Installed ML model {args.model!r} -> {path}")
         print(f"Short name: {name}  (set privacy.ml_model to it in the config)")
         print(f"Size: {size / (1024 * 1024):.1f} MB — analysis now runs fully offline.")
+
+
+def _report_synthelionml_status() -> None:
+    """Report the SynthelionML level checkpoint + torch availability."""
+    from synthelion.synthelionml import resolve_ml_model_path
+
+    print("\nSynthelionML compression level:")
+    model_path = resolve_ml_model_path()
+    if model_path is None:
+        print("  checkpoint: absent (level silently falls back to SYNTACTIC rules)")
+    else:
+        size = sum(f.stat().st_size for f in model_path.iterdir() if f.is_file())
+        print(f"  checkpoint: {model_path}  ({size / (1024 * 1024):.1f} MB)")
+    try:
+        import torch  # noqa: F401
+        has_torch = True
+    except ImportError:
+        has_torch = False
+    print(f"  torch     : {'present' if has_torch else 'absent (run `synthelion models install` to enable the ML level)'}")
 
 
 def _ensure_ml_libraries() -> None:

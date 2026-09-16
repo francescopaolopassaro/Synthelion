@@ -322,6 +322,8 @@ class CompressionService:
             filtered = _filter_statistical(
                 tokens, fw, lemmas, proper_nouns, iso3, generic, pos_tags, global_idf=self._global_idf,
             )
+        elif level == CompressionLevel.SYNTHELION_ML:
+            filtered = _filter_synthelion_ml(tokens, fw, lemmas, proper_nouns, iso3, pos_tags)
         else:  # SYNTACTIC
             generic = self._provider.get_generic_words(iso3) or _GENERIC_FALLBACK
             filtered = _filter_syntactic(tokens, fw, lemmas, proper_nouns, iso3, generic, pos_tags)
@@ -779,7 +781,7 @@ def _filter_statistical(
     return out
 
 
-def _filter_syntactic(
+def _syntactic_keep_mask(
     tokens: list[_Token],
     fw: frozenset[str],
     lemmas: dict[str, str],
@@ -787,24 +789,12 @@ def _filter_syntactic(
     iso3: str,
     generic: frozenset[str],
     pos_tags: dict[str, str],
-) -> list[str]:
-    """Rule-based syntactic pruning (ported from Caveman C# 1.4.1).
+) -> tuple[list[bool], list[bool]]:
+    """Per-token keep/is_func masks used by _filter_syntactic.
 
-    Same content-word filtering as AGGRESSIVE, except a function word survives when
-    it is grammatical glue directly touching a word that itself survives — a
-    determiner right in front of its noun — so the result reads as a terse but
-    grammatical sentence instead of a keyword bag. Kept function words are never
-    lemmatised.
-
-    When pos_tags is non-empty, a leading hedging/matrix clause ("I kindly ask you
-    to...", "vorrei che tu...") is additionally elided in favour of the sentence's
-    last verb — gated on real POS evidence (a first attempt without it broke on
-    verb/preposition homographs, e.g. Italian "entro" = "by/within" vs. "I enter")
-    and restricted to only fire when every token between two candidate verbs is
-    grammatical glue or a descriptive modifier, never a real content noun, so
-    coordinated clauses ("I bought bread and ate cake") are never mistaken for a
-    hedge clause and gutted. Proper nouns are never elided. Without POS data for the
-    language, elision is a no-op.
+    Extracted so the SynthelionML trainer can produce ground-truth labels with
+    zero drift from what the rule compressor actually returns. Returns
+    (keep[i], is_func[i]) for every token index.
     """
     group = _lang_group(iso3)
     is_proper = _detect_proper_nouns(tokens, iso3, proper_nouns)
@@ -925,6 +915,39 @@ def _filter_syntactic(
         keep[i] = True
         sentence_has_keep[sentence_of[i]] = True
 
+    return keep, is_func
+
+
+def _filter_syntactic(
+    tokens: list[_Token],
+    fw: frozenset[str],
+    lemmas: dict[str, str],
+    proper_nouns: frozenset[str],
+    iso3: str,
+    generic: frozenset[str],
+    pos_tags: dict[str, str],
+) -> list[str]:
+    """Rule-based syntactic pruning (ported from Caveman C# 1.4.1).
+
+    Same content-word filtering as AGGRESSIVE, except a function word survives when
+    it is grammatical glue directly touching a word that itself survives — a
+    determiner right in front of its noun — so the result reads as a terse but
+    grammatical sentence instead of a keyword bag. Kept function words are never
+    lemmatised.
+
+    When pos_tags is non-empty, a leading hedging/matrix clause ("I kindly ask you
+    to...", "vorrei che tu...") is additionally elided in favour of the sentence's
+    last verb — gated on real POS evidence (a first attempt without it broke on
+    verb/preposition homographs, e.g. Italian "entro" = "by/within" vs. "I enter")
+    and restricted to only fire when every token between two candidate verbs is
+    grammatical glue or a descriptive modifier, never a real content noun, so
+    coordinated clauses ("I bought bread and ate cake") are never mistaken for a
+    hedge clause and gutted. Proper nouns are never elided. Without POS data for the
+    language, elision is a no-op.
+    """
+    keep, is_func = _syntactic_keep_mask(tokens, fw, lemmas, proper_nouns, iso3, generic, pos_tags)
+    is_proper = _detect_proper_nouns(tokens, iso3, proper_nouns)
+
     out = []
     for i, tok in enumerate(tokens):
         if not keep[i]:
@@ -934,6 +957,38 @@ def _filter_syntactic(
             continue
         out.append(_lemma_or_lower(tok.text, lemmas, pos_tags))
     return out
+
+
+def _filter_synthelion_ml(
+    tokens: list[_Token],
+    fw: frozenset[str],
+    lemmas: dict[str, str],
+    proper_nouns: frozenset[str],
+    iso3: str,
+    pos_tags: dict[str, str],
+) -> list[str]:
+    """SynthelionML: learned per-token keep/drop classifier.
+
+    Falls back to SYNTACTIC if the ML model checkpoint or torch is not installed.
+    """
+    try:
+        from synthelion.synthelionml import SynthelionMLCompressor
+        compressor = SynthelionMLCompressor.get_instance()
+        if not compressor.is_available():
+            # graceful fallback: model not present
+            from synthelion.word_provider import FunctionWordProvider
+            generic = FunctionWordProvider().get_generic_words(iso3) or _GENERIC_FALLBACK
+            return _filter_syntactic(tokens, fw, lemmas, proper_nouns, iso3, generic, pos_tags)
+        # ML path: pass raw tokens, get back list[str]
+        return compressor.compress_tokens(tokens, fw, lemmas, proper_nouns, iso3, pos_tags)
+    except Exception:
+        # any import/runtime error → fallback silently
+        try:
+            from synthelion.word_provider import FunctionWordProvider
+            generic = FunctionWordProvider().get_generic_words(iso3) or _GENERIC_FALLBACK
+        except Exception:
+            generic = _GENERIC_FALLBACK
+        return _filter_syntactic(tokens, fw, lemmas, proper_nouns, iso3, generic, pos_tags)
 
 
 def _apply_custom(

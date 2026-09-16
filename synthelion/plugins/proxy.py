@@ -204,6 +204,7 @@ def _level_map() -> dict:
             "none": CompressionLevel.NONE, "light": CompressionLevel.LIGHT,
             "semantic": CompressionLevel.SEMANTIC, "aggressive": CompressionLevel.AGGRESSIVE,
             "statistical": CompressionLevel.STATISTICAL, "syntactic": CompressionLevel.SYNTACTIC,
+            "synthelionml": CompressionLevel.SYNTHELION_ML,
         }
     return _LEVEL_MAP
 
