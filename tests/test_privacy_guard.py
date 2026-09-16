@@ -183,6 +183,83 @@ class TestPrivacyAnalyzer:
         assert results[0].score <= results[1].score
 
 
+class TestPrivacyFalsePositiveHardening:
+    """Bare numbers in prose must not be read as national IDs / phones, and a
+    failed checksum must never be detected or masked (see privacy_rules.yaml
+    `requires_context` + PrivacyAnalyzer._match_is_confirmed)."""
+
+    def setup_method(self):
+        from synthelion.privacy_analyzer import PrivacyAnalyzer
+        self.analyzer = PrivacyAnalyzer()
+
+    def test_bare_8_digit_number_is_not_maltese_id_or_phone(self):
+        for text in ["Il numero è 12345678", "totale 15092026", "referto 99887766"]:
+            r = self.analyzer.analyze(text, auto_masking=True)
+            assert r.detected_categories == []
+            assert r.masked_text == text
+
+    def test_bare_10_11_13_digit_numbers_are_not_national_ids(self):
+        for text in [
+            "importo 1234567890",          # 10 digits (EGN/RNOKPP/HU/NIP shapes)
+            "totale 99887766554",          # 11 digits (PESEL/OIB/AMKA/BE/Steuer shapes)
+            "order 1234567890123",         # 13 digits (CNP/EMSO/LU shapes)
+            "integro 44051401358 C",       # valid PESEL *checksum*, but no context
+        ]:
+            r = self.analyzer.analyze(text, auto_masking=True)
+            assert r.detected_categories == [], text
+
+    def test_invalid_checksum_match_is_never_detected_or_masked(self):
+        # 99887766554 fails every modulo-11 validator it matches; it must neither
+        # count as a detection nor be masked even though the format matches.
+        text = "Reference 99887766554 and PESEL: 44051401359"
+        r = self.analyzer.analyze(text, auto_masking=True)
+        assert r.detected_categories == ["Polish PESEL"]
+        assert "99887766554" in r.masked_text
+        assert "44051401359" not in r.masked_text
+
+    def test_maltese_requires_trailing_letter_and_context(self):
+        assert self.analyzer.analyze("12345678").detected_categories == []
+        assert self.analyzer.analyze("1234567X").detected_categories == []  # no keyword
+        assert self.analyzer.analyze("il codice è 3124567M").detected_categories == []
+        r = self.analyzer.analyze("identity card 6844486M", auto_masking=True)
+        assert "Maltese ID Number" in r.detected_categories
+        assert "6844486M" not in r.masked_text
+
+    def test_phone_requires_context_or_plus_prefix(self):
+        assert self.analyzer.analyze("il totale è 39123456").detected_categories == []
+        assert self.analyzer.analyze("hotel 39123456").detected_categories == []  # "tel" inside "hotel"
+        assert self.analyzer.analyze("personnummer 8112289874").detected_categories == []  # "nummer"≠phone
+        r = self.analyzer.analyze("telefono 39123456")
+        assert "Phone E.164" in r.detected_categories
+        r = self.analyzer.analyze("call +393912345678")  # E.164 canonical form, no keyword needed
+        assert "Phone E.164" in r.detected_categories
+
+    def test_gps_requires_context(self):
+        r = self.analyzer.analyze("gps coords 45.4642, 9.1900")
+        assert "GPS Coordinates" in r.detected_categories
+        assert self.analyzer.analyze("il prezzo è 3, 14 euro").detected_categories == []
+
+    def test_checksum_valid_with_context_is_detected(self):
+        r = self.analyzer.analyze("PESEL: 44051401359")
+        assert "Polish PESEL" in r.detected_categories
+        r = self.analyzer.analyze("bsn 111222333")
+        assert "Dutch BSN" in r.detected_categories
+        r = self.analyzer.analyze("personnummer 8112289874")
+        assert "Swedish Personal ID" not in r.detected_categories  # 10-digit run, not 8-4
+
+    def test_strongly_anchored_patterns_need_no_context(self):
+        r = self.analyzer.analyze("Contact me at mario.rossi@example.it")
+        assert "Email" in r.detected_categories
+        r = self.analyzer.analyze("IBAN IT60X0542811101000000123456")
+        assert "IBAN" in r.detected_categories
+
+    def test_short_context_keyword_needs_word_boundary(self):
+        # "nn" must not confirm a Belgian registry number via "annual", "tel" not
+        # via "hotel".
+        assert self.analyzer.analyze("annual 12345678901").detected_categories == []
+        assert self.analyzer.analyze("hotel 39123456").detected_categories == []
+
+
 class TestPromptInjectionGuard:
     def setup_method(self):
         from synthelion.prompt_injection_guard import PromptInjectionGuard

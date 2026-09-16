@@ -6,15 +6,38 @@ All notable changes to Synthelion are documented here.
 
 ## [Unreleased]
 
-### Added — EnterpriseGuard: SSRF/metadata-egress and destructive-command blocking on `check_tool_call`
-- **No SSRF/cloud-metadata protection existed anywhere in the codebase.** A tool call's URL argument or Bash command could target `169.254.169.254` (AWS/GCP/Azure/Alibaba instance metadata), a loopback/RFC1918 address, or a dangerous non-HTTP scheme (`file://`, `gopher://`, `dict://`) and nothing would stop it.
-- **Destructive-shell patterns were advisory-only.** `SafetyGuard` already recognized `rm -rf`, `drop table`, `git push --force` and similar patterns, but only to skip compressing the text — never to block the tool call carrying them.
-- New `synthelion/ssrf_guard.py`: `find_ssrf_target(text)` — scheme-anchored (`xxx://`) regex detector for cloud-metadata endpoints, loopback, RFC1918 private ranges, and dangerous schemes. Requiring a scheme keeps it conservative: a plain-prose mention of an internal IP in a chat message never trips it.
-- `safety_guard.py` gains a public `find_destructive_command(text)`, reusing the existing pattern set for a real blocking decision instead of only the advisory compression-skip.
-- `EnterpriseGuard.check_tool_call()` — the existing `PreToolUse`-style veto — now also checks URL-shaped tool-input args (`url`, `uri`, `endpoint`, `target_url`, `webhook_url`) and the `command` string against both detectors, before falling through to the existing credential check. Scoped to tool calls only, not `check_text()`'s general outbound-content scan — a prompt that *discusses* a destructive command or an internal URL is not blocked, only a tool actually invoked with one is.
-- Two new `content_categories` toggles in `enterprise_guard` config, `ssrf_egress` and `destructive_commands`, both on by default.
-- New tests: `tests/test_ssrf_guard.py` (22 cases) plus additions to `tests/test_enterprise_guard.py` (11 cases: both detectors, category toggles, master switch).
-- **Known limitation**: `destructive_commands` currently reuses `safety_guard`'s generic shell patterns, which don't yet include IaC-specific commands (`terraform destroy`, `kubectl delete`) — documented by a test asserting current (non-)coverage rather than silently gapped.
+### Fixed — privacy analyzer false positives across all languages/regions
+- **A bare number in prose was read as national-ID/PII and masked.** The rule set
+  matched any 7-15 digit run (Phone E.164), any 8-digit run (Maltese ID — no trailing
+  letter required), and any 10-13 digit run against PESEL, OIB, EGN, AMKA, CNP, EMSO,
+  Steuer-Id, INN, RNOKPP, etc. Nearly every numeric token in real text tripped at least
+  one category, and because a modulo-11 checksum passes ~1-in-10 random numbers, even
+  "validated" matches were mostly false positives — which then got masked on top.
+- **Failed checksums were still detected and masked** (`privacy_analyzer.py`). A match
+  whose validator returned `False` (e.g. a random 11-digit number for PESEL/BSN/OIB)
+  still counted toward the category, the score, and `_mask_text` output. Only checksum-
+  confirmed matches are detected and masked now.
+- **New rule schema field `requires_context`** (`privacy_rules.yaml`, version 2.1) with a
+  confirmation tier in `PrivacyAnalyzer._match_is_confirmed`: a match from a
+  `requires_context` rule only counts when a `context_keywords` term appears within 25
+  chars of it (AND its checksum passes, when one exists). Applied to every rule whose
+  pattern is a bare/un-anchored numeric run — Phone, GPS, Maltese ID, SIREN/SIRET, NIP,
+  PESEL, BSN, Swedish Personal ID, Danish CPR, Steuer-Id, Austrian social insurance,
+  Belgian registry, PT GR Greek/PO tax numbers, AMKA, CNP, EGN, OIB, EMSO, LT/LV/EE
+  personal codes, Hungarian Tax ID, Luxembourg ID, INN, RNOKPP, Italian VAT. Structurally
+  anchored patterns (Email, IBAN, CF, NINO, IDCARD_DE, Hetu, NIF, GPS-with-keyword, PPSN,
+  CJK IDs, AHV) keep detecting without context.
+- **Maltese ID pattern tightened to the real format** (7 digits + one trailing letter,
+  e.g. `6844486M`) so an 8-digit date/reference can never match.
+- **Short context keywords match as whole words, not substrings** — `tel` no longer
+  confirms a phone via "hotel", `nn` no longer confirms a Belgian registry number via
+  "annual", and "nummer" was dropped from the phone keywords so "personnummer" is not a
+  phone. Long/multi-word keywords stay substring-based. A `+`-prefixed number is E.164 by
+  definition and needs no keyword, which the previous `\b\+?` pattern never matched anyway
+  (a word boundary cannot precede `+`).
+- New tests: `tests/test_privacy_guard.py::TestPrivacyFalsePositiveHardening` (12 cases:
+  bare 8/10/11/13-digit numbers, invalid-checksum isolation, Maltese/phone/GPS context
+  gating, short-keyword boundaries, strongly-anchored false-negative guards).
 
 ---
 

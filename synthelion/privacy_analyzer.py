@@ -27,6 +27,20 @@ from synthelion.privacy_session import PrivacySession
 from synthelion.privacy_validators import get_validator
 
 _RULES_TIMEOUT = 2.0  # seconds — regex compile safety net, mirrors the C# RegexHelper timeout
+_CONTEXT_WINDOW = 25  # chars scanned on each side of a format match for context_keywords
+# Short keywords ("tel", "id", "nn") are substring-checked, a bare "tel" would match
+# "hotel" and "nn" would match "annual", so keywords shorter than this length must
+# appear as a whole word instead. Long/multi-word keywords stay substring-based.
+_KEYWORD_WORD_LEN = 6
+
+
+def _keyword_in_window(keyword: str, window: str) -> bool:
+    """Context-keyword match: long/multi-word keywords are substrings, short ones
+    ("tel", "id", "nn") must stand as a whole word so "hotel" cannot confirm a phone
+    number nor "annual" a Belgian registry number."""
+    if len(keyword) >= _KEYWORD_WORD_LEN:
+        return keyword in window
+    return re.search(r"(?<!\w)" + re.escape(keyword) + r"(?!\w)", window) is not None
 
 
 @dataclass
@@ -38,6 +52,7 @@ class CompiledRule:
     context_keywords: list[str]
     is_high_confidence: bool
     compliance_tags: list[str]
+    requires_context: bool = False
 
 
 @dataclass
@@ -227,6 +242,7 @@ class PrivacyAnalyzer:
                     context_keywords=[k.lower() for k in (rule.get("context_keywords") or [])],
                     is_high_confidence=bool(rule.get("is_high_confidence", False)),
                     compliance_tags=list(rule.get("compliance_tags") or []),
+                    requires_context=bool(rule.get("requires_context", False)),
                 ))
         return rules
 
@@ -294,19 +310,15 @@ class PrivacyAnalyzer:
             whitelist_snapshot = set(self._whitelist)
 
         for rule in rules_snapshot:
-            matches = list(rule.pattern.finditer(normalized))
-            if not matches:
-                continue
             rule_matches = 0
             any_valid = False
-            for m in matches:
+            for m in rule.pattern.finditer(normalized):
                 if m.group() in whitelist_snapshot:
                     continue
-                is_valid = rule.validator(m.group()) if rule.validator else True
-                if is_valid:
+                if self._match_is_confirmed(rule, m, normalized):
                     any_valid = True
-                rule_matches += 1
-                total_matches += 1
+                    rule_matches += 1
+                    total_matches += 1
             if rule_matches > 0:
                 detected[rule.category] = (rule_matches, any_valid)
                 weight = rule.base_weight * (1.3 if any_valid else 0.5) * (1.2 if rule.is_high_confidence else 0.8)
@@ -347,6 +359,38 @@ class PrivacyAnalyzer:
         return session.restore(text)
 
     # ── internals ────────────────────────────────────────────────────────────
+
+    def _match_is_confirmed(self, rule: CompiledRule, m: re.Match, text: str) -> bool:
+        """Only "confirmed" matches count as a detection (and get masked).
+
+        Three tiers, mirroring the port's design intent:
+
+        * A rule with a checksum validator is confirmed iff the validator passes —
+          a bare *format* match (e.g. an 11-digit number that fails PESEL/BSN/OIB)
+          is no longer detected or masked.
+        * A rule with ``requires_context: true`` is confirmed iff one of its
+          ``context_keywords`` appears near the match AND (when a validator is
+          present) the checksum passes — a random 9-13 digit number behaves like a
+          prose number, and even one that happens to pass a modulo-11 checksum is
+          not PII unless a domain keyword anchors it.
+        * A format-only rule with neither (strongly structured pattern such as Email,
+          IBAN prefix shape, JWT triple) is confirmed by the pattern alone.
+        """
+        if rule.requires_context:
+            # A `+`-prefixed number is E.164 by definition (the spec's canonical
+            # form is "+<cc><n>"), so it needs no prose keyword to be confirmed.
+            if rule.category == "Phone E.164" and m.group().startswith("+"):
+                return bool(rule.validator(m.group())) if rule.validator else True
+            if not rule.context_keywords:
+                return False
+            start = max(0, m.start() - _CONTEXT_WINDOW)
+            end = min(len(text), m.end() + _CONTEXT_WINDOW)
+            window = text[start:end].lower()
+            if not any(_keyword_in_window(k, window) for k in rule.context_keywords):
+                return False
+        if rule.validator is not None:
+            return bool(rule.validator(m.group()))
+        return True
 
     def _calculate_context_boost(
         self, text: str, detected: dict[str, tuple[int, bool]], rules: list[CompiledRule],
@@ -437,6 +481,8 @@ class PrivacyAnalyzer:
                 continue
             for m in rule.pattern.finditer(text):
                 if m.group() in whitelist:
+                    continue
+                if not self._match_is_confirmed(rule, m, text):
                     continue
                 intervals.append((m.start(), m.end(), rule.category, m.group()))
 

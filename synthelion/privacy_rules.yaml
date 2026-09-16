@@ -1,4 +1,13 @@
-version: "2.0"
+version: "2.1"
+# Rule schema notes:
+#   validator_name   — algorithmic checksum; a match only counts when it passes.
+#   requires_context — bool. Format-only OR bare-digit rules (any 7-15 digit run,
+#                      any 9-13 digit run passing a modulo checksum by coincidence,
+#                      etc.) only count a match when one of `context_keywords`
+#                      appears within 25 chars of it. Structurally-anchored patterns
+#                      (Email, CF 16-char, NINO, IBAN, JWT, ...) do not need it —
+#                      even when `requires_context` is not set, a failed checksum
+#                      match is never detected or masked.
 global_context_keywords:
   - confidential
   - riservato
@@ -42,9 +51,18 @@ countries:
         context_keywords: ["email", "mail", "contatto", "indirizzo", "posta", "adresse", "correo"]
         compliance_tags: ["GDPR Art.4(1)"]
       - category: "Phone E.164"
-        pattern: '\b\+?[1-9]\d{6,14}\b'
+        # Two alternates: a `+`-prefixed number (E.164 canonical form, a str-only
+        # boundary cannot precede `+`, hence the separate branch) and a bare local
+        # number which still needs a telecom keyword to be confirmed.
+        pattern: '\+[1-9]\d{6,14}\b|\b[1-9]\d{6,14}\b'
         base_weight: 10
-        context_keywords: ["tel", "phone", "cell", "mobile", "fisso", "nummer", "téléphone", "teléfono", "telefon"]
+        # No checksum exists for phone numbers, and the format is any 7-15 digit
+        # run — a bare number in prose is not evidence. Only count a match when a
+        # telecom keyword (tel/phone/cell/+) anchors it (a `+` prefix counts itself
+        # as that anchor). Note "nummer"/"number" alone is deliberately absent: it
+        # just means "number" and would confirm Swedish "personnummer" as a phone.
+        requires_context: true
+        context_keywords: ["tel", "phone", "cell", "mobile", "fisso", "téléphone", "teléfono", "telefon"]
         compliance_tags: ["GDPR Art.4(1)"]
       - category: "IBAN"
         pattern: '\b[A-Z]{2}\d{2}[A-Z0-9]{4,30}\b'
@@ -71,6 +89,9 @@ countries:
       - category: "GPS Coordinates"
         pattern: '\b[-+]?([1-8]?\d(\.\d+)?|90(\.0+)?),\s*[-+]?(180(\.0+)?|((1[0-7]\d)|([1-9]?\d))(\.\d+)?)\b'
         base_weight: 10
+        # The bare-lat,lon shape also matches prose like "in 3, 14 people" — a
+        # coordinate only counts when a positioning keyword anchors it.
+        requires_context: true
         context_keywords: ["gps", "location", "posizione", "ubicación", "ortung", "coordonnées", "współrzędne", "locatie", "localização", "lat", "lon", "plus code", "what3words", "geolokacja", "standort"]
         compliance_tags: ["GDPR Art.4(1) - Location Data"]
       - category: "EU Vehicle License Plate"
@@ -118,6 +139,7 @@ countries:
         pattern: '\bIT?\d{11}\b'
         base_weight: 16
         validator_name: "PIVA_IT"
+        requires_context: true
         context_keywords: ["piva", "partita", "iva", "vat"]
         compliance_tags: ["GDPR", "Italian Revenue Agency"]
 
@@ -129,6 +151,7 @@ countries:
         base_weight: 19
         validator_name: "STEUER_ID_DE"
         is_high_confidence: true
+        requires_context: true
         context_keywords: ["steuer-id", "steueridentifikationsnummer", "steuernummer"]
         compliance_tags: ["DSGVO", "BfDI"]
       - category: "German ID Card"
@@ -155,6 +178,9 @@ countries:
       - category: "French Business ID (SIREN/SIRET)"
         pattern: '\b\d{3}\s?\d{3}\s?\d{3}\b|\b\d{3}\s?\d{3}\s?\d{3}\s?00\d{2}\b'
         base_weight: 13
+        # Any 9-digit run matches the bare format — only count when a company
+        # keyword anchors it (SIREN/SIRET have no public checksum).
+        requires_context: true
         context_keywords: ["siren", "siret", "entreprise", "société"]
         compliance_tags: ["RGPD", "INSEE"]
 
@@ -177,11 +203,15 @@ countries:
         base_weight: 17
         validator_name: "PESEL_PL"
         is_high_confidence: true
+        requires_context: true
         context_keywords: ["pesel", "dowód", "identyfikacja", "nr osobisty"]
         compliance_tags: ["RODO", "UODO"]
       - category: "Polish VAT (NIP)"
         pattern: '\b\d{2}-\d{3}-\d{2}-\d{2}-\d{1}\b|\b\d{10}\b'
         base_weight: 15
+        # The bare 10-digit alternative matches any 10-digit number; NIP has no
+        # checksum here, so a tax keyword must anchor it.
+        requires_context: true
         context_keywords: ["nip", "vat", "podatek", "firma"]
         compliance_tags: ["RODO"]
 
@@ -192,6 +222,7 @@ countries:
         pattern: '\b\d{9}\b'
         base_weight: 18
         validator_name: "BSN_NL"
+        requires_context: true
         context_keywords: ["bsn", "sofinummer", "identificatienummer", "persoonsnummer"]
         compliance_tags: ["AVG", "AP"]
 
@@ -202,6 +233,7 @@ countries:
         pattern: '\b\d{8}-?\d{4}\b'
         base_weight: 19
         validator_name: "PERSONNUMMER_SE"
+        requires_context: true
         context_keywords: ["personnummer", "pnr", "identitet", "folkbokföring"]
         compliance_tags: ["GDPR", "IMY"]
 
@@ -223,6 +255,7 @@ countries:
         pattern: '\b\d{6}-?\d{4}\b'
         base_weight: 19
         validator_name: "CPR_DK"
+        requires_context: true
         context_keywords: ["cpr", "cpr-nummer", "personnummer", "id"]
         compliance_tags: ["GDPR", "Datatilsynet"]
 
@@ -232,6 +265,7 @@ countries:
       - category: "Austrian Social Insurance"
         pattern: '\b\d{4}\s?\d{5}\b'
         base_weight: 17
+        requires_context: true
         context_keywords: ["sv-nummer", "sozialversicherung", "versichertennummer"]
         compliance_tags: ["DSGVO", "DSB"]
       - category: "Austrian VAT (UID)"
@@ -247,6 +281,7 @@ countries:
         pattern: '\b\d{11}\b'
         base_weight: 18
         validator_name: "NN_BE"
+        requires_context: true
         context_keywords: ["numéro national", "rijksregisternummer", "nn", "id"]
         compliance_tags: ["GDPR", "APD"]
 
@@ -257,6 +292,7 @@ countries:
         pattern: '\b\d{9}\b'
         base_weight: 16
         validator_name: "NIF_PT"
+        requires_context: true
         context_keywords: ["nif", "número contribuinte", "fiscal", "contribuinte"]
         compliance_tags: ["RGPD", "CNPD"]
 
@@ -277,11 +313,13 @@ countries:
         pattern: '\b\d{9}\b'
         base_weight: 16
         validator_name: "AFM_GR"
+        requires_context: true
         context_keywords: ["afm", "αφμ", "tax", "fiscale"]
         compliance_tags: ["GDPR", "HDPA"]
       - category: "Greek Social Security (AMKA)"
         pattern: '\b\d{11}\b'
         base_weight: 18
+        requires_context: true
         context_keywords: ["amka", "αμκα", "ασφάλιση", "υγεία"]
         compliance_tags: ["GDPR"]
 
@@ -302,6 +340,7 @@ countries:
         pattern: '\b[1-8]\d{12}\b'
         base_weight: 19
         validator_name: "CNP_RO"
+        requires_context: true
         context_keywords: ["cnp", "cod numeric personal", "identificare"]
         compliance_tags: ["GDPR", "ANSPDCP"]
 
@@ -311,6 +350,7 @@ countries:
       - category: "Hungarian Tax ID"
         pattern: '\b\d{10}\b'
         base_weight: 15
+        requires_context: true
         context_keywords: ["adóazonosító", "taj", "adózás", "azonosító"]
         compliance_tags: ["GDPR", "NAIH"]
 
@@ -321,6 +361,7 @@ countries:
         pattern: '\b\d{10}\b'
         base_weight: 18
         validator_name: "EGN_BG"
+        requires_context: true
         context_keywords: ["egn", "егн", "идентификация", "граждан"]
         compliance_tags: ["GDPR", "CPDP"]
 
@@ -331,6 +372,7 @@ countries:
         pattern: '\b\d{11}\b'
         base_weight: 16
         validator_name: "OIB_HR"
+        requires_context: true
         context_keywords: ["oib", "identifikacijski broj", "porezni broj"]
         compliance_tags: ["GDPR", "AZOP"]
 
@@ -350,6 +392,7 @@ countries:
         pattern: '\b\d{13}\b'
         base_weight: 18
         validator_name: "EMSO_SI"
+        requires_context: true
         context_keywords: ["emšo", "ems", "matična številka"]
         compliance_tags: ["GDPR", "IP"]
 
@@ -360,6 +403,7 @@ countries:
         pattern: '\b[1-6]\d{10}\b'
         base_weight: 17
         validator_name: "AK_LT"
+        requires_context: true
         context_keywords: ["asmens kodas", "ak", "identifikacija"]
         compliance_tags: ["GDPR", "VDAI"]
 
@@ -370,6 +414,7 @@ countries:
         pattern: '\b\d{6}-\d{5}\b|\b\d{11}\b'
         base_weight: 17
         validator_name: "PK_LV"
+        requires_context: true
         context_keywords: ["personas kods", "pk", "identifikācija"]
         compliance_tags: ["GDPR", "DVI"]
 
@@ -380,6 +425,7 @@ countries:
         pattern: '\b[1-6]\d{10}\b'
         base_weight: 17
         validator_name: "IK_EE"
+        requires_context: true
         context_keywords: ["isikukood", "ik", "identifitseerimine"]
         compliance_tags: ["GDPR", "AKI"]
 
@@ -396,8 +442,14 @@ countries:
     language: "en/mt"
     rules:
       - category: "Maltese ID Number"
-        pattern: '\b\d{7}[A-Z0-9]\b'
+        # Real Malta ID cards are exactly 7 digits + one trailing check letter
+        # (e.g. 6844486M) — never all-numeric. The trailing char must be a letter
+        # so that any 8-digit number in prose (dates, reference numbers) cannot
+        # be read as a Maltese ID, and no checksum exists, so a domain keyword
+        # must also anchor the match.
+        pattern: '\b\d{7}[A-Z]\b'
         base_weight: 15
+        requires_context: true
         context_keywords: ["id number", "identity card", "karta tal-identità"]
         compliance_tags: ["GDPR", "IDPC"]
 
@@ -407,6 +459,7 @@ countries:
       - category: "Luxembourg National ID"
         pattern: '\b\d{13}\b'
         base_weight: 16
+        requires_context: true
         context_keywords: ["numero", "identifikation", "numéro d'identification", "matricule"]
         compliance_tags: ["GDPR", "CNPD"]
 
@@ -447,6 +500,7 @@ countries:
         pattern: '\b\d{12}\b'
         base_weight: 17
         validator_name: "INN_RU"
+        requires_context: true
         context_keywords: ["инн", "налогоплательщик", "taxpayer id"]
         compliance_tags: ["152-FZ"]
 
@@ -457,5 +511,6 @@ countries:
         pattern: '\b\d{10}\b'
         base_weight: 17
         validator_name: "RNOKPP_UA"
+        requires_context: true
         context_keywords: ["рнокпп", "ідентифікаційний номер", "taxpayer number"]
         compliance_tags: ["Law of Ukraine No.2297-VI"]
