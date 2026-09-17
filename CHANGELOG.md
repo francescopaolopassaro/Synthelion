@@ -10,7 +10,7 @@ All notable changes to Synthelion are documented here.
 - New `synthelionml` compression level (`models.py`, `config.py`, `cli.py`,
   `proxy.py`, `core.py`): a small offline transformer encoder (~5 M params,
   d=128, h=4, 2 layers) trained on Wikipedia corpora to predict per-token
-  keep/drop with a guaranteed **≥60% compression ratio** (rank-based ratio
+  keep/drop with a **70% compression-ratio target** (rank-based ratio
   controller drops the lowest-scoring words to the target floor). Falls back to
   `syntactic` when the checkpoint or torch is absent — no error, no empty output.
 - `synthelion/synthelionml.py`: lazy, thread-safe `SynthelionMLCompressor`
@@ -33,10 +33,10 @@ All notable changes to Synthelion are documented here.
   Greek, Hungarian, Icelandic, Irish, Latin, Latvian, Lithuanian, Macedonian,
   Norwegian, Polish, Portuguese, Romanian, Serbian, Slovak, Slovenian, Swedish)
   **plus** English, Italian, German, French, Spanish, Russian, Ukrainian, Hindi,
-  Chinese and Japanese (**39 languages total**). Shared vocabulary raised to 60k
+  Chinese and Japanese (**39 languages total**). Shared vocabulary raised to 70k
   words (deterministic char-n-gram fallback for OOV) and the min-compression
-  controller target raised to 65% — measured across all 39 languages: **60.0–69.2%**
-  on short one-sentence samples. Checkpoint ~35 MB (under the 50 MB hard cap;
+  controller target raised to 70% — measured across all 39 languages: **63.6–71.4%**
+  on short one-sentence samples. Checkpoint ~41 MB (under the 50 MB hard cap;
   recycled at `synthelion/ml_models/synthelionml/`).
 - New tests: `tests/test_synthelionml.py` (level registration, core dispatch +
   fallback, compressor singleton, vocab hash determinism, proxy level mapping).

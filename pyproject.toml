@@ -7,7 +7,7 @@ name = "synthelion"
 version = "1.2.5"
 description = "Universal token compressor for AI agents — MCP, OpenAI, LangChain, CLI. 50+ languages, zero ML models."
 readme = "README.md"
-license = "MIT"
+license = "LicenseRef-Proprietary"
 license-files = ["LICENSE"]
 authors = [{ name = "Passaro Francesco Paolo", email = "passaroweb@gmail.com" }]
 maintainers = [{ name = "digitalsolutions", email = "passaroweb@gmail.com" }]

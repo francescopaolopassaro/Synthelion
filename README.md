@@ -3,7 +3,7 @@
 
 [![PyPI version](https://badge.fury.io/py/synthelion.svg)](https://pypi.org/project/synthelion/)
 [![Python Versions](https://img.shields.io/pypi/pyversions/synthelion.svg)](https://pypi.org/project/synthelion/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: Proprietary](https://img.shields.io/badge/License-Proprietary-red.svg)](LICENSE)
 [![GitHub stars](https://img.shields.io/github/stars/francescopaolopassaro/synthelion)](https://github.com/francescopaolopassaro/synthelion/stargazers)
 [![MCP Compatible](https://img.shields.io/badge/MCP-Compatible-blue)](https://modelcontextprotocol.io)
 
@@ -38,7 +38,7 @@ Supports 50+ languages out of the box. No AI model required. No configuration.
 - [Local proxy — any agent, any provider](#local-proxy--any-agent-any-provider)
 - [Web dashboard](#web-dashboard)
 - [Cluster deployment](#cluster-deployment)
-- [Tools](#tools) (41 MCP tools)
+- [Tools](#tools) (46 MCP tools)
 - [Code examples](#code-examples)
 - [Compression levels](#compression-levels)
 - [Supported languages](#supported-languages-50)
@@ -60,7 +60,7 @@ Every token sent to a model costs money and time. Synthelion removes the words t
 - **Content-aware routing** — JSON, HTML, git diffs, logs, code, and prose each get a dedicated compression strategy instead of one generic pass; a universal anti-expansion guard means you never get back something bigger than what you sent in.
 - **Adaptive by design** — compression escalates automatically for larger inputs, results are cached by content hash, and repeated tool calls get diffed instead of resent in full.
 - **Safety-conscious by default** — credential-shaped text (API keys, tokens, PEM blocks) is redacted before it's ever persisted to disk; destructive-command text is flagged before compression could obscure it.
-- **MCP-native** — 41 tools, `readOnlyHint`-annotated where safe for parallel calls, plus first-class OpenAI/LangChain/Claude adapters and a plain Python API.
+- **MCP-native** — 46 tools, `readOnlyHint`-annotated where safe for parallel calls, plus first-class OpenAI/LangChain/Claude adapters and a plain Python API.
 - **Works even where MCP/hooks don't** — a [local reverse proxy](#local-proxy--any-agent-any-provider) enforces PII masking and compression server-side for any agent that supports a custom API base URL (Cursor, Aider, Codex CLI, Claude Code), with automatic failover across up to 10 backup providers and a circuit breaker, all behind the same firewall that protects the dashboard.
 - **Ops-ready** — a local multi-page dashboard, cluster/master-slave deployment, Docker/Kubernetes manifests, all included, none required.
 
@@ -167,7 +167,7 @@ generalises beyond any explicit rule list.
 - **Architecture**: a compact, CPU-friendly transformer encoder (~5 M params) —
   character-n-gram hashing → word/feature embedding → positional encoding → 2-layer
   encoder (d=128, h=4) → per-token keep/drop logits. Deliberately small: hot-loads
-  in milliseconds, runs entirely on CPU, ships ~35 MB inside the package.
+  in milliseconds, runs entirely on CPU, ships ~41 MB inside the package.
 - **Training**: Wikipedia-derived training signals in the language itself; the
   AGGRESSIVE rule compressor (blended with the global IDF table) produces
   ground-truth keep/drop labels and the encoder learns *when the rules matter*
@@ -204,7 +204,7 @@ package-local `synthelion/ml_models/`.
 
 Recommended pairing: default levels (`semantic`/`aggressive`) when you want
 deterministic savings; `synthelionml` when a model should decide what's truly
-disposable — guarantees ≥60% compression and the text is in one of the 39
+disposable — targets ≥70% compression and the text is in one of the 39
 supported languages.
 
 ### Before / After
@@ -520,7 +520,7 @@ open an issue with your methodology and we'll link it here.
 | Advisory command-rewrite (never executes) | ✅ | — | — | ⚠️ executes it (rtk wrapper) | — | n/a |
 | Local multi-page web dashboard | ✅ | ✅ | ✅ (simpler) | — | — | n/a |
 | Cluster / master-slave deployment | ✅ | — | — | — | — | n/a |
-| MCP protocol (Claude Code, etc.) | ✅ 41 tools | ✅ (CLI plugins: Claude/Codex/Gemini) | — (HTTP proxy instead) | ✅ (hooks) | — | n/a |
+| MCP protocol (Claude Code, etc.) | ✅ 46 tools | ✅ (CLI plugins: Claude/Codex/Gemini) | — (HTTP proxy instead) | ✅ (hooks) | — | n/a |
 | Vision/image token optimization | — (text-only) | ✅ (tile-aligned resize + trained router) | — | — | — | n/a |
 | Provider cache-breakpoint-aware read staleness | ✅ | ✅ (origin, `read_maturation.py`) | — | — | — | n/a |
 | Response-style compression (output-side, CJK-aware) | ✅ | — | — | — | — | ✅ (origin) |
@@ -980,7 +980,7 @@ Or register it automatically:
 synthelion install --agent opencode           # global: ~/.config/opencode/opencode.json
 synthelion install --agent opencode --local    # project: ./opencode.json
 ```
-Once registered, all 13 Synthelion tools (`compress`, `route_content`, `compress_for_context`, `deduplicate`, …) show up as callable tools in OpenCode — ask it to *"use the synthelion tool to compress this text"* or let it call them automatically per your agent instructions (see below).
+Once registered, all 46 Synthelion tools (`compress`, `route_content`, `compress_for_context`, `deduplicate`, …) show up as callable tools in OpenCode — ask it to *"use the synthelion tool to compress this text"* or let it call them automatically per your agent instructions (see below).
 
 **Cursor** and **Windsurf** read the same `mcpServers` shape as Claude, just at their own config path — register with:
 ```bash
@@ -1567,7 +1567,7 @@ lands on.
 
 ## Tools
 
-41 MCP tools — the compression/read tools are marked `readOnlyHint: true` so Claude Code and other MCP clients can call them safely in parallel; the handful that mutate state (session recording, the loop guard, output masking) are not.
+46 MCP tools — the compression/read tools are marked `readOnlyHint: true` so Claude Code and other MCP clients can call them safely in parallel; the handful that mutate state (session recording, the loop guard, output masking) are not.
 
 | Tool | What it does |
 |---|---|
@@ -1581,11 +1581,14 @@ lands on.
 | **deduplicate** | Removes near-duplicate texts using cosine bag-of-words similarity. Configurable threshold. |
 | **session_record** | Persists a decision or context note across sessions (ChromaDB or lexical fallback) — credential-shaped text (AWS/GitHub/Slack tokens, PEM blocks, `.env` dumps) is redacted before it ever touches disk. |
 | **session_recall** | Retrieves past decisions by semantic or keyword similarity. |
+| **memory_add** | Adds a note to Synthelion's cross-agent shared memory — visible to every agent that calls `memory_recall`, not just the one that wrote it. Deduplicated by exact text. |
+| **memory_recall** | Lists the most recent notes from Synthelion's cross-agent shared memory (see `memory_add`). |
 | **session_start / session_end** | Track session boundaries and emit summaries. |
 | **compress_file** | Read a file by path and return only the compressed content. Avoids loading raw files into context. |
 | **synthelion_status** | Returns aggregate token savings and estimated cost as structured JSON. |
 | **safety_check** | Flags security-critical or destructive-command text before it gets compressed away. |
 | **check_sensitive_content** | Scans text for credential-shaped content (AWS/GitHub/Slack tokens, PEM blocks, Bearer headers, `.env` dumps) before persisting it. |
+| **check_enterprise_guard** | Advisory read-only pre-check: scans text for outbound-DLP-worthy content (cloud/DB/FTP/git credentials, private keys, bulk `.env` dumps) and/or a path against the configured protected security-zone patterns. |
 | **analyze_waste** | Detects HTML noise, base64 blobs, excess whitespace, inline JSON bloat — read-only. |
 | **check_cache_alignment** | Scans a system prompt for volatile tokens (UUIDs, timestamps, JWTs, hashes) that break provider KV-cache prefix reuse. |
 | **align_cache_prompt** | Rewrites a system prompt so volatile blocks sink to the end, keeping the cacheable prefix stable call-to-call. |
@@ -1601,6 +1604,7 @@ lands on.
 | **mask_old_tool_output** | Replaces all but the most recent N entries in a chronological tool-output list with a placeholder, storing originals for later retrieval. Returns an Artifact Index alongside the masked list. |
 | **expand_masked_output** | Retrieves the original text behind a `mask_old_tool_output` placeholder, by its hash. |
 | **get_artifact_index** | Returns the catalog of everything masked so far, grouped by tool — meant to be re-injected into context so the model knows what was hidden. |
+| **retrieve_compressed_text** | Retrieves the original text behind a `[ccr:xxxxxxxx]` marker from the proxy's lossy-compression cache — same idea as `restore_privacy_text`, but for ordinary compression. Entries expire after `proxy.ccr_ttl_seconds`. |
 | **rewrite_command** | Suggests a less verbose variant of a known shell command (same semantics/exit code) — advisory only, never executed. Refuses composite commands. |
 | **diff_tool_output** | For a tool called again with identical arguments, returns a unified diff against the previous call's output instead of the full text again, when that's actually shorter. |
 | **get_response_style_guidance** | Returns verbosity-reduction instructions to inject into an agent's own system prompt (no filler openings, structured bug-fix format, CJK-aware) — shapes the model's *output*, not its input context. |
@@ -1609,6 +1613,7 @@ lands on.
 | **check_read_maturity** | Checks whether a tracked file read is stale/superseded and has been quiet long enough to safely collapse into a compact marker. |
 | **analyze_privacy** | PrivacyGuard: detects PII across 33 country rule sets, scores it 0-100 with GDPR/AI Act/NIS2/PCI-DSS/NIST compliance flags, optionally masks it with recoverable placeholders. |
 | **restore_privacy_text** | Restores `[PG_n]` placeholders in text back to their original values from an `analyze_privacy` masking session. |
+| **mask_document** | Masks PII in a PDF/Word/Excel/CSV/Markdown/text file by path; DOCX/XLSX are written as a new masked copy (the original is never overwritten). Requires `synthelion[documents]`. |
 | **check_prompt_injection** | Heuristic screening for prompt-injection/jailbreak attempts (instruction override, role hijack, delimiter injection, etc.) before untrusted text reaches an LLM. |
 | **get_ai_transparency_notice** | Returns a localized "you're talking to an AI" disclosure message (supports EU AI Act Art.50 transparency obligations). |
 
@@ -2031,7 +2036,13 @@ pip install "synthelion[chromadb]"
 | `synthelion[claude]` | `anthropic` | `ClaudeAdapter` |
 | `synthelion[crewai]` | `crewai` | `CrewAIAdapter`, `get_tools()` |
 | `synthelion[chromadb]` | `chromadb` | Vector session recall in `session_record` / `session_recall` |
-| `synthelion[all]` | everything above | Full stack |
+| `synthelion[qdrant]` | `qdrant-client` | Qdrant vector-database backend for cross-session memory (`--vector-store qdrant`) |
+| `synthelion[redis]` | `redis` | Redis session/analytics backend for multi-node deployments (`--session-store redis`) |
+| `synthelion[postgres]` | `psycopg[binary]` | PostgreSQL session/analytics backend (`--session-store postgres`) |
+| `synthelion[cluster]` | `redis`, `psycopg`, `qdrant-client` | Master/slave cluster deployment (see [Cluster deployment](#cluster-deployment)) |
+| `synthelion[documents]` | `pypdf`, `python-docx`, `openpyxl` | PDF/Word/Excel input for `mask_document` |
+| `synthelion[dev]` | `pytest`, `pytest-asyncio` | Test suite |
+| `synthelion[all]` | everything above except `dev` | Full stack |
 
 ---
 
