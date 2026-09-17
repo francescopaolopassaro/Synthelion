@@ -1512,6 +1512,183 @@
     }
   });
 
+  // ── Enterprise load functions ──────────────────────────────────────────────
+
+  async function loadEnterpriseUsers() {
+    try {
+      const { users } = await fetchJson("/api/enterprise/users");
+      const tbody = document.getElementById("enterprise-users-tbody");
+      tbody.innerHTML = users.map(u => `
+        <tr>
+          <td><span class="text-xs">${u.label || ""}</span></td>
+          <td><span class="badge badge-sm bg-gradient-info">${u.role}</span></td>
+          <td><span class="badge badge-sm ${u.status === "active" ? "bg-gradient-success" : "bg-gradient-secondary"}">${u.status}</span></td>
+          <td><code class="text-xs" style="font-size:0.7em">${u.virtual_token.slice(0,16)}…</code>
+            <button class="btn btn-link text-danger p-0 ms-1 enterprise-rotate-token" data-uid="${u.user_id}" title="Rotate token">↻</button>
+          </td>
+          <td><span class="text-xs text-muted">${(u.synthelion_providers || []).length} key(s)</span></td>
+          <td>
+            <button class="btn btn-link text-danger p-0 enterprise-delete-user" data-uid="${u.user_id}" title="Delete user">✕</button>
+          </td>
+        </tr>
+      `).join("");
+      tbody.querySelectorAll(".enterprise-rotate-token").forEach(btn => btn.addEventListener("click", async () => {
+        await fetchPostJson("/api/enterprise/users/rotate-token", { user_id: btn.dataset.uid });
+        loadEnterpriseUsers();
+      }));
+      tbody.querySelectorAll(".enterprise-delete-user").forEach(btn => btn.addEventListener("click", async () => {
+        if (!confirm("Delete this user?")) return;
+        await fetchPostJson("/api/enterprise/users/delete", { user_id: btn.dataset.uid });
+        loadEnterpriseUsers();
+      }));
+    } catch (err) { /* non-critical */ }
+  }
+
+  async function loadEnterpriseProviderKeys() {
+    try {
+      const { provider_keys } = await fetchJson("/api/enterprise/provider-keys");
+      const tbody = document.getElementById("enterprise-pk-tbody");
+      if (!tbody) return;
+      tbody.innerHTML = provider_keys.map(k => `
+        <tr>
+          <td><span class="text-xs">${k.provider}</span></td>
+          <td><span class="text-xs">${k.label || ""}</span></td>
+          <td><span class="text-xs text-muted">${k.upstream_url || "(default)"}</span></td>
+          <td>
+            <button class="btn btn-link text-danger p-0 enterprise-delete-pk" data-pkid="${k.pk_id}" title="Delete key">✕</button>
+          </td>
+        </tr>
+      `).join("");
+      tbody.querySelectorAll(".enterprise-delete-pk").forEach(btn => btn.addEventListener("click", async () => {
+        if (!confirm("Delete this provider key?")) return;
+        await fetchPostJson("/api/enterprise/provider-keys/delete", { pk_id: btn.dataset.pkid });
+        loadEnterpriseProviderKeys();
+      }));
+    } catch (err) { /* non-critical */ }
+  }
+
+  async function loadEnterpriseSubscriptions() {
+    try {
+      const { subscriptions } = await fetchJson("/api/enterprise/subscriptions");
+      const tbody = document.getElementById("enterprise-subs-tbody");
+      tbody.innerHTML = subscriptions.map(s => `
+        <tr>
+          <td><span class="text-xs">${s.user_id.slice(0,12)}…</span></td>
+          <td><span class="text-xs">${s.provider_label || s.provider_key_id}</span></td>
+          <td><span class="badge badge-sm bg-gradient-info">${s.type}</span></td>
+          <td><span class="text-xs">${s.model || "all"}</span></td>
+          <td><span class="text-xs">${(s.tokens_used||0).toLocaleString()}</span></td>
+          <td><span class="text-xs">$${(s.cost_usd||0).toFixed(4)}</span></td>
+          <td><span class="badge badge-sm ${s.status === "active" ? "bg-gradient-success" : "bg-gradient-secondary"}">${s.status}</span></td>
+          <td>
+            ${s.status === "active"
+              ? `<button class="btn btn-link text-warning p-0 enterprise-suspend-sub" data-sid="${s.sub_id}" title="Suspend">⏸</button>`
+              : `<button class="btn btn-link text-success p-0 enterprise-reactivate-sub" data-sid="${s.sub_id}" title="Reactivate">▶</button>`}
+          </td>
+        </tr>
+      `).join("");
+      tbody.querySelectorAll(".enterprise-suspend-sub").forEach(btn => btn.addEventListener("click", async () => {
+        await fetchPostJson("/api/enterprise/subscriptions/suspend", { sub_id: btn.dataset.sid });
+        loadEnterpriseSubscriptions();
+      }));
+      tbody.querySelectorAll(".enterprise-reactivate-sub").forEach(btn => btn.addEventListener("click", async () => {
+        await fetchPostJson("/api/enterprise/subscriptions/reactivate", { sub_id: btn.dataset.sid });
+        loadEnterpriseSubscriptions();
+      }));
+    } catch (err) { /* non-critical */ }
+  }
+
+  async function loadEnterpriseActivity() {
+    try {
+      const userId = document.getElementById("enterprise-activity-filter").value;
+      const qs = userId ? `?user_id=${userId}` : "";
+      const { activity } = await fetchJson(`/api/enterprise/activity${qs}`);
+      const tbody = document.getElementById("enterprise-activity-tbody");
+      tbody.innerHTML = activity.map(a => `
+        <tr>
+          <td><span class="text-xs">${new Date(a.timestamp).toLocaleString()}</span></td>
+          <td><span class="text-xs">${(a.user_label || a.user_id).slice(0,20)}</span></td>
+          <td><span class="text-xs">${a.provider || "—"}</span></td>
+          <td><span class="text-xs">${a.model || "—"}</span></td>
+          <td><span class="text-xs">${a.tokens_before || 0}→${a.tokens_after || 0}</span></td>
+          <td><span class="text-xs">$${(a.cost_usd||0).toFixed(4)}</span></td>
+          <td><span class="badge badge-sm ${a.status_code < 400 ? "bg-gradient-success" : "bg-gradient-danger"}">${a.status_code}</span></td>
+        </tr>
+      `).join("");
+    } catch (err) { /* non-critical */ }
+  }
+
+  // ── Enterprise modal handlers ──────────────────────────────────────────────
+
+  function initEnterpriseModals() {
+    const bsModal = (id) => { try { return bootstrap.Modal.getOrCreateInstance(document.getElementById(id)); } catch { return null; } };
+
+    // Add User
+    const addUserBtn = document.getElementById("enterprise-add-user");
+    if (addUserBtn) addUserBtn.addEventListener("click", () => bsModal("modal-add-user")?.show());
+    const addUserSubmit = document.getElementById("add-user-submit");
+    if (addUserSubmit) addUserSubmit.addEventListener("click", async () => {
+      const label = document.getElementById("add-user-label").value.trim();
+      const role = document.getElementById("add-user-role").value;
+      if (!label) return;
+      await fetchPostJson("/api/enterprise/users", { label, role });
+      bsModal("modal-add-user")?.hide();
+      document.getElementById("add-user-label").value = "";
+      loadEnterpriseUsers();
+    });
+
+    // Add Provider Key
+    const addPkBtn = document.getElementById("enterprise-add-pk");
+    if (addPkBtn) addPkBtn.addEventListener("click", () => bsModal("modal-add-provider-key")?.show());
+    const addPkSubmit = document.getElementById("add-pk-submit");
+    if (addPkSubmit) addPkSubmit.addEventListener("click", async () => {
+      const provider = document.getElementById("add-pk-provider").value;
+      const label = document.getElementById("add-pk-label").value.trim();
+      const api_key = document.getElementById("add-pk-apikey").value.trim();
+      const upstream_url = document.getElementById("add-pk-upstream").value.trim() || null;
+      if (!label || !api_key) return;
+      await fetchPostJson("/api/enterprise/provider-keys", { provider, label, api_key, upstream_url });
+      bsModal("modal-add-provider-key")?.hide();
+      document.getElementById("add-pk-label").value = "";
+      document.getElementById("add-pk-apikey").value = "";
+      document.getElementById("add-pk-upstream").value = "";
+      loadEnterpriseProviderKeys();
+    });
+
+    // Add Subscription
+    const addSubBtn = document.getElementById("enterprise-add-sub");
+    if (addSubBtn) addSubBtn.addEventListener("click", async () => {
+      const { users } = await fetchJson("/api/enterprise/users");
+      const { provider_keys } = await fetchJson("/api/enterprise/provider-keys");
+      const userSel = document.getElementById("add-sub-user");
+      const pkSel = document.getElementById("add-sub-pk");
+      userSel.innerHTML = users.map(u => `<option value="${u.user_id}">${u.label || u.user_id}</option>`).join("");
+      pkSel.innerHTML = provider_keys.map(k => `<option value="${k.pk_id}">${k.provider} — ${k.label || k.pk_id}</option>`).join("");
+      bsModal("modal-add-sub")?.show();
+    });
+    const addSubType = document.getElementById("add-sub-type");
+    if (addSubType) addSubType.addEventListener("change", () => {
+      const isMensile = addSubType.value === "mensile";
+      document.getElementById("add-sub-max-tokens-group").style.display = isMensile ? "none" : "";
+      document.getElementById("add-sub-max-cost-group").style.display = isMensile ? "" : "none";
+    });
+    const addSubSubmit = document.getElementById("add-sub-submit");
+    if (addSubSubmit) addSubSubmit.addEventListener("click", async () => {
+      const user_id = document.getElementById("add-sub-user").value;
+      const provider_key_id = document.getElementById("add-sub-pk").value;
+      const type = document.getElementById("add-sub-type").value;
+      const model = document.getElementById("add-sub-model").value.trim() || null;
+      const max_tokens = parseInt(document.getElementById("add-sub-max-tokens").value) || 0;
+      const max_monthly_cost_usd = parseFloat(document.getElementById("add-sub-max-cost").value) || 0;
+      if (!user_id || !provider_key_id) return;
+      await fetchPostJson("/api/enterprise/subscriptions", {
+        user_id, provider_key_id, type, model, max_tokens, max_monthly_cost_usd,
+      });
+      bsModal("modal-add-sub")?.hide();
+      loadEnterpriseSubscriptions();
+    });
+  }
+
   // ── page routing (client-side; server serves the same shell for every
   // route in _PAGE_ROUTES — see dashboard.py) ─────────────────────────────
 
@@ -1520,6 +1697,8 @@
     decisions: "Decisions", settings: "Settings", profile: "Profile", notifications: "Notifications",
     cluster: "Cluster", doctor: "Doctor", version: "Version", privacy: "Privacy",
     security: "Security", proxy: "Proxy",
+    "enterprise-users": "Enterprise Users", "enterprise-subscriptions": "Enterprise Subscriptions",
+    "enterprise-activity": "Enterprise Activity", "enterprise-provider-keys": "Enterprise Provider Keys",
   };
 
   function pageForPath(path) {
@@ -1554,6 +1733,18 @@
       loadProxyConfig();
       loadProxyLogs();
     }
+    if (name === "enterprise-users") {
+      loadEnterpriseUsers();
+    }
+    if (name === "enterprise-subscriptions") {
+      loadEnterpriseSubscriptions();
+    }
+    if (name === "enterprise-activity") {
+      loadEnterpriseActivity();
+    }
+    if (name === "enterprise-provider-keys") {
+      loadEnterpriseProviderKeys();
+    }
   }
 
   function navigate(path, push) {
@@ -1583,6 +1774,7 @@
   loadProfile();
   loadNotifications();
   loadClusterStatus();
+  initEnterpriseModals();
   navigate(window.location.pathname, false);
   initTooltips();
   setInterval(refresh, 20000);

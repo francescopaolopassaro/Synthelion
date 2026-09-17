@@ -90,6 +90,33 @@
             <span class="nav-link-text ms-1">Proxy</span>
           </a>
         </li>
+        <li class="nav-item mt-3">
+          <h6 class="ps-4 ms-2 text-uppercase text-xs text-white font-weight-bolder opacity-5">Enterprise</h6>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link text-white" href="/enterprise-users" data-page-link data-page="enterprise-users">
+            <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            <span class="nav-link-text ms-1">Users</span>
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link text-white" href="/enterprise-provider-keys" data-page-link data-page="enterprise-provider-keys">
+            <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.78 7.78 5.5 5.5 0 0 1 7.78-7.78zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+            <span class="nav-link-text ms-1">Provider Keys</span>
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link text-white" href="/enterprise-subscriptions" data-page-link data-page="enterprise-subscriptions">
+            <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+            <span class="nav-link-text ms-1">Subscriptions</span>
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link text-white" href="/enterprise-activity" data-page-link data-page="enterprise-activity">
+            <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            <span class="nav-link-text ms-1">Activity</span>
+          </a>
+        </li>
         <li class="nav-item">
           <a class="nav-link text-white" href="/doctor" data-page-link data-page="doctor">
             <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3h6l1 4h3v14H5V7h3z"/><path d="M9 12h6M9 16h4"/></svg>
@@ -822,6 +849,7 @@
                   <option value="aggressive">Aggressive</option>
                   <option value="statistical">Statistical</option>
                   <option value="syntactic">Syntactic</option>
+                  <option value="synthelionml">SynthelionML (learned, CPU)</option>
                 </select>
               </div>
             </div>
@@ -1437,6 +1465,284 @@
       </div>
       </div>
       </section>
+
+      <!-- Enterprise: Users -->
+      <section data-page="enterprise-users" style="display:none">
+      <div class="page-header min-height-200 border-radius-xl mt-2" style="background-image: url('/assets/img/synthelion-banner.png'); background-size: cover; background-position: center;">
+        <span class="mask bg-gradient-info opacity-6 border-radius-xl"></span>
+      </div>
+      <div class="card card-body mx-2 mx-md-2 mt-n6">
+      <div class="row g-3 mb-4">
+        <div class="col-12">
+          <div class="card card-plain h-100">
+            <div class="card-header pb-0">
+              <h6 class="mb-0">Enterprise Users</h6>
+              <p class="text-sm mb-0">Manage users and their provider assignments</p>
+            </div>
+            <div class="card-body">
+              <div class="mb-3">
+                <button class="btn btn-sm btn-primary" id="enterprise-add-user">Add User</button>
+              </div>
+              <div class="table-responsive">
+                <table class="table align-items-center mb-0">
+                  <thead>
+                    <tr>
+                      <th class="text-uppercase text-secondary text-xxs font-weight-bolder">Label</th>
+                      <th class="text-uppercase text-secondary text-xxs font-weight-bolder">Role</th>
+                      <th class="text-uppercase text-secondary text-xxs font-weight-bolder">Status</th>
+                      <th class="text-uppercase text-secondary text-xxs font-weight-bolder">Token</th>
+                      <th class="text-uppercase text-secondary text-xxs font-weight-bolder">Synthelion</th>
+                      <th class="text-uppercase text-secondary text-xxs font-weight-bolder">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="enterprise-users-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      </div>
+      </section>
+
+      <!-- Enterprise: Subscriptions -->
+      <section data-page="enterprise-subscriptions" style="display:none">
+
+      <!-- Enterprise: Provider Keys -->
+      <section data-page="enterprise-provider-keys" style="display:none">
+      <div class="page-header min-height-200 border-radius-xl mt-2" style="background-image: url('/assets/img/synthelion-banner.png'); background-size: cover; background-position: center;">
+        <span class="mask bg-gradient-info opacity-6 border-radius-xl"></span>
+      </div>
+      <div class="card card-body mx-2 mx-md-2 mt-n6">
+      <div class="row g-3 mb-4">
+        <div class="col-12">
+          <div class="card card-plain h-100">
+            <div class="card-header pb-0">
+              <h6 class="mb-0">Provider Keys</h6>
+              <p class="text-sm mb-0">Manage encrypted provider API keys</p>
+            </div>
+            <div class="card-body">
+              <div class="mb-3">
+                <button class="btn btn-sm btn-primary" id="enterprise-add-pk">Add Provider Key</button>
+              </div>
+              <div class="table-responsive">
+                <table class="table align-items-center mb-0">
+                  <thead>
+                    <tr>
+                      <th class="text-uppercase text-secondary text-xxs font-weight-bolder">Provider</th>
+                      <th class="text-uppercase text-secondary text-xxs font-weight-bolder">Label</th>
+                      <th class="text-uppercase text-secondary text-xxs font-weight-bolder">Upstream URL</th>
+                      <th class="text-uppercase text-secondary text-xxs font-weight-bolder">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="enterprise-pk-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      </div>
+      </section>
+
+      <!-- Enterprise: Subscriptions (actual section starts here) -->
+      <section data-page="enterprise-subscriptions" style="display:none">
+      <div class="page-header min-height-200 border-radius-xl mt-2" style="background-image: url('/assets/img/synthelion-banner.png'); background-size: cover; background-position: center;">
+        <span class="mask bg-gradient-info opacity-6 border-radius-xl"></span>
+      </div>
+      <div class="card card-body mx-2 mx-md-2 mt-n6">
+      <div class="row g-3 mb-4">
+        <div class="col-12">
+          <div class="card card-plain h-100">
+            <div class="card-header pb-0">
+              <h6 class="mb-0">Subscriptions</h6>
+              <p class="text-sm mb-0">Manage user subscriptions and quotas</p>
+            </div>
+            <div class="card-body">
+              <div class="mb-3">
+                <button class="btn btn-sm btn-primary" id="enterprise-add-sub">Add Subscription</button>
+              </div>
+              <div class="table-responsive">
+                <table class="table align-items-center mb-0">
+                  <thead>
+                    <tr>
+                      <th class="text-uppercase text-secondary text-xxs font-weight-bolder">User</th>
+                      <th class="text-uppercase text-secondary text-xxs font-weight-bolder">Provider</th>
+                      <th class="text-uppercase text-secondary text-xxs font-weight-bolder">Type</th>
+                      <th class="text-uppercase text-secondary text-xxs font-weight-bolder">Model</th>
+                      <th class="text-uppercase text-secondary text-xxs font-weight-bolder">Tokens Used</th>
+                      <th class="text-uppercase text-secondary text-xxs font-weight-bolder">Cost USD</th>
+                      <th class="text-uppercase text-secondary text-xxs font-weight-bolder">Status</th>
+                      <th class="text-uppercase text-secondary text-xxs font-weight-bolder">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="enterprise-subs-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      </div>
+      </section>
+
+      <!-- Enterprise: Activity -->
+      <section data-page="enterprise-activity" style="display:none">
+      <div class="page-header min-height-200 border-radius-xl mt-2" style="background-image: url('/assets/img/synthelion-banner.png'); background-size: cover; background-position: center;">
+        <span class="mask bg-gradient-info opacity-6 border-radius-xl"></span>
+      </div>
+      <div class="card card-body mx-2 mx-md-2 mt-n6">
+      <div class="row g-3 mb-4">
+        <div class="col-12">
+          <div class="card card-plain h-100">
+            <div class="card-header pb-0">
+              <h6 class="mb-0">Activity Log</h6>
+              <p class="text-sm mb-0">Recent proxy requests (metadata only, no prompts)</p>
+            </div>
+            <div class="card-body">
+              <div class="mb-3">
+                <select class="form-select form-select-sm" id="enterprise-activity-filter" style="width:auto;display:inline-block;">
+                  <option value="">All users</option>
+                </select>
+              </div>
+              <div class="table-responsive">
+                <table class="table align-items-center mb-0">
+                  <thead>
+                    <tr>
+                      <th class="text-uppercase text-secondary text-xxs font-weight-bolder">Time</th>
+                      <th class="text-uppercase text-secondary text-xxs font-weight-bolder">User</th>
+                      <th class="text-uppercase text-secondary text-xxs font-weight-bolder">Provider</th>
+                      <th class="text-uppercase text-secondary text-xxs font-weight-bolder">Model</th>
+                      <th class="text-uppercase text-secondary text-xxs font-weight-bolder">Tokens</th>
+                      <th class="text-uppercase text-secondary text-xxs font-weight-bolder">Cost</th>
+                      <th class="text-uppercase text-secondary text-xxs font-weight-bolder">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody id="enterprise-activity-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      </div>
+      </section>
+
+      <!-- Enterprise Modals -->
+      <div class="modal fade" id="modal-add-user" tabindex="-1">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">Add Enterprise User</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <div class="mb-3">
+                <label class="form-label">Label</label>
+                <input type="text" class="form-control" id="add-user-label" placeholder="e.g. John Doe">
+              </div>
+              <div class="mb-3">
+                <label class="form-label">Role</label>
+                <select class="form-select" id="add-user-role">
+                  <option value="user">User</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+              <button type="button" class="btn btn-primary" id="add-user-submit">Create</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal fade" id="modal-add-provider-key" tabindex="-1">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">Add Provider Key</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <div class="mb-3">
+                <label class="form-label">Provider</label>
+                <select class="form-select" id="add-pk-provider">
+                  <option value="openai">OpenAI</option>
+                  <option value="anthropic">Anthropic</option>
+                  <option value="gemini">Gemini</option>
+                  <option value="groq">Groq</option>
+                  <option value="mistral">Mistral</option>
+                  <option value="deepseek">DeepSeek</option>
+                  <option value="xai">xAI</option>
+                  <option value="together">Together</option>
+                  <option value="openrouter">OpenRouter</option>
+                </select>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">Label</label>
+                <input type="text" class="form-control" id="add-pk-label" placeholder="e.g. Production key">
+              </div>
+              <div class="mb-3">
+                <label class="form-label">API Key</label>
+                <input type="password" class="form-control" id="add-pk-apikey">
+              </div>
+              <div class="mb-3">
+                <label class="form-label">Upstream URL (optional)</label>
+                <input type="text" class="form-control" id="add-pk-upstream" placeholder="Leave empty for default">
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+              <button type="button" class="btn btn-primary" id="add-pk-submit">Create</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal fade" id="modal-add-sub" tabindex="-1">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">Add Subscription</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <div class="mb-3">
+                <label class="form-label">User</label>
+                <select class="form-select" id="add-sub-user"></select>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">Provider Key</label>
+                <select class="form-select" id="add-sub-pk"></select>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">Type</label>
+                <select class="form-select" id="add-sub-type">
+                  <option value="consumo">Consumo (pay-per-use)</option>
+                  <option value="mensile">Mensile (monthly)</option>
+                </select>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">Model (optional, blank = all)</label>
+                <input type="text" class="form-control" id="add-sub-model" placeholder="e.g. gpt-4">
+              </div>
+              <div class="mb-3" id="add-sub-max-tokens-group">
+                <label class="form-label">Max Tokens (consumo)</label>
+                <input type="number" class="form-control" id="add-sub-max-tokens" value="0">
+              </div>
+              <div class="mb-3" id="add-sub-max-cost-group" style="display:none">
+                <label class="form-label">Max Monthly Cost USD (mensile)</label>
+                <input type="number" step="0.01" class="form-control" id="add-sub-max-cost" value="0">
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+              <button type="button" class="btn btn-primary" id="add-sub-submit">Create</button>
+            </div>
+          </div>
+        </div>
+      </div>
 
       <section data-page="security" style="display:none">
       <div class="page-header min-height-200 border-radius-xl mt-2" style="background-image: url('/assets/img/synthelion-banner.png'); background-size: cover; background-position: center;">

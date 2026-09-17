@@ -371,6 +371,29 @@ def _resolve_upstream(path: str, cfg: dict) -> str | None:
     return cfg.get("default_upstream") or None
 
 
+def _detect_provider(path: str) -> str | None:
+    """Map a request path to a provider name (for enterprise auth)."""
+    if any(path.startswith(p) for p in ("/v1/messages", "/v1/complete")):
+        return "anthropic"
+    if any(path.startswith(p) for p in ("/v1/chat/completions", "/v1/completions",
+                                        "/v1/responses", "/v1/embeddings", "/v1/models")):
+        return "openai"
+    if any(path.startswith(p) for p in ("/v1beta/models", "/v1/models:generateContent")):
+        return "gemini"
+    return None
+
+
+def _detect_model(body: bytes) -> str | None:
+    """Extract model name from a JSON request body."""
+    try:
+        parsed = json.loads(body)
+        if isinstance(parsed, dict):
+            return parsed.get("model")
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        pass
+    return None
+
+
 class _ProxyHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     proxy_cfg: dict = {}
@@ -438,12 +461,58 @@ class _ProxyHandler(BaseHTTPRequestHandler):
         self._handle_and_forward()
 
     def _handle_and_forward(self) -> None:
-        from synthelion.config import waf_config
+        from synthelion.config import waf_config, load_config
         body = self._read_body()
         cfg = waf_config()
         if not self._waf_gate(body, cfg):
             return
-        self._forward(body)
+
+        # ── Enterprise auth gate ────────────────────────────────────────
+        ent_result = None
+        ent_cfg = load_config().get("enterprise", {})
+        if ent_cfg.get("enabled"):
+            ent_result = self._enterprise_auth(body)
+            if ent_result is not None and not ent_result.allowed:
+                return  # _enterprise_auth already sent the error response
+
+        self._forward(body, enterprise_auth=ent_result)
+
+    def _enterprise_auth(self, body: bytes):
+        """Run enterprise auth + quota check.  Returns the auth result, or
+        ``None`` if enterprise is not active for this request."""
+        try:
+            from synthelion.enterprise import ensure_enterprise
+            from synthelion.enterprise.middleware import check_enterprise_auth
+            ensure_enterprise()
+        except Exception:
+            return None
+
+        virtual_token = self._extract_virtual_token()
+        provider = _detect_provider(self.path)
+        model = _detect_model(body)
+        result = check_enterprise_auth(virtual_token, provider, model)
+
+        if not result.allowed:
+            self._serve_json(result.http_status, {
+                "error": {"type": f"enterprise_{result.error_code}",
+                          "message": result.error_message},
+            })
+        return result
+
+    def _extract_virtual_token(self) -> str | None:
+        """Extract the virtual token from the Authorization header.
+
+        Supports ``Bearer sxv_...`` (OpenAI-style) and ``x-api-key: sxv_...``
+        (Anthropic-style)."""
+        auth = self.headers.get("Authorization", "")
+        if auth.lower().startswith("bearer "):
+            token = auth[7:].strip()
+            if token.startswith("sxv_"):
+                return token
+        xapi = self.headers.get("x-api-key", "")
+        if xapi.startswith("sxv_"):
+            return xapi.strip()
+        return None
 
     def _stats_snapshot(self) -> dict:
         with self.stats_lock:
@@ -462,7 +531,7 @@ class _ProxyHandler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
             pass
 
-    def _forward(self, raw_body: bytes) -> None:
+    def _forward(self, raw_body: bytes, enterprise_auth=None) -> None:
         start = time.perf_counter()
         cfg = self.proxy_cfg
         client_ip = self.client_address[0] if self.client_address else ""
@@ -550,7 +619,7 @@ class _ProxyHandler(BaseHTTPRequestHandler):
                 if budget:
                     _budget_tracker.record_spend(tokens_after)
 
-        self._proxy_request(upstream, body_to_send, start, tokens_before, tokens_after, client_ip, raw_body_for_cache=raw_body if cache_enabled else None)
+        self._proxy_request(upstream, body_to_send, start, tokens_before, tokens_after, client_ip, raw_body_for_cache=raw_body if cache_enabled else None, enterprise_auth=enterprise_auth)
 
     def _record_ledger(self, before: int, after: int, blocked: bool) -> None:
         try:
@@ -595,7 +664,7 @@ class _ProxyHandler(BaseHTTPRequestHandler):
                 chain.append(extra)
         return chain[:10] if len(chain) > 10 else chain
 
-    def _attempt_upstream(self, upstream: str, body: bytes, timeout: float):
+    def _attempt_upstream(self, upstream: str, body: bytes, timeout: float, enterprise_auth=None):
         """One connection attempt. Returns (conn, resp) on any HTTP response
         (caller decides whether the status code is retry-worthy), or raises
         on a connection-level failure (refused, DNS, TLS, timeout, ...) —
@@ -605,6 +674,18 @@ class _ProxyHandler(BaseHTTPRequestHandler):
         headers = {k: v for k, v in self.headers.items() if k.lower() not in _HOP_BY_HOP}
         headers["Host"] = parsed_upstream.netloc
         headers["Content-Length"] = str(len(body))
+
+        # ── Enterprise: inject real API key ─────────────────────────────
+        if enterprise_auth and enterprise_auth.real_api_key:
+            provider = enterprise_auth.provider_key.get("provider", "")
+            real_key = enterprise_auth.real_api_key
+            if provider == "anthropic":
+                headers["x-api-key"] = real_key
+                headers.pop("Authorization", None)
+            else:
+                # OpenAI-compatible (openai, groq, mistral, deepseek, etc.)
+                headers["Authorization"] = f"Bearer {real_key}"
+                headers.pop("x-api-key", None)
 
         if parsed_upstream.scheme == "https":
             conn = http.client.HTTPSConnection(parsed_upstream.netloc, timeout=timeout, context=ssl.create_default_context())
@@ -617,7 +698,7 @@ class _ProxyHandler(BaseHTTPRequestHandler):
     def _proxy_request(
         self, upstream: str, body: bytes, start: float,
         tokens_before: int, tokens_after: int, client_ip: str,
-        raw_body_for_cache: bytes | None = None,
+        raw_body_for_cache: bytes | None = None, enterprise_auth=None,
     ) -> None:
         cfg = self.proxy_cfg
         timeout = float(cfg.get("attempt_timeout_seconds", 30))
@@ -633,7 +714,7 @@ class _ProxyHandler(BaseHTTPRequestHandler):
                 continue  # skip a known-bad upstream without spending a real attempt on it
 
             try:
-                conn, resp = self._attempt_upstream(candidate, body, timeout)
+                conn, resp = self._attempt_upstream(candidate, body, timeout, enterprise_auth=enterprise_auth)
             except Exception as exc:  # noqa: BLE001 — connect/TLS/DNS/timeout, all "didn't respond"
                 _circuit_breaker.record_rate_limit(candidate, cfg)  # counts toward the same cooldown logic
                 last_error = f"{candidate}: {exc}"
@@ -650,7 +731,7 @@ class _ProxyHandler(BaseHTTPRequestHandler):
             # Committed: either a good response, or the last candidate — from
             # here on we stream to the client and can no longer fail over.
             _circuit_breaker.record_success(candidate)
-            self._stream_response(conn, resp, candidate, start, tokens_before, tokens_after, client_ip, raw_body_for_cache)
+            self._stream_response(conn, resp, candidate, start, tokens_before, tokens_after, client_ip, raw_body_for_cache, enterprise_auth=enterprise_auth)
             return
 
         # Every candidate failed before we could commit to a response.
@@ -665,7 +746,7 @@ class _ProxyHandler(BaseHTTPRequestHandler):
 
     def _stream_response(
         self, conn, resp, upstream: str, start: float, tokens_before: int, tokens_after: int,
-        client_ip: str, raw_body_for_cache: bytes | None = None,
+        client_ip: str, raw_body_for_cache: bytes | None = None, enterprise_auth=None,
     ) -> None:
         response_headers = resp.getheaders()
         content_type = next((v for k, v in response_headers if k.lower() == "content-type"), "")
@@ -701,6 +782,25 @@ class _ProxyHandler(BaseHTTPRequestHandler):
                 _response_cache.put(upstream, self.path, raw_body_for_cache, resp.status, cacheable_headers, bytes(buffered), int(cfg.get("response_cache_max_entries", 200)))
             self._log_call(upstream, resp.status, start, responded=True,
                             tokens_before=tokens_before, tokens_after=tokens_after, client_ip=client_ip)
+            # ── Enterprise activity log ─────────────────────────────────
+            if enterprise_auth and enterprise_auth.user:
+                try:
+                    from synthelion.enterprise.middleware import record_proxy_usage
+                    provider = enterprise_auth.provider_key.get("provider", "") if enterprise_auth.provider_key else ""
+                    model = _detect_model(raw_body_for_cache or b"")
+                    record_proxy_usage(
+                        user=enterprise_auth.user,
+                        provider=provider,
+                        model=model,
+                        path=self.path,
+                        status_code=resp.status,
+                        tokens_before=tokens_before,
+                        tokens_after=tokens_after,
+                        duration_ms=(time.perf_counter() - start) * 1000,
+                        compressed=(tokens_before != tokens_after),
+                    )
+                except Exception:
+                    pass
         except Exception as exc:  # noqa: BLE001 — failure after headers were already sent; can't fail over now
             with self.stats_lock:
                 self.stats["errors"] += 1

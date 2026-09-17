@@ -344,6 +344,11 @@ class TestFirewallCheckCli:
     """`synthelion firewall-check` — the PreToolUse-hookable CLI command,
     mirroring `loop-check`'s exit-code contract (0 = allow, 2 = block)."""
 
+    @pytest.fixture(autouse=True)
+    def _isolate_home(self, tmp_path, monkeypatch):
+        from pathlib import Path
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
     def _run(self, args: list[str]) -> tuple[str, str, int]:
         from synthelion.cli import main
         with patch("sys.argv", ["synthelion"] + args):
@@ -388,6 +393,11 @@ class TestFirewallCheckCli:
 class TestCompressBlockedByEnterpriseGuard:
     """`synthelion compress --json` refuses to compress/emit credential-shaped
     content, mirroring privacy.block_on_risk's block-not-mask posture."""
+
+    @pytest.fixture(autouse=True)
+    def _isolate_home(self, tmp_path, monkeypatch):
+        from pathlib import Path
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
     def _run_compress(self, text: str) -> dict:
         from synthelion.cli import main

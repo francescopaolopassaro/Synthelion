@@ -191,6 +191,19 @@ class _DashboardHandler(BaseHTTPRequestHandler):
                 self._serve_json({"logs": get_proxy_log().recent(limit)})
             elif path == "/api/proxy/providers":
                 self._serve_json(self._proxy_providers())
+            # ── Enterprise GET routes ───────────────────────────────────
+            elif path == "/api/enterprise/users":
+                self._serve_json(self._enterprise_users(qs))
+            elif path == "/api/enterprise/provider-keys":
+                self._serve_json(self._enterprise_provider_keys(qs))
+            elif path == "/api/enterprise/subscriptions":
+                self._serve_json(self._enterprise_subscriptions(qs))
+            elif path == "/api/enterprise/activity":
+                self._serve_json(self._enterprise_activity(qs))
+            elif path == "/api/enterprise/dashboard":
+                self._serve_json(self._enterprise_dashboard(qs))
+            elif path == "/api/enterprise/costs":
+                self._serve_json(self._enterprise_costs())
             else:
                 self._error(404, "Not found")
         except Exception as exc:  # noqa: BLE001 - never let one bad request kill the server
@@ -269,6 +282,35 @@ class _DashboardHandler(BaseHTTPRequestHandler):
                 self._serve_json(self._proxy_start())
             elif path == "/api/proxy/stop":
                 self._serve_json(self._proxy_stop())
+            # ── Enterprise POST routes ──────────────────────────────────
+            elif path == "/api/enterprise/users":
+                self._serve_json(self._enterprise_add_user())
+            elif path == "/api/enterprise/users/update":
+                self._serve_json(self._enterprise_update_user())
+            elif path == "/api/enterprise/users/delete":
+                self._serve_json(self._enterprise_delete_user())
+            elif path == "/api/enterprise/users/rotate-token":
+                self._serve_json(self._enterprise_rotate_token())
+            elif path == "/api/enterprise/users/assign-provider":
+                self._serve_json(self._enterprise_assign_provider())
+            elif path == "/api/enterprise/users/remove-provider":
+                self._serve_json(self._enterprise_remove_provider())
+            elif path == "/api/enterprise/provider-keys":
+                self._serve_json(self._enterprise_add_provider_key())
+            elif path == "/api/enterprise/provider-keys/update":
+                self._serve_json(self._enterprise_update_provider_key())
+            elif path == "/api/enterprise/provider-keys/delete":
+                self._serve_json(self._enterprise_delete_provider_key())
+            elif path == "/api/enterprise/subscriptions":
+                self._serve_json(self._enterprise_add_subscription())
+            elif path == "/api/enterprise/subscriptions/update":
+                self._serve_json(self._enterprise_update_subscription())
+            elif path == "/api/enterprise/subscriptions/suspend":
+                self._serve_json(self._enterprise_suspend_subscription())
+            elif path == "/api/enterprise/subscriptions/reactivate":
+                self._serve_json(self._enterprise_reactivate_subscription())
+            elif path == "/api/enterprise/costs/sync":
+                self._serve_json(self._enterprise_sync_costs())
             else:
                 self._error(404, "Not found")
         except Exception as exc:  # noqa: BLE001 - never let one bad request kill the server
@@ -895,6 +937,160 @@ class _DashboardHandler(BaseHTTPRequestHandler):
         ]
         providers.sort(key=lambda p: p["name"].lower())
         return {"providers": providers}
+
+    # ── Enterprise handlers ─────────────────────────────────────────────────
+
+    @staticmethod
+    def _enterprise_users(qs: dict) -> dict:
+        from synthelion.enterprise.users import list_users
+        role = qs.get("role", [None])[0]
+        return {"users": list_users(role=role)}
+
+    @staticmethod
+    def _enterprise_provider_keys(qs: dict) -> dict:
+        from synthelion.enterprise.provider_keys import list_provider_keys
+        provider = qs.get("provider", [None])[0]
+        return {"provider_keys": list_provider_keys(provider=provider)}
+
+    @staticmethod
+    def _enterprise_subscriptions(qs: dict) -> dict:
+        from synthelion.enterprise.subscriptions import list_subscriptions
+        user_id = qs.get("user_id", [None])[0]
+        status = qs.get("status", [None])[0]
+        return {"subscriptions": list_subscriptions(user_id=user_id, status=status)}
+
+    @staticmethod
+    def _enterprise_activity(qs: dict) -> dict:
+        from synthelion.enterprise.activity import query_activity
+        user_id = qs.get("user_id", [None])[0]
+        since = qs.get("since", [None])[0]
+        limit = int(qs.get("limit", ["100"])[0])
+        return {"activity": query_activity(user_id=user_id, since=since, limit=limit)}
+
+    @staticmethod
+    def _enterprise_dashboard(qs: dict) -> dict:
+        from synthelion.enterprise.users import list_users
+        from synthelion.enterprise.subscriptions import list_subscriptions
+        from synthelion.enterprise.activity import aggregate_all, aggregate_user
+        from synthelion.enterprise.cost_sync import get_cost
+        user_id = qs.get("user_id", [None])[0]
+        since = qs.get("since", [None])[0]
+        users = list_users()
+        subs = list_subscriptions()
+        if user_id:
+            agg = aggregate_user(user_id, since=since)
+        else:
+            agg = aggregate_all(since=since)
+        return {
+            "users": users,
+            "subscriptions": subs,
+            "aggregate": agg,
+        }
+
+    @staticmethod
+    def _enterprise_costs() -> dict:
+        from synthelion.enterprise.db import get_db
+        rows = get_db().execute("SELECT * FROM enterprise_model_costs ORDER BY provider, model LIMIT 500")
+        return {"costs": rows}
+
+    def _enterprise_add_user(self) -> dict:
+        body = self._read_json_body()
+        from synthelion.enterprise.users import add_user
+        user = add_user(label=body.get("label", ""), role=body.get("role", "user"))
+        return {"user": user}
+
+    def _enterprise_update_user(self) -> dict:
+        body = self._read_json_body()
+        user_id = body.pop("user_id", "")
+        from synthelion.enterprise.users import update_user
+        user = update_user(user_id, **body)
+        return {"user": user}
+
+    def _enterprise_delete_user(self) -> dict:
+        body = self._read_json_body()
+        from synthelion.enterprise.users import delete_user
+        count = delete_user(body.get("user_id", ""))
+        return {"deleted": count}
+
+    def _enterprise_rotate_token(self) -> dict:
+        body = self._read_json_body()
+        from synthelion.enterprise.users import rotate_token
+        token = rotate_token(body.get("user_id", ""))
+        return {"virtual_token": token}
+
+    def _enterprise_assign_provider(self) -> dict:
+        body = self._read_json_body()
+        from synthelion.enterprise.users import assign_provider
+        assign_provider(body.get("user_id", ""), body.get("provider_key_id", ""))
+        return {"status": "assigned"}
+
+    def _enterprise_remove_provider(self) -> dict:
+        body = self._read_json_body()
+        from synthelion.enterprise.users import remove_provider
+        count = remove_provider(body.get("user_id", ""), body.get("provider_key_id", ""))
+        return {"removed": count}
+
+    def _enterprise_add_provider_key(self) -> dict:
+        body = self._read_json_body()
+        from synthelion.enterprise.provider_keys import add_provider_key
+        pk = add_provider_key(
+            provider=body.get("provider", ""),
+            label=body.get("label", ""),
+            api_key=body.get("api_key", ""),
+            upstream_url=body.get("upstream_url"),
+        )
+        return {"provider_key": pk}
+
+    def _enterprise_update_provider_key(self) -> dict:
+        body = self._read_json_body()
+        pk_id = body.pop("pk_id", "")
+        from synthelion.enterprise.provider_keys import update_provider_key
+        pk = update_provider_key(pk_id, **body)
+        return {"provider_key": pk}
+
+    def _enterprise_delete_provider_key(self) -> dict:
+        body = self._read_json_body()
+        from synthelion.enterprise.provider_keys import delete_provider_key
+        count = delete_provider_key(body.get("pk_id", ""))
+        return {"deleted": count}
+
+    def _enterprise_add_subscription(self) -> dict:
+        body = self._read_json_body()
+        from synthelion.enterprise.subscriptions import add_subscription
+        sub = add_subscription(
+            user_id=body.get("user_id", ""),
+            provider_key_id=body.get("provider_key_id", ""),
+            sub_type=body.get("type", "consumo"),
+            model=body.get("model"),
+            max_tokens=int(body.get("max_tokens", 0)),
+            max_monthly_cost_usd=float(body.get("max_monthly_cost_usd", 0)),
+        )
+        return {"subscription": sub}
+
+    def _enterprise_update_subscription(self) -> dict:
+        body = self._read_json_body()
+        sub_id = body.pop("sub_id", "")
+        from synthelion.enterprise.subscriptions import update_subscription
+        sub = update_subscription(sub_id, **body)
+        return {"subscription": sub}
+
+    def _enterprise_suspend_subscription(self) -> dict:
+        body = self._read_json_body()
+        from synthelion.enterprise.subscriptions import suspend_subscription
+        sub = suspend_subscription(body.get("sub_id", ""))
+        return {"subscription": sub}
+
+    def _enterprise_reactivate_subscription(self) -> dict:
+        body = self._read_json_body()
+        from synthelion.enterprise.subscriptions import reactivate_subscription
+        sub = reactivate_subscription(body.get("sub_id", ""))
+        return {"subscription": sub}
+
+    @staticmethod
+    def _enterprise_sync_costs() -> dict:
+        from synthelion.enterprise.cost_sync import sync_costs
+        count = sync_costs()
+        return {"synced": count}
 
     # ── cluster (master/slave) ──────────────────────────────────────────────
     #

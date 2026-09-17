@@ -286,6 +286,64 @@ def main() -> None:
     )
     models_sub.add_parser("status", help="List the ML models found locally and where they live")
 
+    # enterprise
+    p_enterprise = sub.add_parser(
+        "enterprise", help="Manage Enterprise users, subscriptions, provider keys, activity, and cost sync"
+    )
+    enterprise_sub = p_enterprise.add_subparsers(dest="enterprise_cmd", required=True)
+    # enterprise user
+    p_ent_user = enterprise_sub.add_parser("user", help="Manage enterprise users")
+    ent_user_sub = p_ent_user.add_subparsers(dest="ent_user_cmd", required=True)
+    ent_user_sub.add_parser("list", help="List all users")
+    _p_ent_user_add = ent_user_sub.add_parser("add", help="Add a new user")
+    _p_ent_user_add.add_argument("--label", required=True, help="Human-readable label")
+    _p_ent_user_add.add_argument("--role", default="user", choices=["admin", "user"], help="Role (default: user)")
+    _p_ent_user_rm = ent_user_sub.add_parser("delete", help="Delete a user")
+    _p_ent_user_rm.add_argument("--user-id", required=True)
+    _p_ent_user_rotate = ent_user_sub.add_parser("rotate-token", help="Rotate a user's virtual token")
+    _p_ent_user_rotate.add_argument("--user-id", required=True)
+    _p_ent_user_prov = ent_user_sub.add_parser("assign-provider", help="Assign a provider key to a user")
+    _p_ent_user_prov.add_argument("--user-id", required=True)
+    _p_ent_user_prov.add_argument("--provider-key-id", required=True)
+    _p_ent_user_rm_prov = ent_user_sub.add_parser("remove-provider", help="Remove a provider assignment")
+    _p_ent_user_rm_prov.add_argument("--user-id", required=True)
+    _p_ent_user_rm_prov.add_argument("--provider-key-id", required=True)
+    # enterprise provider-key
+    p_ent_pk = enterprise_sub.add_parser("provider-key", help="Manage provider API keys")
+    ent_pk_sub = p_ent_pk.add_subparsers(dest="ent_pk_cmd", required=True)
+    ent_pk_sub.add_parser("list", help="List all provider keys")
+    _p_ent_pk_add = ent_pk_sub.add_parser("add", help="Add a new provider key")
+    _p_ent_pk_add.add_argument("--provider", required=True, help="Provider name (e.g. openai, anthropic)")
+    _p_ent_pk_add.add_argument("--label", required=True, help="Human-readable label")
+    _p_ent_pk_add.add_argument("--api-key", required=True, help="Provider API key")
+    _p_ent_pk_add.add_argument("--upstream-url", default=None, help="Optional upstream URL override")
+    _p_ent_pk_rm = ent_pk_sub.add_parser("delete", help="Delete a provider key")
+    _p_ent_pk_rm.add_argument("--pk-id", required=True)
+    # enterprise sub
+    p_ent_sub = enterprise_sub.add_parser("sub", help="Manage subscriptions")
+    ent_sub_sub = p_ent_sub.add_subparsers(dest="ent_sub_cmd", required=True)
+    ent_sub_sub.add_parser("list", help="List all subscriptions")
+    _p_ent_sub_add = ent_sub_sub.add_parser("add", help="Add a subscription")
+    _p_ent_sub_add.add_argument("--user-id", required=True)
+    _p_ent_sub_add.add_argument("--provider-key-id", required=True)
+    _p_ent_sub_add.add_argument("--type", default="consumo", choices=["consumo", "mensile"], help="Subscription type")
+    _p_ent_sub_add.add_argument("--model", default=None, help="Optional model filter")
+    _p_ent_sub_add.add_argument("--max-tokens", type=int, default=0, help="Max tokens (consumo)")
+    _p_ent_sub_add.add_argument("--max-monthly-cost-usd", type=float, default=0.0, help="Max monthly cost USD (mensile)")
+    _p_ent_sub_suspend = ent_sub_sub.add_parser("suspend", help="Suspend a subscription")
+    _p_ent_sub_suspend.add_argument("--sub-id", required=True)
+    _p_ent_sub_react = ent_sub_sub.add_parser("reactivate", help="Reactivate a subscription")
+    _p_ent_sub_react.add_argument("--sub-id", required=True)
+    # enterprise activity
+    p_ent_act = enterprise_sub.add_parser("activity", help="Query activity log")
+    p_ent_act.add_argument("--user-id", default=None, help="Filter by user")
+    p_ent_act.add_argument("--since", default=None, help="Filter since timestamp")
+    p_ent_act.add_argument("--limit", type=int, default=20, help="Max rows (default: 20)")
+    # enterprise costs
+    p_ent_costs = enterprise_sub.add_parser("costs", help="Sync model pricing from models.dev")
+    ent_costs_sub = p_ent_costs.add_subparsers(dest="costs_cmd")
+    ent_costs_sub.add_parser("sync", help="Pull latest pricing into local DB")
+
     args = parser.parse_args()
 
     if args.cmd == "version":
@@ -357,6 +415,8 @@ def main() -> None:
         _cmd_mask_document(args)
     elif args.cmd == "models":
         _cmd_models(args)
+    elif args.cmd == "enterprise":
+        _cmd_enterprise(args)
 
 
 def _read_input(args) -> str:
@@ -712,6 +772,141 @@ def _cmd_models(args) -> None:
         print(f"Installed ML model {args.model!r} -> {path}")
         print(f"Short name: {name}  (set privacy.ml_model to it in the config)")
         print(f"Size: {size / (1024 * 1024):.1f} MB — analysis now runs fully offline.")
+
+
+def _cmd_enterprise(args) -> None:
+    """`synthelion enterprise user|provider-key|sub|activity|costs` — manage the
+    Enterprise layer (multi-user, per-user provider keys, subscriptions, activity
+    logging, cost sync)."""
+    from synthelion.enterprise import ensure_enterprise
+    ensure_enterprise()
+
+    if args.enterprise_cmd == "user":
+        _cmd_enterprise_user(args)
+    elif args.enterprise_cmd == "provider-key":
+        _cmd_enterprise_provider_key(args)
+    elif args.enterprise_cmd == "sub":
+        _cmd_enterprise_sub(args)
+    elif args.enterprise_cmd == "activity":
+        _cmd_enterprise_activity(args)
+    elif args.enterprise_cmd == "costs":
+        _cmd_enterprise_costs(args)
+
+
+def _cmd_enterprise_user(args) -> None:
+    from synthelion.enterprise.users import (
+        add_user, delete_user, list_users, rotate_token,
+        assign_provider, remove_provider,
+    )
+    if args.ent_user_cmd == "list":
+        users = list_users()
+        if not users:
+            print("No users found.")
+            return
+        print(f"{'USER_ID':<38} {'LABEL':<20} {'ROLE':<8} {'STATUS':<8} {'TOKEN'}")
+        for u in users:
+            print(f"{u['user_id']:<38} {(u.get('label') or ''):<20} {u['role']:<8} {u['status']:<8} {u['virtual_token']}")
+    elif args.ent_user_cmd == "add":
+        u = add_user(label=args.label, role=args.role)
+        print(f"Created user {u['user_id']}")
+        print(f"  Label : {u['label']}")
+        print(f"  Role  : {u['role']}")
+        print(f"  Token : {u['virtual_token']}")
+    elif args.ent_user_cmd == "delete":
+        n = delete_user(args.user_id)
+        print(f"Deleted {n} user(s).")
+    elif args.ent_user_cmd == "rotate-token":
+        token = rotate_token(args.user_id)
+        print(f"New token: {token}")
+    elif args.ent_user_cmd == "assign-provider":
+        assign_provider(args.user_id, args.provider_key_id)
+        print("Provider assigned.")
+    elif args.ent_user_cmd == "remove-provider":
+        n = remove_provider(args.user_id, args.provider_key_id)
+        print(f"Removed {n} assignment(s).")
+
+
+def _cmd_enterprise_provider_key(args) -> None:
+    from synthelion.enterprise.provider_keys import add_provider_key, delete_provider_key, list_provider_keys
+    if args.ent_pk_cmd == "list":
+        keys = list_provider_keys()
+        if not keys:
+            print("No provider keys found.")
+            return
+        print(f"{'PK_ID':<38} {'PROVIDER':<16} {'LABEL':<20} {'UPSTREAM_URL'}")
+        for k in keys:
+            print(f"{k['pk_id']:<38} {k['provider']:<16} {(k.get('label') or ''):<20} {k.get('upstream_url') or '(default)'}")
+    elif args.ent_pk_cmd == "add":
+        pk = add_provider_key(
+            provider=args.provider, label=args.label,
+            api_key=args.api_key, upstream_url=args.upstream_url,
+        )
+        print(f"Created provider key {pk['pk_id']}")
+        print(f"  Provider : {pk['provider']}")
+        print(f"  Label    : {pk['label']}")
+        print(f"  Upstream : {pk.get('upstream_url') or '(default)'}")
+    elif args.ent_pk_cmd == "delete":
+        n = delete_provider_key(args.pk_id)
+        print(f"Deleted {n} key(s).")
+
+
+def _cmd_enterprise_sub(args) -> None:
+    from synthelion.enterprise.subscriptions import (
+        add_subscription, list_subscriptions, suspend_subscription, reactivate_subscription,
+    )
+    if args.ent_sub_cmd == "list":
+        subs = list_subscriptions()
+        if not subs:
+            print("No subscriptions found.")
+            return
+        print(f"{'SUB_ID':<38} {'USER_ID':<38} {'TYPE':<10} {'MODEL':<20} {'STATUS'}")
+        for s in subs:
+            print(f"{s['sub_id']:<38} {s['user_id']:<38} {s['type']:<10} {(s.get('model') or 'all'):<20} {s['status']}")
+    elif args.ent_sub_cmd == "add":
+        s = add_subscription(
+            user_id=args.user_id, provider_key_id=args.provider_key_id,
+            sub_type=args.type, model=args.model,
+            max_tokens=args.max_tokens, max_monthly_cost_usd=args.max_monthly_cost_usd,
+        )
+        print(f"Created subscription {s['sub_id']}")
+        print(f"  User  : {s['user_id']}")
+        print(f"  Type  : {s['type']}")
+        print(f"  Model : {s.get('model') or 'all'}")
+    elif args.ent_sub_cmd == "suspend":
+        s = suspend_subscription(args.sub_id)
+        print(f"Suspended subscription {s['sub_id']}.")
+    elif args.ent_sub_cmd == "reactivate":
+        s = reactivate_subscription(args.sub_id)
+        print(f"Reactivated subscription {s['sub_id']}.")
+
+
+def _cmd_enterprise_activity(args) -> None:
+    from synthelion.enterprise.activity import query_activity
+    rows = query_activity(user_id=args.user_id, since=args.since, limit=args.limit)
+    if not rows:
+        print("No activity found.")
+        return
+    print(f"{'TIMESTAMP':<24} {'USER':<20} {'PROVIDER':<12} {'MODEL':<20} {'TOK_IN':<8} {'TOK_OUT':<8} {'STATUS'}")
+    for r in rows:
+        print(f"{r.get('timestamp',''):<24} {(r.get('user_label') or r.get('user_id',''))[:20]:<20} {(r.get('provider') or ''):<12} {(r.get('model') or ''):<20} {r.get('tokens_before',0):<8} {r.get('tokens_after',0):<8} {r.get('status_code','')}")
+
+
+def _cmd_enterprise_costs(args) -> None:
+    if args.enterprise_cmd != "costs":
+        return
+    if getattr(args, "costs_cmd", "") == "sync":
+        from synthelion.enterprise.cost_sync import sync_costs
+        n = sync_costs()
+        print(f"Synced {n} model(s) from models.dev.")
+    else:
+        from synthelion.enterprise.db import get_db
+        rows = get_db().execute("SELECT provider, model, input_per_mtok, output_per_mtok FROM enterprise_model_costs ORDER BY provider, model LIMIT 50")
+        if not rows:
+            print("No model costs found. Run `synthelion enterprise costs sync` first.")
+            return
+        print(f"{'PROVIDER':<16} {'MODEL':<30} {'INPUT/MTOK':<12} {'OUTPUT/MTOK'}")
+        for r in rows:
+            print(f"{r['provider']:<16} {r['model']:<30} ${r['input_per_mtok']:<11.4f} ${r['output_per_mtok']:.4f}")
 
 
 def _report_synthelionml_status() -> None:

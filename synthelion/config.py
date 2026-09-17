@@ -307,6 +307,22 @@ _DEFAULT_CONFIG: dict[str, Any] = {
         # other directly too.
         "self_url": "",
     },
+    "enterprise": {
+        # Master switch — when False the enterprise auth gate is bypassed
+        # (proxy behaves as before, no per-user quota or key injection).
+        "enabled": False,
+        "db": {
+            # "sqlite" (default, local file) | "postgresql" | "mysql" | "sqlserver"
+            "backend": "sqlite",
+            # Connection string for external backends (ignored when backend=sqlite).
+            "url": "",
+            # If the external DB is unreachable, fall back to local SQLite.
+            "fallback_to_local": True,
+        },
+        # Automatically pull model pricing from models.dev every N hours.
+        "cost_sync_enabled": True,
+        "cost_sync_interval_hours": 24,
+    },
 }
 
 _VALID_CLUSTER_ROLES = ("standalone", "master", "slave")
