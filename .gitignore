@@ -15,3 +15,7 @@ build/
 *.pyd
 *.log
 logs/
+# Legacy location of the enterprise AES key (crypto.py now stores it in
+# ~/.synthelion/ instead) — ignored defensively in case an old checkout
+# regenerates it here before picking up the migration.
+documentochiave.txt

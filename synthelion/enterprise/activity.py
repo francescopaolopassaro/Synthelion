@@ -129,3 +129,52 @@ def aggregate_all(since: str | None = None) -> dict[str, Any]:
         "total_tokens_after": 0, "total_tokens_used": 0,
         "total_cost_usd": 0.0, "compressed_calls": 0,
     }
+
+
+def aggregate_by_model(since: str | None = None, limit: int = 20) -> list[dict[str, Any]]:
+    """Per-model usage totals, busiest first.
+
+    Rows with no model recorded (an endpoint that doesn't carry one, e.g.
+    /v1/models) are folded into a single "unknown" bucket rather than dropped,
+    so the totals here still reconcile with `aggregate_all`.
+    """
+    db = get_db()
+    where = " WHERE ts >= ?" if since else ""
+    params: list[Any] = [since] if since else []
+    params.append(limit)
+    return db.execute(
+        f"SELECT "
+        f"  COALESCE(NULLIF(model, ''), 'unknown') AS model, "
+        f"  provider, "
+        f"  COUNT(*) AS requests, "
+        f"  COALESCE(SUM(tokens_used), 0) AS tokens_used, "
+        f"  COALESCE(SUM(cost_usd), 0) AS cost_usd "
+        f"FROM {_TABLE}{where} "
+        f"GROUP BY COALESCE(NULLIF(model, ''), 'unknown'), provider "
+        f"ORDER BY requests DESC LIMIT ?",
+        params,
+    )
+
+
+def aggregate_by_user(since: str | None = None) -> list[dict[str, Any]]:
+    """Per-user totals for every user that has activity, in one query.
+
+    The per-user consumption table needs a row per user; calling
+    `aggregate_user` in a loop would issue one query per user instead.
+    """
+    db = get_db()
+    where = " WHERE ts >= ?" if since else ""
+    params: list[Any] = [since] if since else []
+    return db.execute(
+        f"SELECT "
+        f"  user_id, "
+        f"  COUNT(*) AS total_requests, "
+        f"  COALESCE(SUM(tokens_before), 0) AS total_tokens_before, "
+        f"  COALESCE(SUM(tokens_after), 0) AS total_tokens_after, "
+        f"  COALESCE(SUM(tokens_used), 0) AS total_tokens_used, "
+        f"  COALESCE(SUM(cost_usd), 0) AS total_cost_usd, "
+        f"  COALESCE(SUM(CASE WHEN blocked = 1 THEN 1 ELSE 0 END), 0) AS blocked_calls "
+        f"FROM {_TABLE}{where} "
+        f"GROUP BY user_id ORDER BY total_tokens_used DESC",
+        params,
+    )

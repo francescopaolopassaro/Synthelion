@@ -4,7 +4,206 @@ All notable changes to Synthelion are documented here.
 
 ---
 
-## [Unreleased]
+## [1.2.5] — 2026-08-04
+
+### Added — AI Compliance Engine (`synthelion/compliance/`)
+- A governance gate in front of every guard Synthelion already has. Deliberately
+  an **aggregation layer**: detection stays in PrivacyGuard, EnterpriseGuard, the
+  prompt-injection guard, the agent-policy engine and the safety/sensitive
+  screens. What is new is everything a compliance function needs and no
+  individual guard can provide:
+  - **One rule registry in policy vocabulary** — risk level (high/medium/low),
+    remediation action (block / redact / warn / log-only), input/output scope,
+    on-off — each rule bound to the guard that implements it. Rules are data, so
+    a deployment overrides only what differs via `compliance.rules` in config.
+  - **Traceability matrix** from each control to the article it satisfies (EU AI
+    Act, GDPR, NIS 2/DORA, ISO/IEC 42001), generated from the *live*
+    configuration — so a disabled control appears as an uncovered obligation
+    instead of continuing to look compliant on paper.
+  - **Engine states**: `active`, `staging` (every rule evaluated and logged,
+    nothing blocked or rewritten — trial a policy against real traffic first) and
+    `inactive`; plus a fallback policy, defaulting to fail-closed for security and
+    privacy categories only. A broken toxicity screen should not take down the
+    gateway; a broken secrets scanner should.
+  - **Backend health check.** A rule can be enabled in the policy while the guard
+    behind it is switched off elsewhere in the configuration — the combination
+    that makes a technical file claim a control that inspects nothing.
+    `ineffective_rules()` surfaces exactly that, and the technical file prints it
+    under "Controls enabled but not operational".
+- **Tamper-evident audit trail** (Art. 12): each entry carries the hash of the
+  previous one, so an edited or removed entry breaks every link after it and
+  `verify_chain()` names the index where. Stores only a SHA-256 fingerprint of
+  each payload, never the prompt or response — an audit log of prompts would
+  recreate the exposure the privacy rules exist to prevent, and would itself
+  become personal data. Documented as tamper-*evident*, not tamper-proof: real
+  immutability needs an append-only medium or an external notary.
+- **Document generation** — technical file (Art. 11/Annex IV), DPIA (GDPR Art.
+  35), FRIA (AI Act Art. 27) and a periodic executive report, each as JSON *and*
+  PDF. The dict is the source of truth and the PDF renders it, so nothing in a
+  report exists only as pixels. DPIA and FRIA emit the sections that need an
+  organisational judgement — necessity, proportionality, residual-risk
+  acceptance — as explicit open items rather than filling them with plausible
+  text no engine is entitled to write.
+- **`compliance/pdf.py`: a dependency-free PDF writer.** Synthelion ships offline
+  and vendors everything, so requiring a PDF library for its own core output
+  would have been the only external runtime dependency in the product. Emits
+  valid PDF 1.4 with base-14 fonts, automatic pagination, tables and bar charts,
+  and transliterates non-WinAnsi characters instead of dropping them (an accented
+  name vanishing from a compliance document would be worse than an approximated
+  one). Stated plainly in the module: this is **not** PDF/A — archival
+  conformance additionally needs embedded fonts, an XMP packet and an output
+  intent, and claiming it without those would be false.
+- **New CLI**: `synthelion compliance status | rules | matrix | check | report |
+  verify-audit`; `report` writes `--pdf` and/or `--json`. **New MCP/OpenAI
+  tools**: `check_compliance` and `compliance_status`. New `compliance.*` config
+  section.
+- New tests: `tests/test_compliance.py` (39 tests — every rule carries a legal
+  reference and a dispatchable backend, staging modifies nothing, the two privacy
+  rules report independently instead of one redacting the payload out from under
+  the other, an enabled rule with a disabled guard is flagged, the audit chain
+  detects both edited and removed entries and never stores payload text, all four
+  documents render to structurally valid PDF with correct xref offsets).
+
+### Added — per-agent-type guardrail policy engine (`agent_policy.py`)
+- **`AgentPolicy`** enforces a rule pack per agent type — `base`, `dev`, `support`,
+  `rag`, `data`, `ops`, `browser` — stacked on a baseline that applies to every
+  agent. EnterpriseGuard answers "is this forbidden for anyone?"; this answers
+  "is it acceptable for *this kind* of agent?" (`terraform apply` is routine for
+  an ops agent and meaningless for a support one). Every rule carries the
+  requirement id it implements, so a decision traces back to the spec.
+- **Gating is a genuinely new third outcome.** Every existing guard in Synthelion
+  is binary allow/block; several requirements ask instead for "require explicit
+  approval" — force push and history rewrites, `terraform apply`, IAM escalation,
+  production-secret reads, DELETE/UPDATE, bulk customer export, account-access
+  changes, refunds over the cap, financial/irreversible browser clicks. A gated
+  call is legitimate but needs a human. Turning gating off downgrades those rules
+  to *allow*, never to *block*. A BLOCK always wins over a GATE matched in the
+  same call, regardless of rule order.
+- **Chain breaking (the lethal-trifecta exfil breaker)** — some attacks are
+  invisible one call at a time and exist only as a *sequence*: read private
+  content, then send it outward. Neither half is forbidden alone, so no
+  single-call guard can see it. The breaker correlates the two within a session
+  and cuts the egress. State is an append-only JSONL under `~/.synthelion/`
+  (same no-cross-process-locks pattern as `loop_guard`/`ledger`) because the read
+  can happen in the MCP server process and the egress in a CLI hook process — an
+  in-memory flag would never see both halves.
+- **Deliberately delegates rather than reimplements**: credentials/protected
+  paths → `enterprise_guard`, SSRF/metadata → `ssrf_guard`, runaway loops →
+  `loop_guard`, PII → `privacy_analyzer`, spend caps → the proxy budget tracker
+  and enterprise quotas.
+- **New CLI**: `synthelion policy-check` (a `PreToolUse` hook, same 0=allow /
+  2=refuse exit-code contract as `firewall-check`; a gated call exits 2 too,
+  since a hook has no channel to ask a human mid-call — `--json` distinguishes
+  the two), `synthelion policy-show` and `synthelion policy-reset-chain`.
+- **New MCP/OpenAI tools**: `check_agent_policy` and `describe_agent_policy`, so
+  the engine is reachable by any agent, not only through a shell hook.
+- New `agent_policy.*` config section. The decision log
+  (`~/.synthelion/agent_policy_events.jsonl`) records the verdict, profile, tool
+  name and requirement id — **never the call's arguments**, so the log can't
+  become the place a secret ends up stored.
+- New tests: `tests/test_agent_policy.py` (41 tests — baseline enforcement across
+  every profile, gating vs blocking, `--force-with-lease` deliberately left
+  alone, block-beats-gate, profile isolation, the refund cap, chain arming/
+  scoping/reset/cross-process survival, and that every rule declares a
+  requirement id).
+
+### Added — enterprise usage and model analytics
+- `enterprise/activity.py` gained `aggregate_by_model()` and `aggregate_by_user()`
+  (one grouped query each, instead of calling the per-user aggregate in a loop),
+  exposed through `/api/enterprise/dashboard` as `by_model`/`by_user`.
+- The Users page now shows per-user consumption, quota headroom, subscription
+  chips and a most-used-models ranking, and can activate a metered or monthly
+  plan, assign a provider key, enable/disable a user and rotate a token inline.
+
+### Fixed — the compression checkpoint was offered as a PrivacyGuard PII model
+- `synthelion/ml_models/` is a root shared by two unrelated subsystems: the GLiNER
+  PII models `privacy_ml.py` manages, and the SynthelionML *compression*
+  checkpoint. The latter also ships a `config.json` plus weights, so
+  `_looks_like_model_dir()`'s layout check claimed it: `synthelion models status`
+  reported it as an installed PrivacyGuard model, and — the part that actually
+  bites — `privacy.ml_model = synthelionml` would *resolve*, handing GLiNER a
+  compression checkpoint to load as a PII detector.
+- The scan now reads the checkpoint's declared `model_type` and skips models
+  belonging to another subsystem. Deliberately narrow: a checkpoint that
+  declares no `model_type` at all (most GLiNER ones) is still listed, and a
+  corrupt `config.json` no longer takes down the scan.
+- New tests in `tests/test_privacy_ml.py` pinning all four cases; this also fixes
+  the pre-existing `test_list_installed_empty` failure, which had been reporting
+  the real collision rather than a stale expectation.
+
+### Fixed — enterprise pages 404'd on reload
+- The four enterprise routes were in the sidebar and the client-side router but
+  missing from the server's `_PAGE_ROUTES` allow-list, so they worked when
+  reached by in-page navigation (pushState never hits the server) and returned a
+  raw `{"error": "Not found"}` on reload or deep-link. A new test derives the
+  list from the shipped markup and asserts every sidebar link is servable, so a
+  newly added page is covered the moment its link exists.
+- The Provider Keys section was nested inside an unclosed
+  `<section data-page="enterprise-subscriptions">`, so hiding one page hid the
+  other.
+
+### Fixed — enterprise master encryption key stored as a plaintext file
+- **The AES-256-GCM key that encrypts every provider API key in the enterprise DB
+  (`enterprise/crypto.py`) was a plaintext file, `documentochiave.txt`, sitting at
+  the repo root** — inside the working tree of a *public* GitHub repo, not covered
+  by `.gitignore`, one `git add -A`/`git add .` away from publishing the master key
+  for every encrypted OpenAI/Anthropic/OpenRouter/etc. key alongside the code.
+- **Fixed at the root, not just relocated**: the key is no longer a file anywhere.
+  It's generated automatically the moment the enterprise DB itself is created
+  (`db.py`'s schema init now calls `crypto.ensure_key()`) and stored in the
+  OS-native credential store via `keyring` — Windows Credential Locker, macOS
+  Keychain, or the Linux Secret Service/KWallet. Only whoever has OS-level access
+  to that store can ever read it. `synthelion enterprise show-key` is the one way
+  to view it (admin-only, local CLI, never over the dashboard/proxy/MCP HTTP API);
+  there is deliberately no "change key" command — rotating it would make every
+  already-encrypted provider key undecryptable. New `synthelion[enterprise]`
+  dependency: `keyring>=24.0`.
+- `synthelion enterprise migrate-key --path <file>` — one-shot import for a
+  deployment that already generated a plaintext key file under the old scheme;
+  reads it into the OS credential store and leaves the source file alone (the
+  admin deletes it by hand after confirming `show-key` matches — auto-deleting
+  during the import risked wiping a real key if the check ever ran against a
+  test's redirected `HOME` instead of the real one).
+- New `TestEnterpriseCrypto` (`tests/test_enterprise_module.py`, 7 tests) against
+  a fake in-memory keyring backend, so the suite never touches the real machine
+  credential store: idempotent key generation, `show_key` auto-creates and
+  returns valid hex, encrypt/decrypt roundtrip, clear error when unconfigured,
+  migration import/no-op/malformed-key cases.
+
+### Fixed — prompt-cache-breaking reorder in `compress_for_context`/`compress_conversation`
+- `synthelion/cache_aligner.py`'s `CacheAligner` (already used by the standalone
+  `align_cache_prompt`/`check_cache_alignment` tools) is now applied *inside*
+  `compress_for_context` and `compress_conversation` (`openai_tools.py`),
+  instead of being an opt-in step the caller had to remember to run separately.
+  Both now sink volatile tokens (UUIDs, ISO-8601 timestamps, JWTs, hex hashes)
+  to the end of the compressed output before returning it, so the stable part
+  stays a byte-identical prefix across calls — required for providers'
+  server-side prompt caching (and a local KV-cache) to actually hit instead of
+  recomputing the whole prefix because a timestamp near the top changed.
+  Alignment runs on the *raw* input before the token-filter compression pass,
+  not after: `apply_compression` tokenizes and rejoins with spaces, so a
+  paragraph split inserted post-compression has nothing left to anchor to —
+  reordering the raw text first survives the filter because it only drops
+  tokens, never reorders the ones it keeps. New result fields:
+  `cache_reordered`/`cache_moved_blocks` (`compress_for_context`),
+  `cache_moved_blocks` (`compress_conversation`, summed across older messages).
+  `compress_conversation`'s verbatim `keep_last_n` tail is left untouched by
+  design — it is expected to change every turn regardless.
+- **Already-compressed text is no longer compressed a second time.** Both tools
+  are meant to be called again and again as a document/conversation grows, with
+  the caller feeding our own previous output back in as part of the next
+  call's input — that's the point of an incremental compression tool. Without
+  a guard, a message compressed on turn N was being routed through the
+  compressor *again* on turn N+1 once it aged out of what counted as "new":
+  wasted work, further lossy with no budget benefit, and not guaranteed to
+  reproduce byte-identical output — silently re-breaking the very prefix
+  stability the alignment fix above exists to protect. `openai_tools.py` now
+  keeps a bounded LRU of exact strings it has itself produced
+  (`_mark_as_compressed`/`_is_already_compressed`, process-local, 4000 entries);
+  a message or document whose content matches one verbatim is passed through
+  untouched instead of being re-routed through `ContentRouter`/`CacheAligner`.
+  `compress_for_context` reports this case as `strategy: "unchanged"`,
+  `detected_type: "already_compressed"`.
 
 ### Added — SynthelionML: learned prompt compression level
 - New `synthelionml` compression level (`models.py`, `config.py`, `cli.py`,
@@ -107,11 +306,6 @@ All notable changes to Synthelion are documented here.
 
 ### Changed
 - `synthelion bench`: `code_python` now reports 273 -> 152 tokens (44.3%, previously 44.7%). The extra token is a blank line inside the module docstring, which the old comment stripper removed as if it were a blank line between statements.
-
----
-
-## [1.2.5] — 2026-08-03
-
 
 ### Fixed — EnterpriseGuard black-box hardening
 - **`check_path` now canonicalizes before matching** (`enterprise_guard.py`). The zone check matched only the literal path string, so a symlink pointing into a protected zone, or a non-canonical/relative spelling of a path inside it, evaded a glob written for the canonical location (e.g. `/tmp/link/f.pdf` and the bare relative `fatture/f.pdf` both slipped past `**/fatture/**`). Each path is now matched against both its literal form and its fully resolved real path (`Path.resolve`, symlinks / `..` / `./` / relative segments collapsed), closing the escape while keeping the literal fallback for paths that can't be resolved.

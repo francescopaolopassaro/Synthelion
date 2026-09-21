@@ -1,130 +1,918 @@
-/* Card/background colors now come from Material Dashboard's .dark-version
-   class (see vendor/material-dashboard/) — only the bits that class doesn't
-   cover live here. */
+/* Synthelion Dashboard — own theme (no third-party dashboard template).
+   Light, "Apple settings panel" aesthetic: white/near-white surfaces, a
+   single accent blue, soft shadows instead of borders where possible,
+   system font stack (no webfont download — dashboard stays fully offline).
+   Built directly on Bootstrap's base component styles (grid, buttons,
+   forms, tables, modals) via CSS custom properties + overrides below,
+   rather than a themed component library. */
 
-.range-btn.active {
-  pointer-events: none;
+:root {
+  --sy-bg: #f5f5f7;
+  --sy-surface: #ffffff;
+  --sy-surface-alt: #fbfbfd;
+  --sy-border: #e5e5ea;
+  --sy-border-strong: #d2d2d7;
+  --sy-text: #1d1d1f;
+  --sy-text-muted: #6e6e73;
+  --sy-text-faint: #86868b;
+  --sy-accent: #0071e3;
+  --sy-accent-hover: #0077ed;
+  --sy-accent-soft: #e8f2fe;
+  --sy-success: #1fa668;
+  --sy-success-soft: #e6f7ef;
+  --sy-warning: #c77b00;
+  --sy-warning-soft: #fdf2e1;
+  --sy-danger: #d70015;
+  --sy-danger-soft: #fdeaec;
+  --sy-radius-sm: 8px;
+  --sy-radius: 12px;
+  --sy-radius-lg: 18px;
+  --sy-shadow-sm: 0 1px 2px rgba(0, 0, 0, .04), 0 1px 1px rgba(0, 0, 0, .03);
+  --sy-shadow: 0 2px 10px rgba(0, 0, 0, .06), 0 1px 2px rgba(0, 0, 0, .04);
+  --sy-shadow-lg: 0 12px 32px rgba(0, 0, 0, .10), 0 2px 6px rgba(0, 0, 0, .05);
+  --sy-sidenav-w: 276px;
+  --sy-sidenav-w-collapsed: 76px;
+  --sy-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
-/* Material Dashboard's own .navbar-vertical .navbar-brand-img rule caps the
-   logo at max-height: 2rem (32px) regardless of the <img> width/height
-   attributes — needs an explicit, higher-priority override to actually show
-   at 52px. */
+* { box-sizing: border-box; }
+
+html, body {
+  background: var(--sy-bg);
+  color: var(--sy-text);
+  font-family: var(--sy-font);
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--sy-accent); }
+a:hover { color: var(--sy-accent-hover); }
+
+/* ── Layout shell ─────────────────────────────────────────────────────── */
+
+#sidenav-main {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: var(--sy-sidenav-w);
+  background: var(--sy-surface);
+  border-right: 1px solid var(--sy-border);
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  margin: 0;
+  border-radius: 0;
+  transition: width .18s ease;
+  z-index: 1030;
+}
+body.sidenav-collapsed #sidenav-main { width: var(--sy-sidenav-w-collapsed); }
+
+.sidenav-header {
+  display: flex;
+  align-items: center;
+  padding: 16px 14px;
+  border-bottom: 1px solid var(--sy-border);
+  min-height: 96px;
+}
+#sidenav-main .navbar-brand {
+  padding: 0 !important;
+  margin: 0 !important;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+}
 #sidenav-main .navbar-brand-img {
-  max-height: 64px !important;
-  width: 64px !important;
-  height: 64px !important;
-}
-
-.nav-icon {
-  vertical-align: -3px;
-  margin-right: 2px;
+  max-height: 68px !important;
+  width: 68px !important;
+  height: 68px !important;
+  border-radius: 15px;
   flex-shrink: 0;
+  transition: width .18s ease, height .18s ease;
+}
+#sidenav-main .navbar-brand span {
+  color: var(--sy-text) !important;
+  font-weight: 650;
+  font-size: 1.6rem;
+  letter-spacing: -.02em;
+  margin-left: 10px;
+  white-space: nowrap;
+}
+/* The full-size mark doesn't fit the icon rail — step it back down so the
+   collapsed sidebar stays a clean single-column of icons. */
+body.sidenav-collapsed #sidenav-main .navbar-brand-img {
+  max-height: 38px !important;
+  width: 38px !important;
+  height: 38px !important;
+  border-radius: 10px;
+}
+body.sidenav-collapsed .navbar-brand span,
+body.sidenav-collapsed .nav-link-text,
+body.sidenav-collapsed .sidenav-section-label,
+body.sidenav-collapsed #sidenav-toggle-label {
+  display: none;
+}
+body.sidenav-collapsed .sidenav-header { justify-content: center; padding: 18px 0; }
+
+#sidenav-main hr { display: none; }
+
+.sidenav-nav-scroll {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 12px 10px;
+}
+#sidenav-main .navbar-nav { list-style: none; margin: 0; padding: 0; }
+#sidenav-main .nav-item { margin-bottom: 2px; }
+
+.sidenav-section-label {
+  padding: 14px 12px 6px;
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--sy-text-faint) !important;
+  opacity: 1 !important;
 }
 
-/* Material Dashboard's own .icon-shape i { color: #fff } only targets <i>
-   icon-font glyphs — our KPI icons are inline <svg stroke="currentColor">,
-   so they need the same white forced explicitly or they inherit whatever
-   ambient text color the card header has. */
-.icon-shape svg {
+#sidenav-main .nav-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: var(--sy-radius-sm);
+  color: var(--sy-text-muted) !important;
+  font-size: .875rem;
+  font-weight: 500;
+  white-space: nowrap;
+  position: relative;
+  transition: background .12s ease, color .12s ease;
+}
+#sidenav-main .nav-link:hover {
+  background: var(--sy-surface-alt);
+  color: var(--sy-text) !important;
+}
+/* Selected item: solid accent fill, white text *and* white icon. The icon is
+   `stroke="currentColor"` so it follows the text color automatically — but
+   only if nothing else wins on specificity, hence the !important here beating
+   the generic .text-white/.bg-gradient-* utilities still on the markup. */
+#sidenav-main .nav-link.active,
+#sidenav-main .nav-link.active:hover {
+  background: var(--sy-accent) !important;
+  color: #fff !important;
+}
+#sidenav-main .nav-link.active svg { color: #fff; }
+.nav-icon { vertical-align: middle; margin: 0; flex-shrink: 0; }
+body.sidenav-collapsed #sidenav-main .nav-link { justify-content: center; padding: 10px; }
+
+/* Icon-only collapsed state: native title-attribute tooltip, styled to
+   match the rest of the UI instead of the OS default. */
+body.sidenav-collapsed #sidenav-main .nav-link {
+  position: relative;
+}
+body.sidenav-collapsed #sidenav-main .nav-link::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%);
+  background: #1d1d1f;
   color: #fff;
-  opacity: 0.9;
+  font-size: .75rem;
+  font-weight: 500;
+  padding: 5px 10px;
+  border-radius: 6px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .1s ease;
+  z-index: 1040;
+  box-shadow: var(--sy-shadow);
+}
+body.sidenav-collapsed #sidenav-main .nav-link:hover::after {
+  opacity: 1;
 }
 
-/* Material Dashboard centers icon-font glyphs inside .icon-shape via a fixed
-   `top: 11px` offset that assumes the glyph's own line-height — that doesn't
-   center a raw <svg>, so it needs real flex centering instead. */
+.sidenav-toggle-row {
+  border-top: 1px solid var(--sy-border);
+  padding: 8px;
+}
+#sidenav-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 9px;
+  border: none;
+  background: transparent;
+  color: var(--sy-text-muted);
+  border-radius: var(--sy-radius-sm);
+  cursor: pointer;
+  font-size: .8rem;
+}
+#sidenav-toggle:hover { background: var(--sy-surface-alt); color: var(--sy-text); }
+#sidenav-toggle svg { transition: transform .18s ease; flex-shrink: 0; }
+body.sidenav-collapsed #sidenav-toggle svg { transform: rotate(180deg); }
+
+.main-content {
+  margin-left: var(--sy-sidenav-w);
+  min-height: 100vh;
+  transition: margin-left .18s ease;
+  background: var(--sy-bg);
+}
+body.sidenav-collapsed .main-content { margin-left: var(--sy-sidenav-w-collapsed); }
+
+/* Top navbar.
+   `position: sticky` + an explicit z-index are load-bearing, not cosmetic:
+   backdrop-filter creates a stacking context, so without a z-index above the
+   page content the navbar's own dropdowns paint *behind* the cards below it. */
+.navbar.navbar-main {
+  position: sticky;
+  top: 0;
+  z-index: 1035;
+  background: rgba(245, 245, 247, .82);
+  backdrop-filter: saturate(180%) blur(14px);
+  -webkit-backdrop-filter: saturate(180%) blur(14px);
+  border-bottom: 1px solid var(--sy-border);
+  box-shadow: none !important;
+  padding: 10px 24px;
+  margin: 0 !important;
+  border-radius: 0 !important;
+}
+/* The dropdown is a child of the navbar's stacking context, so it only needs
+   to beat its siblings — but Bootstrap's default 1000 loses to the sticky
+   navbar itself in some orders; pin it explicitly. */
+.navbar.navbar-main .dropdown-menu { z-index: 1050; }
+.navbar.navbar-main .navbar-brand,
+.navbar.navbar-main h6 {
+  color: var(--sy-text) !important;
+}
+.navbar.navbar-main .nav-link { color: var(--sy-text-muted) !important; }
+.navbar.navbar-main .breadcrumb { background: transparent; margin: 0; padding: 0; }
+.navbar.navbar-main .breadcrumb-item,
+.navbar.navbar-main .breadcrumb-item.active { color: var(--sy-text-muted); font-size: .8rem; }
+.navbar.navbar-main .breadcrumb-item.active { color: var(--sy-text); font-weight: 600; }
+#last-updated { color: var(--sy-text-faint); font-size: .72rem; }
+
+/* Icon-only navbar buttons (notifications, mobile menu) */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: transparent;
+  color: var(--sy-text-muted);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background .12s ease, color .12s ease;
+}
+.icon-btn:hover { background: rgba(0, 0, 0, .05); color: var(--sy-text); }
+
+/* User chip + menu */
+.user-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px 4px 4px;
+  border: 1px solid var(--sy-border);
+  background: var(--sy-surface);
+  border-radius: 999px;
+  cursor: pointer;
+  color: var(--sy-text);
+  font-size: .82rem;
+  font-weight: 500;
+  transition: background .12s ease, border-color .12s ease;
+}
+.user-chip:hover { background: var(--sy-surface-alt); border-color: var(--sy-border-strong); }
+.user-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--sy-accent);
+  color: #fff;
+  font-size: .75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.user-chip-name { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user-menu-header { padding: 8px 12px 4px; }
+.user-menu-name { font-weight: 600; font-size: .88rem; color: var(--sy-text); }
+.user-menu-role { font-size: .75rem; color: var(--sy-text-muted); }
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: var(--sy-radius-sm);
+  padding: 8px 12px;
+}
+.dropdown-item svg { color: var(--sy-text-faint); flex-shrink: 0; }
+.dropdown-item-danger, .dropdown-item-danger svg { color: var(--sy-danger); }
+.dropdown-item-danger:hover { background: var(--sy-danger-soft); color: var(--sy-danger); }
+.dropdown-divider { border-color: var(--sy-border); margin: 6px 0; }
+
+@media (max-width: 991.98px) {
+  .user-chip-name { display: none; }
+}
+
+/* ── Cards, surfaces ──────────────────────────────────────────────────── */
+
+.card {
+  background: var(--sy-surface);
+  border: 1px solid var(--sy-border);
+  border-radius: var(--sy-radius);
+  box-shadow: var(--sy-shadow-sm);
+}
+.card .card-header {
+  background: transparent;
+  border-bottom: 1px solid var(--sy-border);
+  border-radius: var(--sy-radius) var(--sy-radius) 0 0 !important;
+}
+.card h5, .card h6, .card-title { color: var(--sy-text); }
+.text-muted, .opacity-6, .opacity-5 { color: var(--sy-text-muted) !important; opacity: 1 !important; }
+
+/* Every "text-white"/"opacity-N"/"bg-gradient-*"/"bg-gray-*" class below was
+   only ever styled by Material Dashboard's own CSS (Bootstrap has no
+   .bg-gradient-* or .opacity-N utilities) — none of them have any effect
+   any more now that file is gone, so markup using them would otherwise
+   render as unstyled black-on-white. These re-implement the same "colored
+   solid surface, readable text" contract those classes used to provide,
+   without touching every call site in index.html. */
+.text-white { color: var(--sy-text) !important; }
+.opacity-7, .opacity-8 { opacity: 1 !important; }
+
+.bg-gradient-info, .bg-info { background: var(--sy-accent) !important; color: #fff !important; border-color: var(--sy-accent) !important; }
+.bg-gradient-dark, .bg-dark { background: var(--sy-text) !important; color: #fff !important; }
+.bg-gradient-success:not(.badge), .bg-success:not(.badge) { background: var(--sy-success) !important; color: #fff !important; }
+.bg-gradient-danger:not(.badge), .bg-danger:not(.badge) { background: var(--sy-danger) !important; color: #fff !important; }
+.bg-gradient-warning:not(.badge), .bg-warning:not(.badge) { background: var(--sy-warning) !important; color: #fff !important; }
+.bg-gradient-secondary:not(.badge), .bg-secondary:not(.badge) { background: var(--sy-text-muted) !important; color: #fff !important; }
+.bg-gray-100, .bg-gray-200 { background: var(--sy-surface-alt) !important; }
+.bg-gray-900 { background: var(--sy-bg) !important; }
+.bg-white { background: var(--sy-surface) !important; }
+
 .icon-shape {
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--sy-radius-sm);
+  background: var(--sy-accent-soft);
 }
+.icon-shape svg { color: var(--sy-accent); opacity: 1; }
+
+/* ── Page hero ────────────────────────────────────────────────────────── */
+
+.page-hero {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--sy-radius-lg);
+  padding: 30px 32px;
+  margin-bottom: 20px;
+  background: linear-gradient(135deg, #0a1f3d 0%, #0071e3 62%, #38a4ff 100%);
+  color: #fff;
+}
+.page-hero::after {
+  content: "";
+  position: absolute;
+  width: 320px;
+  height: 320px;
+  top: -160px;
+  right: -80px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .16);
+  filter: blur(50px);
+  pointer-events: none;
+}
+.page-hero-text { position: relative; z-index: 1; }
+.page-hero h1 {
+  font-size: 1.7rem;
+  font-weight: 620;
+  letter-spacing: -.02em;
+  margin: 0 0 5px;
+  color: #fff;
+}
+.page-hero p {
+  margin: 0;
+  font-size: .9rem;
+  opacity: .84;
+  max-width: 62ch;
+}
+
+/* The old template pulled the first card up over the banner with a negative
+   margin; the hero is a standalone block now, so neutralise that. */
+.mt-n6 { margin-top: 0 !important; }
+
+/* ── Compliance ───────────────────────────────────────────────────────── */
+
+.risk-pill {
+  display: inline-block;
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+/* Risk is never colour-only: the level is spelled out inside the pill. */
+.risk-pill[data-risk="high"] { background: var(--sy-danger-soft); color: var(--sy-danger); }
+.risk-pill[data-risk="medium"] { background: var(--sy-warning-soft); color: var(--sy-warning); }
+.risk-pill[data-risk="low"] { background: var(--sy-surface-alt); color: var(--sy-text-muted); }
+
+.action-pill {
+  display: inline-block;
+  font-size: .72rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--sy-surface-alt);
+  border: 1px solid var(--sy-border);
+  color: var(--sy-text-muted);
+}
+.action-pill[data-action="block"] { background: var(--sy-danger-soft); border-color: transparent; color: var(--sy-danger); }
+.action-pill[data-action="redact"] { background: var(--sy-accent-soft); border-color: transparent; color: var(--sy-accent); }
+.action-pill[data-action="warn"] { background: var(--sy-warning-soft); border-color: transparent; color: var(--sy-warning); }
+
+.doc-list { list-style: none; margin: 0; padding: 0; }
+.doc-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--sy-border);
+}
+.doc-row:last-child { border-bottom: none; }
+.doc-main { flex: 1; min-width: 0; }
+.doc-name { font-size: .85rem; font-weight: 550; color: var(--sy-text); }
+.doc-article { font-size: .72rem; color: var(--sy-text-faint); }
+.doc-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+/* ── Live monitor ─────────────────────────────────────────────────────── */
+
+.live-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--sy-success);
+  margin-left: 6px;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 0 rgba(31, 166, 104, .6);
+  animation: live-pulse 2s infinite;
+}
+.live-dot.paused { background: var(--sy-text-faint); animation: none; box-shadow: none; }
+@keyframes live-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(31, 166, 104, .55); }
+  70%  { box-shadow: 0 0 0 6px rgba(31, 166, 104, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(31, 166, 104, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .live-dot { animation: none; }
+}
+#sidenav-main .nav-link .live-dot { margin-left: auto; }
+
+.live-stream { list-style: none; margin: 0; padding: 0; max-height: 540px; overflow-y: auto; }
+.live-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--sy-border);
+  font-size: .82rem;
+}
+.live-row:last-child { border-bottom: none; }
+/* New rows land at the top; a brief tint makes the arrival legible without
+   moving anything. */
+.live-row.is-new { animation: live-flash 1.2s ease-out; }
+@keyframes live-flash {
+  from { background: var(--sy-accent-soft); }
+  to   { background: transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .live-row.is-new { animation: none; }
+}
+.live-time {
+  font-variant-numeric: tabular-nums;
+  color: var(--sy-text-faint);
+  font-size: .74rem;
+  flex-shrink: 0;
+  min-width: 62px;
+  padding-top: 1px;
+}
+.live-kind {
+  font-size: .64rem;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  min-width: 78px;
+  text-align: center;
+}
+.live-kind[data-kind="request"]     { background: var(--sy-accent-soft); color: var(--sy-accent); }
+.live-kind[data-kind="compression"] { background: var(--sy-success-soft); color: var(--sy-success); }
+.live-kind[data-kind="firewall"]    { background: var(--sy-danger-soft); color: var(--sy-danger); }
+.live-kind[data-kind="waf"]         { background: var(--sy-warning-soft); color: var(--sy-warning); }
+.live-kind[data-kind="policy"]      { background: #ede9fe; color: #4a3aa7; }
+.live-main { flex: 1; min-width: 0; }
+.live-title {
+  color: var(--sy-text);
+  font-weight: 550;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.live-detail { color: var(--sy-text-muted); font-size: .76rem; }
+
+/* ── Provider marks ───────────────────────────────────────────────────── */
+
+/* Geometric glyphs, not the vendors' trademarked logos — recognisable per
+   provider without redistributing brand assets inside the package. */
+.provider-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  flex-shrink: 0;
+  background: var(--sy-surface-alt);
+  border: 1px solid var(--sy-border);
+  color: var(--sy-text-muted);
+}
+.provider-mark.sm { width: 20px; height: 20px; border-radius: 6px; }
+.provider-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: .78rem;
+  color: var(--sy-text-muted);
+}
+
+/* ── Model list ───────────────────────────────────────────────────────── */
+
+.model-list { list-style: none; margin: 0; padding: 0; }
+.model-row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 11px 18px;
+  border-bottom: 1px solid var(--sy-border);
+}
+.model-row:last-child { border-bottom: none; }
+.model-main { flex: 1; min-width: 0; }
+.model-name {
+  font-size: .83rem;
+  font-weight: 550;
+  color: var(--sy-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.model-sub { font-size: .72rem; color: var(--sy-text-faint); }
+.model-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--sy-accent);
+  margin-top: 5px;
+  min-width: 2px;
+}
+.model-count { font-size: .8rem; font-weight: 600; color: var(--sy-text); white-space: nowrap; }
+
+/* ── Quota meter ──────────────────────────────────────────────────────── */
+
+.quota { min-width: 128px; }
+.quota-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--sy-border);
+  overflow: hidden;
+}
+.quota-fill { height: 100%; border-radius: 3px; background: var(--sy-accent); }
+.quota-fill.warn { background: var(--sy-warning); }
+.quota-fill.over { background: var(--sy-danger); }
+.quota-label { font-size: .7rem; color: var(--sy-text-muted); margin-top: 3px; display: block; }
+
+.sub-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: .72rem;
+  font-weight: 550;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--sy-surface-alt);
+  border: 1px solid var(--sy-border);
+  color: var(--sy-text-muted);
+  margin: 1px 2px 1px 0;
+}
+.sub-chip.active { background: var(--sy-success-soft); border-color: transparent; color: var(--sy-success); }
+.sub-chip.exhausted { background: var(--sy-danger-soft); border-color: transparent; color: var(--sy-danger); }
+.sub-chip.suspended { background: var(--sy-warning-soft); border-color: transparent; color: var(--sy-warning); }
+
+.row-action {
+  border: none;
+  background: transparent;
+  color: var(--sy-text-faint);
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  line-height: 0;
+}
+.row-action:hover { background: var(--sy-surface-alt); color: var(--sy-text); }
+.row-action.danger:hover { background: var(--sy-danger-soft); color: var(--sy-danger); }
+
+/* ── Notifications ────────────────────────────────────────────────────── */
+
+.notif-counter {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 16px 18px;
+  border-left: 3px solid var(--sy-border-strong);
+}
+.notif-counter[data-level="error"] { border-left-color: var(--sy-danger); }
+.notif-counter[data-level="warning"] { border-left-color: var(--sy-warning); }
+.notif-counter[data-level="info"] { border-left-color: var(--sy-accent); }
+.notif-counter-value { font-size: 1.7rem; font-weight: 620; letter-spacing: -.02em; line-height: 1.1; }
+.notif-counter-label { font-size: .78rem; color: var(--sy-text-muted); margin-top: 2px; }
+
+.notif-list { list-style: none; margin: 0; padding: 0; }
+.notif-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--sy-border);
+}
+.notif-item:last-child { border-bottom: none; }
+.notif-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+/* Status colour never carries meaning alone — each level ships its own icon
+   shape and a text title, so the row is readable without colour vision. */
+.notif-item[data-level="error"] .notif-icon { background: var(--sy-danger-soft); color: var(--sy-danger); }
+.notif-item[data-level="warning"] .notif-icon { background: var(--sy-warning-soft); color: var(--sy-warning); }
+.notif-item[data-level="info"] .notif-icon { background: var(--sy-accent-soft); color: var(--sy-accent); }
+.notif-body { flex: 1; min-width: 0; }
+.notif-title { font-size: .875rem; font-weight: 600; color: var(--sy-text); margin: 0 0 2px; }
+.notif-message { font-size: .8rem; color: var(--sy-text-muted); margin: 0; }
+.notif-action {
+  font-size: .78rem;
+  font-weight: 550;
+  white-space: nowrap;
+  flex-shrink: 0;
+  align-self: center;
+}
+.notif-empty {
+  padding: 30px 18px;
+  text-align: center;
+  color: var(--sy-text-muted);
+  font-size: .87rem;
+}
+
+/* Compact variant for the navbar dropdown */
+#notif-dropdown .notif-item { padding: 9px 8px; border-bottom: none; }
+#notif-dropdown .notif-title { font-size: .82rem; }
+#notif-dropdown .notif-message {
+  font-size: .75rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ── KPI cards ────────────────────────────────────────────────────────── */
+
+.kpi-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 18px 18px 0;
+  overflow: hidden;
+  transition: box-shadow .15s ease, transform .15s ease;
+}
+.kpi-card:hover { box-shadow: var(--sy-shadow); transform: translateY(-1px); }
+
+.kpi-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: .78rem;
+  font-weight: 500;
+  color: var(--sy-text-muted);
+  margin: 0 0 6px;
+  cursor: help;
+}
+.kpi-label svg { color: var(--sy-text-faint); flex-shrink: 0; }
+
+.kpi-value {
+  /* Proportional figures on purpose: these are standalone hero numbers, not a
+     column that has to align vertically (tabular-nums is for tables/axes). */
+  font-size: 2rem;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -.02em;
+  color: var(--sy-text);
+  margin: 0;
+}
+.kpi-unit { font-size: .95rem; font-weight: 500; color: var(--sy-text-muted); margin-left: 3px; }
+
+.kpi-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  min-height: 22px;
+}
+.kpi-delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: .72rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--sy-surface-alt);
+  color: var(--sy-text-muted);
+}
+.kpi-delta.up { background: var(--sy-success-soft); color: var(--sy-success); }
+.kpi-delta.down { background: var(--sy-danger-soft); color: var(--sy-danger); }
+.kpi-foot { font-size: .72rem; color: var(--sy-text-faint); }
+
+/* Sparkline bleeds to the card edges along the bottom. */
+.kpi-spark {
+  height: 52px;
+  margin: 10px -18px 0;
+}
+.kpi-card.no-spark { padding-bottom: 18px; }
+
+/* ── Buttons ──────────────────────────────────────────────────────────── */
+
+.btn {
+  border-radius: var(--sy-radius-sm);
+  font-weight: 500;
+  font-size: .85rem;
+  box-shadow: none !important;
+  transition: background .12s ease, color .12s ease, border-color .12s ease;
+}
+.btn-primary {
+  background: var(--sy-accent);
+  border-color: var(--sy-accent);
+  color: #fff;
+}
+.btn-primary:hover, .btn-primary:focus {
+  background: var(--sy-accent-hover);
+  border-color: var(--sy-accent-hover);
+}
+.btn-outline-secondary, .btn-secondary {
+  background: var(--sy-surface);
+  border-color: var(--sy-border-strong);
+  color: var(--sy-text);
+}
+.btn-outline-secondary:hover, .btn-secondary:hover {
+  background: var(--sy-surface-alt);
+  border-color: var(--sy-border-strong);
+  color: var(--sy-text);
+}
+.btn-danger { background: var(--sy-danger); border-color: var(--sy-danger); }
+.btn-sm { padding: .35rem .75rem; }
+
+/* Segmented range control (24h / 7d / 30d / All time). Bootstrap's
+   .btn-outline-info active state fills with its own cyan and picks a dark
+   contrast color; restate both so the selected segment is accent-on-white. */
+.btn-outline-info {
+  border-color: var(--sy-border-strong);
+  color: var(--sy-text-muted);
+  background: var(--sy-surface);
+}
+.btn-outline-info:hover {
+  background: var(--sy-surface-alt);
+  border-color: var(--sy-border-strong);
+  color: var(--sy-text);
+}
+.btn-outline-info.active,
+.btn-outline-info:active,
+.range-btn.active {
+  background: var(--sy-accent) !important;
+  border-color: var(--sy-accent) !important;
+  color: #fff !important;
+}
+.range-btn.active { pointer-events: none; }
+.btn-outline-light {
+  border-color: var(--sy-border-strong);
+  color: var(--sy-text-muted);
+  background: var(--sy-surface);
+}
+.btn-outline-light:hover { background: var(--sy-surface-alt); color: var(--sy-text); }
+
+/* ── Tables ───────────────────────────────────────────────────────────── */
+
+.table { color: var(--sy-text); }
+.table thead th {
+  color: var(--sy-text-faint);
+  font-size: .7rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--sy-border);
+  background: transparent;
+}
+.table td, .table th { border-color: var(--sy-border); vertical-align: middle; }
+.table-hover tbody tr:hover { background: var(--sy-surface-alt); }
+
+/* ── Forms ────────────────────────────────────────────────────────────── */
+
+.form-control, .form-select {
+  background: var(--sy-surface-alt);
+  border: 1px solid var(--sy-border);
+  color: var(--sy-text);
+  border-radius: var(--sy-radius-sm);
+}
+.form-control:focus, .form-select:focus {
+  background: var(--sy-surface);
+  border-color: var(--sy-accent);
+  box-shadow: 0 0 0 3px var(--sy-accent-soft);
+  color: var(--sy-text);
+}
+.form-control::placeholder { color: var(--sy-text-faint); }
+.form-label { color: var(--sy-text-muted); font-size: .8rem; font-weight: 500; }
+
+.form-check-input {
+  background-color: var(--sy-border-strong);
+  border-color: var(--sy-border-strong);
+}
+.form-check-input:checked {
+  background-color: var(--sy-success) !important;
+  border-color: var(--sy-success) !important;
+}
+.form-check-input:focus { box-shadow: 0 0 0 3px var(--sy-accent-soft); }
+
+/* Floating-label inputs (input-group-outline), independent of any
+   is-filled/is-focused JS state — always legible. */
+.input-group-outline {
+  position: relative;
+  border: 1px solid var(--sy-border);
+  border-radius: var(--sy-radius-sm);
+  background: var(--sy-surface-alt);
+}
+.input-group-outline .form-control { border: none; background: transparent; box-shadow: none; }
+.input-group-outline .form-label {
+  position: absolute;
+  top: -9px;
+  left: 10px;
+  background: var(--sy-surface-alt);
+  padding: 0 5px;
+  font-size: .7rem !important;
+  color: var(--sy-text-muted);
+  line-height: 1.2 !important;
+}
+
+/* ── Badges / pills ───────────────────────────────────────────────────── */
+
+.badge { font-weight: 600; border-radius: 999px; padding: .35em .7em; }
+.badge.bg-success, .badge.bg-gradient-success { background: var(--sy-success-soft) !important; color: var(--sy-success) !important; }
+.badge.bg-warning, .badge.bg-gradient-warning { background: var(--sy-warning-soft) !important; color: var(--sy-warning) !important; }
+.badge.bg-danger, .badge.bg-gradient-danger { background: var(--sy-danger-soft) !important; color: var(--sy-danger) !important; }
+.badge.bg-secondary, .badge.bg-gradient-secondary { background: var(--sy-surface-alt) !important; color: var(--sy-text-muted) !important; border: 1px solid var(--sy-border); }
+.badge.bg-primary, .badge.bg-gradient-primary, .badge.bg-info, .badge.bg-gradient-info { background: var(--sy-accent-soft) !important; color: var(--sy-accent) !important; }
+.badge.bg-dark, .badge.bg-gradient-dark { background: var(--sy-surface-alt) !important; color: var(--sy-text) !important; border: 1px solid var(--sy-border); }
+
+/* ── Misc components ──────────────────────────────────────────────────── */
+
+.dropdown-menu {
+  background: var(--sy-surface);
+  border: 1px solid var(--sy-border);
+  border-radius: var(--sy-radius);
+  box-shadow: var(--sy-shadow-lg);
+}
+.dropdown-item { color: var(--sy-text); font-size: .85rem; }
+.dropdown-item:hover { background: var(--sy-surface-alt); }
+
+.modal-content {
+  background: var(--sy-surface);
+  border: none;
+  border-radius: var(--sy-radius-lg);
+  box-shadow: var(--sy-shadow-lg);
+}
+.modal-header, .modal-footer { border-color: var(--sy-border); }
 
 #decisions-list .list-group-item {
   background-color: transparent;
-}
-
-/* dark-version only re-colors .form-control text/border inside
-   .input-group-outline (see login.html's own comment on this) — plain
-   .form-control elements (our Settings <select>s) need the same fix, or the
-   text is the near-black default #404040 on a #1d1d1d card. */
-.dark-version .form-control {
-  color: #fff;
-  background-color: #1a1d24;
-  border-color: rgba(255, 255, 255, 0.1);
-}
-.dark-version .form-control:focus {
-  color: #fff;
-  background-color: #1a1d24;
-}
-.dark-version .form-control option {
-  color: #ffffff;
-  background-color: #1a1d24;
-}
-
-.dark-version .input-group.input-group-outline .form-control {
-  color: #fff;
-}
-
-/* Bootstrap's default checked-switch blue is too close to the unchecked gray
-   against this dark theme to tell "on" from "off" at a glance (Settings'
-   Privacy & Security toggles) — bump the contrast explicitly. */
-.form-check-input {
-  background-color: rgba(255, 255, 255, 0.15);
-  border-color: rgba(255, 255, 255, 0.25);
-}
-.form-check-input:checked {
-  background-color: #4caf50 !important;
-  border-color: #4caf50 !important;
-}
-
-/* Material Dashboard's ".input-group-outline" only floats the <label> above
-   the border — instead of centered on top of the input's own text/placeholder
-   — once JS adds ".is-filled" (on blur, with a value) or the field is
-   focused. Every such field starts life with neither: on first render the
-   label and any `placeholder` text sit stacked on top of each other,
-   unreadable, until the user happens to click in and back out. Apply this
-   ".always-floated" class (see index.html) on every input-group-outline field
-   at the markup level, independent of value/focus state, so this can't
-   silently recur the next time one is added — reproduces the same notched
-   label MD draws for ".is-filled"/".is-focused", just in a neutral color
-   instead of the "has a real value" pink accent. */
-.input-group-outline.always-floated .form-label {
-  width: 100%;
-  height: 100%;
-  font-size: .6875rem !important;
-  color: #8891a0;
-  display: flex;
-  line-height: 1.25 !important;
-}
-.input-group-outline.always-floated .form-label:before,
-.input-group-outline.always-floated .form-label:after {
-  opacity: 1;
-  border-top-color: rgba(255, 255, 255, .2);
-}
-
-
-/* Material Dashboard's dark-version background on the sidenav is only
-   applied via `.dark-version .sidenav` — at narrower viewports / the
-   collapsed-to-icons state (`g-sidenav-hidden`) the browser can end up
-   painting the aside's un-themed default (white) background instead, since
-   that responsive/collapsed markup wasn't part of Creative Tim's own dark
-   demo pages. Pin it directly on the element regardless of viewport or
-   collapse state so it can never flash white. */
-#sidenav-main,
-#sidenav-main.bg-white,
-.dark-version #sidenav-main {
-  background: #1d1d1d !important;
-}
-#sidenav-main .nav-link,
-#sidenav-main .navbar-brand span,
-#sidenav-main h6 {
-  color: #fff !important;
-}
-@media (max-width: 1199.98px) {
-  #sidenav-main {
-    background: #1d1d1d !important;
-  }
+  border-color: var(--sy-border);
 }
 
 /* Fixed-height, non-growing chart container. Chart.js needs a sized parent
@@ -132,51 +920,39 @@
    refresh compounds its own previous size and grows on each redraw. */
 .chart-box {
   position: relative;
-  height: 260px;
+  height: 280px;
   width: 100%;
 }
+/* ECharts sizes itself from the container, which therefore needs a real
+   height — a bare <div> would collapse to 0 and render nothing. */
+.chart-canvas { width: 100%; height: 100%; }
 
 /* Wide content (Settings' 4-card rows, wide tables) can exceed the viewport
-   width on narrower windows, and .main-content itself is capped to 100vh
-   (Material Dashboard's .max-height-vh-100) without its own overflow-y — so
-   without an explicit overflow rule here, content past that height/width was
-   only reachable by Tab-focusing through it (which auto-scrolls the focused
-   field into view) instead of a normal, visible scrollbar. `scroll` (not
-   `auto`) on purpose: Windows' overlay-scrollbar behavior hides an `auto`
-   scrollbar until you start scrolling/hovering, which is indistinguishable
-   from "there's no scrollbar at all" — `scroll` always reserves the track so
-   it's visible immediately, not just mid-interaction. Apply on html too:
-   .main-content isn't reliably the true scrolling ancestor in every browser
-   given the fixed sidenav layout, so both are covered rather than guessing
-   which one wins. */
+   width on narrower windows — keep a real, always-visible scrollbar rather
+   than relying on Tab-focus auto-scroll to reveal overflow. */
 html, body, .main-content {
-  overflow-x: scroll;
+  overflow-x: auto;
 }
 .main-content {
-  overflow-y: scroll;
+  overflow-y: auto;
 }
 
-/* Modern slim scrollbar, applied everywhere (not just one container) so it's
-   consistent across every page, not just the ones that happen to overflow
-   today. */
 ::-webkit-scrollbar {
   height: 10px;
   width: 10px;
 }
-::-webkit-scrollbar-track {
-  background: transparent;
-}
+::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background-color: rgba(255, 255, 255, 0.25);
+  background-color: rgba(0, 0, 0, .18);
   border-radius: 10px;
   border: 2px solid transparent;
   background-clip: padding-box;
 }
-::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(255, 255, 255, 0.4);
-}
+::-webkit-scrollbar-thumb:hover { background-color: rgba(0, 0, 0, .3); }
+* { scrollbar-width: thin; scrollbar-color: rgba(0, 0, 0, .18) transparent; }
 
-* {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+@media (max-width: 991.98px) {
+  #sidenav-main { transform: translateX(-100%); }
+  body.sidenav-mobile-open #sidenav-main { transform: translateX(0); }
+  .main-content { margin-left: 0 !important; }
 }

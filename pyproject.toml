@@ -55,7 +55,7 @@ redis = ["redis>=5.0"]
 postgres = ["psycopg[binary]>=3.1"]
 cluster = ["redis>=5.0", "psycopg[binary]>=3.1", "qdrant-client>=1.9"]
 documents = ["pypdf>=4.0", "python-docx>=1.1", "openpyxl>=3.1"]
-enterprise = ["cryptography>=41.0"]
+enterprise = ["cryptography>=41.0", "keyring>=24.0"]
 # ML tier for PrivacyGuard (privacy.use_ml). NO pip optional dependency on
 # purpose: `synthelion models install` handles the model download AND the
 # required libraries (gliner, torch, huggingface_hub) via a pip install call
@@ -90,12 +90,20 @@ synthelion = [
     "plugins/dashboard_assets/*.js",
     "plugins/dashboard_assets/vendor/bootstrap/*",
     "plugins/dashboard_assets/vendor/chartjs/*",
-    "plugins/dashboard_assets/vendor/material-dashboard/*",
-    "plugins/dashboard_assets/vendor/material-dashboard/img/*",
-    "plugins/dashboard_assets/vendor/material-dashboard/css/*",
-    "plugins/dashboard_assets/vendor/material-dashboard/fonts/*",
-    "plugins/dashboard_assets/vendor/material-dashboard/js/*",
+    "plugins/dashboard_assets/vendor/echarts/*",
     "plugins/dashboard_assets/img/*",
+]
+
+[tool.setuptools.exclude-package-data]
+# Redundant checkpoint formats — only model.bin is ever loaded at runtime
+# (synthelionml.py's weights_path lookup), the rest are local conversion
+# artifacts from scripts/convert_synthelionml.py that shouldn't inflate the
+# published wheel with ~80MB nothing imports.
+synthelion = [
+    "ml_models/*/*.safetensors",
+    "ml_models/*/*.safetensors.index.json",
+    "ml_models/*/*.onnx",
+    "ml_models/*/preprocessor_config.json",
 ]
 
 [tool.pytest.ini_options]

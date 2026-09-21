@@ -2,8 +2,6 @@
   "use strict";
 
   const state = { days: 30 };
-  let timelineChart = null;
-  let toolsChart = null;
 
   const fmtInt = (n) => new Intl.NumberFormat("en-US").format(Math.round(n || 0));
   const fmtPct = (n) => `${(n || 0).toFixed(1)}%`;
@@ -11,9 +9,58 @@
   const fmtUsd = (v) => `$${(v || 0).toFixed((v || 0) < 1 ? 4 : 2)}`;
   const fmtMwh = (v) => `${(v || 0).toFixed(3)} mWh`;
 
-  Chart.defaults.color = "#8891a0";
-  Chart.defaults.borderColor = "rgba(255,255,255,0.08)";
-  Chart.defaults.font.family = "system-ui, -apple-system, sans-serif";
+  // ── chart layer (ECharts, Apache-2.0) ───────────────────────────────────
+  // Categorical slots in fixed order — never cycled, never reassigned by rank,
+  // so a series keeps its colour when the set it belongs to changes. Slot 1 is
+  // the product accent. Validated against this dashboard's real card surface
+  // (#ffffff): lightness band, chroma floor, adjacent-pair CVD separation and
+  // the normal-vision floor all pass. Slots 3/4/5 sit below 3:1 contrast on
+  // white, so anything using them ships visible labels or a table view.
+  const SERIES = ["#0071e3", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#4a3aa7"];
+  const INK = { primary: "#1d1d1f", secondary: "#6e6e73", muted: "#86868b" };
+  const GRID_LINE = "#e5e5ea";
+  const FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+
+  const charts = new Map();
+
+  /** Create-or-reuse an ECharts instance bound to a container id. */
+  function chartAt(id) {
+    const el = document.getElementById(id);
+    if (!el) return null;
+    let c = charts.get(id);
+    // A chart built while its page was display:none measures 0×0 — re-measure
+    // whenever the container has since been shown.
+    if (c && (c.getWidth() === 0 || c.getHeight() === 0)) c.resize();
+    if (!c) {
+      c = echarts.init(el, null, { renderer: "canvas" });
+      charts.set(id, c);
+    }
+    return c;
+  }
+
+  window.addEventListener("resize", () => charts.forEach((c) => c.resize()));
+
+  /** Shared tooltip styling — light surface, hairline ring, no arrow chrome. */
+  function tooltipStyle(extra) {
+    return Object.assign({
+      backgroundColor: "#ffffff",
+      borderColor: GRID_LINE,
+      borderWidth: 1,
+      padding: [8, 11],
+      textStyle: { color: INK.primary, fontSize: 12, fontFamily: FONT },
+      extraCssText: "box-shadow:0 6px 20px rgba(0,0,0,.10);border-radius:10px;",
+    }, extra || {});
+  }
+
+  /** Vertical accent-to-transparent fill used under line marks. */
+  function areaFill(color) {
+    return {
+      color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+        { offset: 0, color: color + "40" },
+        { offset: 1, color: color + "00" },
+      ]),
+    };
+  }
 
   async function fetchJson(url) {
     const res = await fetch(url, { cache: "no-store" });
@@ -59,6 +106,7 @@
       renderToolChart(summary.by_tool || {});
       renderContentTypeTable(summary.by_content_type || {});
       renderTimeline(records.records || []);
+      renderKpiSparklines(records.records || []);
       renderSessions(sessions.sessions || []);
       renderRequests(recentRequests.records || []);
       renderDecisions(decisions);
@@ -104,6 +152,38 @@
     // KPI card labels are static DOM nodes (only their text content is refreshed on
     // each refresh()), so a single init at page load is enough — no re-init needed.
     document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach((el) => new bootstrap.Tooltip(el));
+  }
+
+  function initSidenavToggle() {
+    const KEY = "synthelion_sidenav_collapsed";
+    const btn = document.getElementById("sidenav-toggle");
+    if (!btn) return;
+    // Per-viewer UI preference only (does this browser show icons+text or
+    // icons only) — never anything the backend needs to know about, so
+    // localStorage is the right place for it, not a server-side setting.
+    let collapsed = false;
+    try { collapsed = localStorage.getItem(KEY) === "1"; } catch { /* ignore */ }
+    document.body.classList.toggle("sidenav-collapsed", collapsed);
+    btn.addEventListener("click", () => {
+      collapsed = !document.body.classList.contains("sidenav-collapsed");
+      document.body.classList.toggle("sidenav-collapsed", collapsed);
+      try { localStorage.setItem(KEY, collapsed ? "1" : "0"); } catch { /* ignore */ }
+    });
+
+    // Below lg the sidebar slides off-canvas instead of collapsing to icons,
+    // so it needs its own toggle in the navbar.
+    const mobileBtn = document.getElementById("mobile-sidenav-toggle");
+    if (mobileBtn) {
+      mobileBtn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        document.body.classList.toggle("sidenav-mobile-open");
+      });
+      document.addEventListener("click", (ev) => {
+        if (!document.body.classList.contains("sidenav-mobile-open")) return;
+        if (ev.target.closest("#sidenav-main") || ev.target.closest("#mobile-sidenav-toggle")) return;
+        document.body.classList.remove("sidenav-mobile-open");
+      });
+    }
   }
 
   function renderSessions(sessions) {
@@ -202,34 +282,44 @@
     return div.innerHTML;
   }
 
-  // ── charts (Chart.js, vendored locally — no CDN) ────────────────────────────
-  //
-  // Chart instances are created once and updated in place via chart.update().
-  // Never call `new Chart(...)` again on the same <canvas> without destroying
-  // the previous instance first — Chart.js does not clean up its resize
-  // listener on the old instance, so each recreation compounds the canvas's
-  // reported size and the chart visibly grows on every redraw.
+  // Instances are created once per container id (see chartAt) and updated in
+  // place with setOption(..., true). Never echarts.init() the same element
+  // twice without dispose() — the old instance keeps its resize listener and
+  // both draw onto the same node.
 
   function renderToolChart(byTool) {
     const entries = Object.entries(byTool).sort((a, b) => b[1] - a[1]).slice(0, 8);
-    const labels = entries.map((e) => e[0]);
-    const values = entries.map((e) => e[1]);
-
-    if (!toolsChart) {
-      const ctx = document.getElementById("chart-tools").getContext("2d");
-      toolsChart = new Chart(ctx, {
+    const c = chartAt("chart-tools");
+    if (!c) return;
+    // Horizontal bars: tool names are long, and a vertical layout would either
+    // clip them or force diagonal labels. Highest value on top.
+    const labels = entries.map((e) => e[0]).reverse();
+    const values = entries.map((e) => e[1]).reverse();
+    c.setOption({
+      grid: { left: 4, right: 52, top: 8, bottom: 4, containLabel: true },
+      xAxis: { type: "value", show: false },
+      yAxis: {
+        type: "category", data: labels,
+        axisLine: { show: false }, axisTick: { show: false },
+        axisLabel: { color: INK.secondary, fontFamily: FONT, fontSize: 11 },
+      },
+      tooltip: tooltipStyle({
+        trigger: "item",
+        formatter: (p) => `<b>${p.name}</b><br>${fmtInt(p.value)} tokens saved`,
+      }),
+      series: [{
         type: "bar",
-        data: {
-          labels,
-          datasets: [{ label: "Tokens saved", data: values, backgroundColor: "#6ea8fe", borderRadius: 4 }],
+        data: values,
+        barWidth: 12,
+        itemStyle: { color: SERIES[0], borderRadius: [0, 4, 4, 0] },
+        // Direct value labels: slot colours below 3:1 on white need visible
+        // labels, and it saves a hover just to read the magnitude.
+        label: {
+          show: true, position: "right", formatter: (p) => fmtInt(p.value),
+          color: INK.secondary, fontFamily: FONT, fontSize: 11,
         },
-        options: chartOptions(),
-      });
-    } else {
-      toolsChart.data.labels = labels;
-      toolsChart.data.datasets[0].data = values;
-      toolsChart.update();
-    }
+      }],
+    }, true);
   }
 
   function renderTimeline(records) {
@@ -237,43 +327,182 @@
     const byDay = new Map();
     for (const r of records) {
       if (!r.ts) continue;
-      const day = r.ts.slice(0, 10); // ISO date prefix
+      const day = r.ts.slice(0, 10);
       byDay.set(day, (byDay.get(day) || 0) + (r.tokens_saved || 0));
     }
-    const days = Array.from(byDay.keys()).sort().slice(-14); // keep it readable
-    empty.style.display = days.length ? "none" : "block";
-
-    const labels = days;
+    const days = Array.from(byDay.keys()).sort().slice(-30);
+    if (empty) empty.style.display = days.length ? "none" : "block";
     const values = days.map((d) => byDay.get(d));
 
-    if (!timelineChart) {
-      const ctx = document.getElementById("chart-timeline").getContext("2d");
-      timelineChart = new Chart(ctx, {
-        type: "bar",
-        data: {
-          labels,
-          datasets: [{ label: "Tokens saved", data: values, backgroundColor: "#75b798", borderRadius: 4 }],
-        },
-        options: chartOptions(),
-      });
-    } else {
-      timelineChart.data.labels = labels;
-      timelineChart.data.datasets[0].data = values;
-      timelineChart.update();
-    }
+    const c = chartAt("chart-timeline");
+    if (!c) return;
+    c.setOption({
+      grid: { left: 8, right: 12, top: 16, bottom: 4, containLabel: true },
+      xAxis: {
+        type: "category", data: days, boundaryGap: false,
+        axisLine: { lineStyle: { color: GRID_LINE } },
+        axisTick: { show: false },
+        axisLabel: { color: INK.muted, fontFamily: FONT, fontSize: 11, formatter: (v) => v.slice(5) },
+      },
+      yAxis: {
+        type: "value",
+        axisLine: { show: false }, axisTick: { show: false },
+        axisLabel: { color: INK.muted, fontFamily: FONT, fontSize: 11, formatter: (v) => fmtInt(v) },
+        splitLine: { lineStyle: { color: GRID_LINE, type: "dashed" } },
+      },
+      tooltip: tooltipStyle({
+        trigger: "axis",
+        axisPointer: { type: "line", lineStyle: { color: GRID_LINE, width: 1 } },
+        formatter: (p) => `<b>${p[0].axisValue}</b><br>${fmtInt(p[0].data)} tokens saved`,
+      }),
+      series: [{
+        type: "line",
+        data: values,
+        smooth: 0.35,
+        showSymbol: false,
+        // >=8px hit target on hover even though the resting mark is hidden.
+        symbolSize: 9,
+        lineStyle: { width: 2, color: SERIES[0] },
+        itemStyle: { color: SERIES[0], borderColor: "#fff", borderWidth: 2 },
+        areaStyle: areaFill(SERIES[0]),
+      }],
+    }, true);
   }
 
-  function chartOptions() {
-    return {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { grid: { display: false } },
-        y: { beginAtZero: true, ticks: { callback: (v) => fmtInt(v) } },
-      },
+  // ── KPI sparklines ──────────────────────────────────────────────────────
+
+  const _ENERGY_MWH_PER_TOKEN = 3.0e-7;   // mirrors ledger.py's constants, so
+  const _CO2_MG_PER_MWH = 475.0;          // the daily split sums to the card total
+  const _PRICE_PER_TOKEN = 3.0 / 1_000_000;
+
+  /** Bucket raw ledger records into one point per day for every KPI that has
+   *  a genuine time series. Metrics without one (ratios, external counters)
+   *  are deliberately absent — a card with no real series shows the number
+   *  alone rather than a decorative line. */
+  function dailySeries(records) {
+    const byDay = new Map();
+    for (const r of records) {
+      if (!r.ts) continue;
+      const day = r.ts.slice(0, 10);
+      let d = byDay.get(day);
+      if (!d) {
+        d = { calls: 0, saved: 0, before: 0, pii: 0, best: 0, durs: [], sessions: new Set(), tools: new Set() };
+        byDay.set(day, d);
+      }
+      const saved = r.tokens_saved || 0;
+      d.calls += 1;
+      d.saved += saved;
+      d.before += r.tokens_before || 0;
+      d.pii += r.pii_masked_count || 0;
+      if (saved > d.best) d.best = saved;
+      if (r.duration_ms) d.durs.push(r.duration_ms);
+      if (r.session_id) d.sessions.add(r.session_id);
+      if (r.tool) d.tools.add(r.tool);
+    }
+    const days = Array.from(byDay.keys()).sort();
+    const pick = (fn) => days.map((k) => fn(byDay.get(k)));
+    const pctl = (arr, p) => {
+      if (!arr.length) return 0;
+      const s = [...arr].sort((a, b) => a - b);
+      return s[Math.min(s.length - 1, Math.floor(s.length * p))];
     };
+    return {
+      days,
+      calls: pick((d) => d.calls),
+      saved: pick((d) => d.saved),
+      before: pick((d) => d.before),
+      pii: pick((d) => d.pii),
+      best: pick((d) => d.best),
+      sessions: pick((d) => d.sessions.size),
+      tools: pick((d) => d.tools.size),
+      eff: pick((d) => (d.before > 0 ? (d.saved / d.before) * 100 : 0)),
+      co2: pick((d) => d.saved * _ENERGY_MWH_PER_TOKEN * _CO2_MG_PER_MWH),
+      energy: pick((d) => d.saved * _ENERGY_MWH_PER_TOKEN),
+      cost: pick((d) => d.saved * _PRICE_PER_TOKEN),
+      lat_avg: pick((d) => (d.durs.length ? d.durs.reduce((a, b) => a + b, 0) / d.durs.length : 0)),
+      lat_p95: pick((d) => pctl(d.durs, 0.95)),
+      lat_max: pick((d) => (d.durs.length ? Math.max(...d.durs) : 0)),
+    };
+  }
+
+  /** Percent change of the last day against the mean of the days before it.
+   *  Returns null when there isn't enough history to compare honestly. */
+  function trendDelta(values) {
+    if (values.length < 2) return null;
+    const last = values[values.length - 1];
+    const prev = values.slice(0, -1);
+    const base = prev.reduce((a, b) => a + b, 0) / prev.length;
+    if (!base) return null;
+    return ((last - base) / base) * 100;
+  }
+
+  function renderSparkline(el, days, values, invert) {
+    const c = chartAt(el.id);
+    if (!c) return;
+    // Colour by direction, not by metric: rising is good unless the metric is
+    // one where lower is better (latency, tokens sent).
+    const delta = trendDelta(values);
+    const rising = delta !== null && delta > 0;
+    const good = delta === null ? null : (invert ? !rising : rising);
+    const color = good === null ? SERIES[0] : (good ? "#1fa668" : "#d70015");
+    c.setOption({
+      grid: { left: 0, right: 0, top: 6, bottom: 0 },
+      xAxis: { type: "category", data: days, show: false, boundaryGap: false },
+      yAxis: { type: "value", show: true, min: "dataMin", axisLine: { show: false }, axisTick: { show: false }, axisLabel: { show: false }, splitLine: { show: false } },
+      tooltip: tooltipStyle({
+        trigger: "axis",
+        axisPointer: { type: "line", lineStyle: { color: GRID_LINE, width: 1 } },
+        formatter: (p) => `<b>${p[0].axisValue}</b><br>${fmtInt(p[0].data)}`,
+      }),
+      series: [{
+        type: "line",
+        data: values,
+        smooth: 0.35,
+        showSymbol: false,
+        lineStyle: { width: 2, color },
+        areaStyle: areaFill(color),
+        // Keep the final point visible as the "you are here" anchor.
+        markPoint: {
+          symbol: "circle", symbolSize: 7, silent: true,
+          itemStyle: { color, borderColor: "#fff", borderWidth: 2 },
+          label: { show: false },
+          data: [{ coord: [days.length - 1, values[values.length - 1]] }],
+        },
+      }],
+    }, true);
+  }
+
+  function renderKpiSparklines(records) {
+    const series = dailySeries(records);
+    document.querySelectorAll(".kpi-spark[data-metric]").forEach((el) => {
+      const values = series[el.dataset.metric];
+      if (!values || values.length < 2) { el.style.display = "none"; return; }
+      el.style.display = "";
+      const invert = el.dataset.invert === "1";
+      renderSparkline(el, series.days, values, invert);
+
+      const chip = document.getElementById(el.dataset.deltaFor + "-delta");
+      if (!chip) return;
+      const delta = trendDelta(values);
+      if (delta === null || !isFinite(delta)) { chip.style.display = "none"; return; }
+      const rising = delta > 0;
+      const good = invert ? !rising : rising;
+      chip.style.display = "";
+      chip.className = "kpi-delta " + (good ? "up" : "down");
+      chip.textContent = `${rising ? "▲" : "▼"} ${Math.abs(delta).toFixed(0)}%`;
+      chip.title = "Last day vs the average of the preceding days in range";
+    });
+  }
+
+  // The range control and Refresh live in the global navbar, but only these
+  // pages actually render ledger data filtered by it. Pressing them from
+  // anywhere else would silently change a filter with nothing on screen to
+  // show for it, so jump to the dashboard and apply it there.
+  const RANGE_AWARE_PAGES = new Set(["overview", "charts", "sessions", "requests"]);
+
+  function goToDashboardIfNeeded() {
+    const current = pageForPath(window.location.pathname);
+    if (!RANGE_AWARE_PAGES.has(current)) navigate("/", true);
   }
 
   document.querySelectorAll(".range-btn").forEach((btn) => {
@@ -281,11 +510,15 @@
       document.querySelectorAll(".range-btn").forEach((b) => b.classList.remove("active"));
       btn.classList.add("active");
       state.days = btn.dataset.days ? Number(btn.dataset.days) : null;
+      goToDashboardIfNeeded();
       refresh();
     });
   });
 
-  document.getElementById("refresh-btn").addEventListener("click", refresh);
+  document.getElementById("refresh-btn").addEventListener("click", () => {
+    goToDashboardIfNeeded();
+    refresh();
+  });
 
   async function loadVersion() {
     try {
@@ -1282,6 +1515,14 @@
   function setProfileUsername(username) {
     document.getElementById("profile-heading-username").textContent = username;
     document.getElementById("profile-info-username").textContent = username;
+    // Navbar user chip + menu mirror the same account, so a username change
+    // on the Profile page is reflected in the header without a reload.
+    const name = username || "—";
+    const initials = (username || "?").trim().slice(0, 2);
+    const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+    set("user-chip-name", name);
+    set("user-menu-name", name);
+    set("user-avatar", initials);
   }
 
   async function loadProfile() {
@@ -1327,12 +1568,29 @@
 
   // ── notifications ────────────────────────────────────────────────────────
 
+  // Distinct icon shape per level, so severity survives greyscale, colour-vision
+  // differences and forced-colors mode instead of resting on the hue alone.
+  const NOTIF_ICONS = {
+    error: '<path d="M12 8v5"/><circle cx="12" cy="16.5" r=".6" fill="currentColor"/><path d="M10.3 3.9 2.8 17a2 2 0 0 0 1.7 3h15a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>',
+    warning: '<circle cx="12" cy="12" r="9"/><line x1="12" y1="7.5" x2="12" y2="13"/><circle cx="12" cy="16.3" r=".6" fill="currentColor"/>',
+    info: '<circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16.5"/><circle cx="12" cy="8" r=".6" fill="currentColor"/>',
+  };
+
   function notificationItemHtml(n) {
-    const cls = n.level === "error" ? "text-danger" : "text-warning";
-    return `<div class="d-flex flex-column py-1">
-      <span class="text-sm font-weight-bold ${cls}">${escapeHtml(n.title)}</span>
-      <span class="text-xs text-secondary">${escapeHtml(n.message)}</span>
-    </div>`;
+    const level = NOTIF_ICONS[n.level] ? n.level : "info";
+    const action = n.link
+      ? `<a class="notif-action" href="${escapeHtml(n.link)}" data-page-link>Review →</a>`
+      : "";
+    return `<li class="notif-item" data-level="${level}">
+      <span class="notif-icon">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${NOTIF_ICONS[level]}</svg>
+      </span>
+      <div class="notif-body">
+        <p class="notif-title">${escapeHtml(n.title)}</p>
+        <p class="notif-message">${escapeHtml(n.message)}</p>
+      </div>
+      ${action}
+    </li>`;
   }
 
   async function loadNotifications() {
@@ -1346,25 +1604,273 @@
         badge.style.display = "none";
       }
 
+      const items = notifications.map(notificationItemHtml).join("");
+
+      // Navbar bell: only the three most recent, with a link to the full page.
       const dropdown = document.getElementById("notif-dropdown");
       dropdown.innerHTML = notifications.length
-        ? notifications.map((n) => `<li class="mb-1 px-2">${notificationItemHtml(n)}</li>`).join("")
-        : '<li class="text-secondary text-sm px-2">No notifications.</li>';
+        ? notifications.slice(0, 3).map(notificationItemHtml).join("") +
+          (notifications.length > 3
+            ? `<li class="px-2 pt-2"><a class="notif-action" href="/notifications" data-page-link>See all ${notifications.length} →</a></li>`
+            : "")
+        : '<li class="notif-empty py-3">Nothing to report.</li>';
 
       const pageList = document.getElementById("notif-page-list");
-      pageList.innerHTML = notifications.length
-        ? notifications.map((n) => `<li class="list-group-item">${notificationItemHtml(n)}</li>`).join("")
-        : '<li class="list-group-item text-secondary">No notifications — everything looks fine.</li>';
+      pageList.innerHTML = items ||
+        '<li class="notif-empty">No signals — configuration, guards and subscriptions all look healthy.</li>';
+
+      for (const level of ["error", "warning", "info"]) {
+        const el = document.getElementById("notif-count-" + level);
+        if (el) el.textContent = String(notifications.filter((n) => (n.level || "info") === level).length);
+      }
 
       const profileList = document.getElementById("profile-notifications-list");
       if (profileList) {
-        profileList.innerHTML = notifications.length
-          ? notifications.map((n) => `<li class="list-group-item border-0 px-0">${notificationItemHtml(n)}</li>`).join("")
-          : '<li class="list-group-item border-0 px-0 text-sm text-secondary">No notifications — everything looks fine.</li>';
+        profileList.innerHTML = items ||
+          '<li class="notif-empty">No notifications — everything looks fine.</li>';
       }
     } catch (err) {
       // non-critical
     }
+  }
+
+
+
+  // ── compliance ──────────────────────────────────────────────────────────
+
+  const COMPLIANCE_DOCS = [
+    { kind: "technical-file", name: "Technical file", article: "EU AI Act Art. 11 / Annex IV" },
+    { kind: "dpia", name: "DPIA", article: "GDPR Art. 35" },
+    { kind: "fria", name: "FRIA", article: "EU AI Act Art. 27" },
+    { kind: "executive-report", name: "Executive report", article: "Operational, last 30 days" },
+  ];
+
+  function renderComplianceDocs() {
+    const list = document.getElementById("comp-docs");
+    if (!list) return;
+    list.innerHTML = COMPLIANCE_DOCS.map((d) => `
+      <li class="doc-row">
+        <div class="doc-main">
+          <div class="doc-name">${escapeHtml(d.name)}</div>
+          <div class="doc-article">${escapeHtml(d.article)}</div>
+        </div>
+        <div class="doc-actions">
+          <a class="btn btn-sm btn-primary" href="/api/compliance/report?kind=${d.kind}&format=pdf">PDF</a>
+          <a class="btn btn-sm btn-outline-secondary" href="/api/compliance/report?kind=${d.kind}&format=json">JSON</a>
+        </div>
+      </li>`).join("");
+  }
+
+  function renderComplianceRules(rules) {
+    const tbody = document.getElementById("comp-rules-tbody");
+    if (!tbody) return;
+    tbody.innerHTML = rules.map((r) => `
+      <tr>
+        <td>
+          <div class="text-sm fw-semibold">${escapeHtml(r.title)}</div>
+          <div class="text-xs text-muted">${escapeHtml(r.id)} · ${escapeHtml(r.category)}</div>
+        </td>
+        <td><span class="risk-pill" data-risk="${escapeHtml(r.risk_level)}">${escapeHtml(r.risk_level)}</span></td>
+        <td><span class="action-pill" data-action="${escapeHtml(r.action)}">${escapeHtml(r.action)}</span></td>
+        <td><span class="text-sm text-muted">${escapeHtml(r.scope)}</span></td>
+        <td class="text-end">
+          <div class="form-check form-switch d-inline-block m-0">
+            <input class="form-check-input comp-rule-toggle" type="checkbox"
+                   data-rule="${escapeHtml(r.id)}" ${r.enabled ? "checked" : ""}>
+          </div>
+        </td>
+      </tr>`).join("");
+
+    tbody.querySelectorAll(".comp-rule-toggle").forEach((input) => {
+      input.addEventListener("change", async () => {
+        input.disabled = true;
+        try {
+          await fetchPostJson("/api/compliance/rules/update", {
+            rule_id: input.dataset.rule, enabled: input.checked,
+          });
+          // Reload rather than patch in place: switching a control off changes
+          // the traceability matrix and the warning panel too.
+          await loadCompliance();
+        } finally {
+          input.disabled = false;
+        }
+      });
+    });
+  }
+
+  function renderComplianceMatrix(rows) {
+    const tbody = document.getElementById("comp-matrix-tbody");
+    if (!tbody) return;
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="notif-empty">No controls configured.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map((r) => `
+      <tr>
+        <td><span class="text-sm">${escapeHtml(r.module)}</span></td>
+        <td><span class="text-sm text-muted">${escapeHtml(r.framework)}</span></td>
+        <td><span class="text-sm">${escapeHtml(r.article)}</span></td>
+        <td><span class="text-xs text-muted">${escapeHtml(r.obligation)}</span></td>
+        <td><span class="badge ${r.enabled ? "bg-success" : "bg-danger"}">${r.enabled ? "yes" : "NO"}</span></td>
+      </tr>`).join("");
+  }
+
+  async function loadCompliance() {
+    try {
+      const [status, matrix] = await Promise.all([
+        fetchJson("/api/compliance/status"),
+        fetchJson("/api/compliance/matrix"),
+      ]);
+
+      const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+      const enabled = status.rules.filter((r) => r.enabled).length;
+      const stats = status.statistics || {};
+      const chain = status.audit_chain || {};
+
+      set("comp-kpi-status", status.status);
+      set("comp-kpi-fallback", `Fallback: ${status.fallback}`);
+      set("comp-kpi-rules", `${enabled}/${status.rules.length}`);
+      set("comp-kpi-rules-foot", `${status.rules.length - enabled} disabled`);
+      set("comp-kpi-calls", fmtInt(stats.total_calls || 0));
+      set("comp-kpi-violations", `${stats.violation_rate_pct || 0}% with findings`);
+      set("comp-kpi-audit", chain.valid ? "Intact" : "Broken");
+      set("comp-kpi-audit-note", chain.valid
+        ? `${chain.entries || 0} entries, no tampering`
+        : (chain.reason || "chain verification failed"));
+
+      const sel = document.getElementById("comp-engine-status");
+      if (sel) sel.value = status.status;
+
+      // Controls that are on while their guard is off: the case where the
+      // technical file would claim a control that inspects nothing.
+      const broken = status.ineffective_controls || [];
+      const row = document.getElementById("comp-warning-row");
+      const list = document.getElementById("comp-warnings");
+      if (row && list) {
+        row.style.display = broken.length ? "" : "none";
+        list.innerHTML = broken.map((h) => notificationItemHtml({
+          level: "error",
+          title: `${h.title} — backend ${h.backend_state}`,
+          message: `${h.rule_id}: ${h.note || "the guard behind this control is not operational."}`,
+        })).join("");
+      }
+      const badge = document.getElementById("compliance-nav-badge");
+      if (badge) {
+        badge.style.display = broken.length ? "" : "none";
+        badge.textContent = String(broken.length);
+      }
+
+      renderComplianceRules(status.rules);
+      renderComplianceMatrix(matrix.matrix || []);
+      renderComplianceDocs();
+    } catch (err) { /* non-critical */ }
+  }
+
+  function initCompliance() {
+    const sel = document.getElementById("comp-engine-status");
+    if (!sel) return;
+    sel.addEventListener("change", async () => {
+      sel.disabled = true;
+      try {
+        await fetchPostJson("/api/compliance/engine/update", { status: sel.value });
+        await loadCompliance();
+      } finally {
+        sel.disabled = false;
+      }
+    });
+  }
+
+  // ── live monitor ────────────────────────────────────────────────────────
+  //
+  // Polled, not pushed: the dashboard is a stdlib HTTP server with no
+  // websocket layer, and every source behind /api/live is an append-only file
+  // the poll has to read anyway. The `since` cursor means each poll only
+  // carries what happened after the previous one.
+
+  const live = { cursor: 0, paused: false, filter: "", timer: null, rows: [] };
+  const LIVE_POLL_MS = 2500;
+  const LIVE_MAX_ROWS = 200;
+  const SECURITY_KINDS = new Set(["firewall", "waf", "policy"]);
+
+  function liveRowHtml(ev, isNew) {
+    const time = new Date(ev.ts * 1000).toLocaleTimeString("en-US", { hour12: false });
+    return `<li class="live-row${isNew ? " is-new" : ""}" data-kind="${escapeHtml(ev.kind)}">
+      <span class="live-time">${time}</span>
+      <span class="live-kind" data-kind="${escapeHtml(ev.kind)}">${escapeHtml(ev.kind)}</span>
+      <div class="live-main">
+        <div class="live-title">${escapeHtml(ev.title || "")}</div>
+        <div class="live-detail">${escapeHtml(ev.detail || "")}</div>
+      </div>
+    </li>`;
+  }
+
+  function renderLiveStream() {
+    const list = document.getElementById("live-stream");
+    if (!list) return;
+    const shown = live.rows.filter((r) => {
+      if (!live.filter) return true;
+      if (live.filter === "security") return SECURITY_KINDS.has(r.ev.kind);
+      return r.ev.kind === live.filter;
+    });
+    list.innerHTML = shown.length
+      ? shown.map((r) => liveRowHtml(r.ev, r.isNew)).join("")
+      : '<li class="notif-empty">Nothing matching this filter yet.</li>';
+    // "New" is a one-render highlight; clear it so a filter switch doesn't
+    // re-flash rows the operator has already seen.
+    live.rows.forEach((r) => { r.isNew = false; });
+  }
+
+  async function pollLive() {
+    if (live.paused) return;
+    try {
+      const data = await fetchJson(`/api/live?since=${live.cursor}`);
+      const status = document.getElementById("live-status");
+      if (data.events && data.events.length) {
+        // Server returns newest-first; unshift oldest-first so ordering holds.
+        data.events.slice().reverse().forEach((ev) => live.rows.unshift({ ev, isNew: true }));
+        live.rows = live.rows.slice(0, LIVE_MAX_ROWS);
+        renderLiveStream();
+      }
+      live.cursor = data.now || live.cursor;
+      const c = data.counters || {};
+      const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = fmtInt(v || 0); };
+      set("live-requests", c.requests);
+      set("live-compressions", c.compressions);
+      set("live-blocked", c.blocked);
+      set("live-gated", c.gated);
+      if (status) status.textContent = `Live · updated ${new Date().toLocaleTimeString("en-US")}`;
+    } catch (err) {
+      const status = document.getElementById("live-status");
+      if (status) status.textContent = "Disconnected — retrying…";
+    }
+  }
+
+  function initLiveMonitor() {
+    const pauseBtn = document.getElementById("live-pause");
+    if (!pauseBtn) return;
+
+    pauseBtn.addEventListener("click", () => {
+      live.paused = !live.paused;
+      pauseBtn.textContent = live.paused ? "Resume" : "Pause";
+      document.querySelectorAll(".live-dot").forEach((d) => d.classList.toggle("paused", live.paused));
+      const status = document.getElementById("live-status");
+      if (status && live.paused) status.textContent = "Paused — the feed keeps accumulating on the server.";
+    });
+
+    document.querySelectorAll(".live-filter").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".live-filter").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        live.filter = btn.dataset.kind || "";
+        renderLiveStream();
+      });
+    });
+
+    // Start the cursor at "now" so the first poll shows live activity rather
+    // than replaying the whole day's history into the stream.
+    live.cursor = Date.now() / 1000;
+    pollLive();
+    live.timer = setInterval(pollLive, LIVE_POLL_MS);
   }
 
   // ── cluster (master/slave) ───────────────────────────────────────────────
@@ -1514,34 +2020,252 @@
 
   // ── Enterprise load functions ──────────────────────────────────────────────
 
+  // Provider marks: simple geometric glyphs keyed by provider id. Deliberately
+  // NOT the vendors' real logos — those are trademarked assets we would have to
+  // redistribute inside the wheel. Colour is the provider's recognisable hue;
+  // the name always travels with the glyph, so nothing depends on colour alone.
+  const PROVIDER_MARKS = {
+    openai:     { color: "#10a37f", path: '<circle cx="12" cy="12" r="7"/><path d="M12 5v14M5.5 8.5l13 7M18.5 8.5l-13 7"/>' },
+    anthropic:  { color: "#d97757", path: '<path d="M7 19 12 5l5 14"/><path d="M9 14h6"/>' },
+    gemini:     { color: "#4285f4", path: '<path d="M12 3c.6 4.6 3.8 7.8 8.4 8.4-4.6.6-7.8 3.8-8.4 8.4-.6-4.6-3.8-7.8-8.4-8.4C8.2 10.8 11.4 7.6 12 3z"/>' },
+    groq:       { color: "#f55036", path: '<circle cx="12" cy="12" r="7"/><path d="M12 12h4v3"/>' },
+    mistral:    { color: "#fa520f", path: '<rect x="4" y="5" width="4" height="14"/><rect x="10" y="5" width="4" height="9"/><rect x="16" y="5" width="4" height="14"/>' },
+    deepseek:   { color: "#4d6bfe", path: '<path d="M4 13c3.5-4 8-5.5 12-4.5"/><circle cx="17.5" cy="8" r="1.3"/><path d="M4 13c1 4 5 6 9 5"/>' },
+    xai:        { color: "#1d1d1f", path: '<path d="M5 5l14 14M19 5L5 19"/>' },
+    together:   { color: "#0f6fff", path: '<circle cx="9" cy="12" r="5"/><circle cx="15" cy="12" r="5"/>' },
+    openrouter: { color: "#6566f1", path: '<path d="M3 12h6"/><path d="M15 6h6M15 18h6"/><path d="M9 12l6-6M9 12l6 6"/>' },
+  };
+
+  function providerMarkHtml(provider, small) {
+    const key = (provider || "").toLowerCase();
+    const p = PROVIDER_MARKS[key];
+    const cls = "provider-mark" + (small ? " sm" : "");
+    const size = small ? 12 : 15;
+    if (!p) {
+      const letter = (provider || "?").charAt(0).toUpperCase();
+      return `<span class="${cls}" title="${escapeHtml(provider || "unknown")}" style="font-size:${small ? 10 : 12}px;font-weight:600">${escapeHtml(letter)}</span>`;
+    }
+    return `<span class="${cls}" title="${escapeHtml(provider)}" style="color:${p.color};border-color:${p.color}33;background:${p.color}14"><svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${p.path}</svg></span>`;
+  }
+
+  /** Fraction of a subscription's allowance already consumed, or null when the
+   *  plan has no ceiling set (an unlimited plan cannot be "80% used"). */
+  function subUsage(sub) {
+    if (sub.type === "consumo" && sub.max_tokens) {
+      return (sub.current_tokens_used || 0) / sub.max_tokens;
+    }
+    if (sub.type === "mensile" && sub.max_monthly_cost_usd) {
+      return (sub.current_month_cost_usd || 0) / sub.max_monthly_cost_usd;
+    }
+    return null;
+  }
+
+  function quotaHtml(sub) {
+    const used = subUsage(sub);
+    if (used === null) return '<span class="quota-label">No limit set</span>';
+    const pct = Math.min(100, used * 100);
+    const cls = used >= 1 ? "over" : used >= 0.8 ? "warn" : "";
+    const detail = sub.type === "consumo"
+      ? `${fmtInt(sub.current_tokens_used)} / ${fmtInt(sub.max_tokens)} tok`
+      : `${fmtUsd(sub.current_month_cost_usd)} / ${fmtUsd(sub.max_monthly_cost_usd)}`;
+    return `<div class="quota"><div class="quota-track"><div class="quota-fill ${cls}" style="width:${pct.toFixed(1)}%"></div></div><span class="quota-label">${detail} · ${pct.toFixed(0)}%</span></div>`;
+  }
+
+  function subChipHtml(sub, providerByKey) {
+    const provider = providerByKey[sub.provider_key_id] || "";
+    const label = sub.type === "consumo" ? "metered" : "monthly";
+    const used = subUsage(sub);
+    const pct = used === null ? "" : ` ${Math.min(999, Math.round(used * 100))}%`;
+    const title = `${provider} · ${sub.status}${sub.model ? " · " + sub.model : ""}`;
+    return `<span class="sub-chip ${escapeHtml(sub.status)}" title="${escapeHtml(title)}">${providerMarkHtml(provider, true)}${label}${pct}</span>`;
+  }
+
+  const ROW_ICONS = {
+    plus: '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
+    rotate: '<path d="M21 12a9 9 0 1 1-3-6.7"/><polyline points="21 4 21 10 15 10"/>',
+    pause: '<rect x="8" y="6" width="3" height="12"/><rect x="14" y="6" width="3" height="12"/>',
+    play: '<polygon points="7 5 19 12 7 19"/>',
+    link: '<path d="M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1"/>',
+    trash: '<polyline points="4 7 20 7"/><path d="M9 7V5h6v2"/><path d="M6 7l1 13h10l1-13"/>',
+  };
+  const rowIconBtn = (icon, cls, attrs, title) =>
+    `<button class="row-action ${cls}" title="${title}" ${attrs}><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ROW_ICONS[icon]}</svg></button>`;
+
   async function loadEnterpriseUsers() {
     try {
-      const { users } = await fetchJson("/api/enterprise/users");
-      const tbody = document.getElementById("enterprise-users-tbody");
-      tbody.innerHTML = users.map(u => `
-        <tr>
-          <td><span class="text-xs">${u.label || ""}</span></td>
-          <td><span class="badge badge-sm bg-gradient-info">${u.role}</span></td>
-          <td><span class="badge badge-sm ${u.status === "active" ? "bg-gradient-success" : "bg-gradient-secondary"}">${u.status}</span></td>
-          <td><code class="text-xs" style="font-size:0.7em">${u.virtual_token.slice(0,16)}…</code>
-            <button class="btn btn-link text-danger p-0 ms-1 enterprise-rotate-token" data-uid="${u.user_id}" title="Rotate token">↻</button>
-          </td>
-          <td><span class="text-xs text-muted">${(u.synthelion_providers || []).length} key(s)</span></td>
-          <td>
-            <button class="btn btn-link text-danger p-0 enterprise-delete-user" data-uid="${u.user_id}" title="Delete user">✕</button>
-          </td>
-        </tr>
-      `).join("");
-      tbody.querySelectorAll(".enterprise-rotate-token").forEach(btn => btn.addEventListener("click", async () => {
-        await fetchPostJson("/api/enterprise/users/rotate-token", { user_id: btn.dataset.uid });
-        loadEnterpriseUsers();
-      }));
-      tbody.querySelectorAll(".enterprise-delete-user").forEach(btn => btn.addEventListener("click", async () => {
-        if (!confirm("Delete this user?")) return;
-        await fetchPostJson("/api/enterprise/users/delete", { user_id: btn.dataset.uid });
-        loadEnterpriseUsers();
-      }));
+      const [{ users }, { provider_keys }, dash] = await Promise.all([
+        fetchJson("/api/enterprise/users"),
+        fetchJson("/api/enterprise/provider-keys"),
+        fetchJson("/api/enterprise/dashboard"),
+      ]);
+      const subs = dash.subscriptions || [];
+      const providerByKey = {};
+      (provider_keys || []).forEach((k) => { providerByKey[k.pk_id] = k.provider; });
+
+      renderEnterpriseKpis(users, subs, dash.aggregate || {});
+      renderSubscriptionAlerts(users, subs, providerByKey);
+      renderEnterpriseUsersTable(users, subs, providerByKey);
+      renderConsumption(users, subs, dash.by_user || []);
+      renderTopModels(dash.by_model || []);
     } catch (err) { /* non-critical */ }
+  }
+
+  function renderEnterpriseKpis(users, subs, agg) {
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    set("ent-kpi-users", fmtInt(users.length));
+    set("ent-kpi-users-foot", `${users.filter((u) => u.status === "active").length} active`);
+    set("ent-kpi-subs", fmtInt(subs.filter((s) => s.status === "active").length));
+    set("ent-kpi-subs-foot", `${subs.length} total · ${subs.filter((s) => s.status === "exhausted").length} exhausted`);
+    set("ent-kpi-tokens", fmtInt(agg.total_tokens_used || 0));
+    set("ent-kpi-cost", fmtUsd(agg.total_cost_usd || 0));
+  }
+
+  function renderSubscriptionAlerts(users, subs, providerByKey) {
+    const nameOf = (uid) => (users.find((u) => u.user_id === uid) || {}).label || uid;
+    const alerts = [];
+    for (const s of subs) {
+      const provider = providerByKey[s.provider_key_id] || "provider";
+      if (s.status === "exhausted") {
+        alerts.push({ level: "error", title: `${nameOf(s.user_id)} — ${provider} plan exhausted`,
+          message: "Requests through the proxy are refused until the plan is topped up or reset." });
+        continue;
+      }
+      if (s.status === "suspended") {
+        alerts.push({ level: "warning", title: `${nameOf(s.user_id)} — ${provider} plan suspended`,
+          message: "Reactivate it from the Subscriptions page to restore access." });
+        continue;
+      }
+      const used = subUsage(s);
+      if (used !== null && used >= 0.8) {
+        alerts.push({ level: "warning", title: `${nameOf(s.user_id)} — ${provider} at ${Math.round(used * 100)}% of quota`,
+          message: s.type === "consumo" ? "Token allowance nearly spent." : "Monthly cost limit nearly reached." });
+      }
+    }
+    const row = document.getElementById("ent-alerts-row");
+    const list = document.getElementById("ent-alerts");
+    if (!row || !list) return;
+    row.style.display = alerts.length ? "" : "none";
+    list.innerHTML = alerts.map(notificationItemHtml).join("");
+  }
+
+  function renderEnterpriseUsersTable(users, subs, providerByKey) {
+    const tbody = document.getElementById("enterprise-users-tbody");
+    if (!tbody) return;
+    if (!users.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="notif-empty">No users yet — add the first one.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = users.map((u) => {
+      const mine = subs.filter((s) => s.user_id === u.user_id);
+      const providers = (u.synthelion_providers || []).length;
+      const enabled = u.status === "active";
+      return `<tr>
+        <td><span class="text-sm fw-semibold">${escapeHtml(u.label || u.user_id)}</span></td>
+        <td><span class="badge bg-secondary">${escapeHtml(u.role)}</span></td>
+        <td><span class="badge ${enabled ? "bg-success" : "bg-secondary"}">${escapeHtml(u.status)}</span></td>
+        <td><code style="font-size:.7rem">${escapeHtml(u.virtual_token.slice(0, 14))}…</code></td>
+        <td><span class="text-sm text-muted">${providers} key(s)</span></td>
+        <td>${mine.length ? mine.map((s) => subChipHtml(s, providerByKey)).join("") : '<span class="text-sm text-muted">No plan</span>'}</td>
+        <td class="text-end" style="white-space:nowrap">
+          ${rowIconBtn("plus", "ent-user-add-sub", `data-uid="${u.user_id}"`, "Activate a subscription")}
+          ${rowIconBtn("link", "ent-user-assign", `data-uid="${u.user_id}"`, "Assign a provider key")}
+          ${rowIconBtn(enabled ? "pause" : "play", "ent-user-toggle", `data-uid="${u.user_id}" data-enabled="${enabled ? 1 : 0}"`, enabled ? "Disable user" : "Enable user")}
+          ${rowIconBtn("rotate", "enterprise-rotate-token", `data-uid="${u.user_id}"`, "Rotate virtual token")}
+          ${rowIconBtn("trash", "enterprise-delete-user danger", `data-uid="${u.user_id}"`, "Delete user")}
+        </td>
+      </tr>`;
+    }).join("");
+
+    const on = (cls, fn) => tbody.querySelectorAll("." + cls).forEach((b) => b.addEventListener("click", () => fn(b)));
+    on("enterprise-rotate-token", async (b) => {
+      await fetchPostJson("/api/enterprise/users/rotate-token", { user_id: b.dataset.uid });
+      loadEnterpriseUsers();
+    });
+    on("enterprise-delete-user", async (b) => {
+      if (!confirm("Delete this user? Their subscriptions and provider assignments go too.")) return;
+      await fetchPostJson("/api/enterprise/users/delete", { user_id: b.dataset.uid });
+      loadEnterpriseUsers();
+    });
+    on("ent-user-toggle", async (b) => {
+      await fetchPostJson("/api/enterprise/users/update", {
+        user_id: b.dataset.uid, enabled: b.dataset.enabled === "1" ? 0 : 1,
+      });
+      loadEnterpriseUsers();
+    });
+    on("ent-user-assign", (b) => openAssignProvider(b.dataset.uid));
+    on("ent-user-add-sub", (b) => openAddSubscription(b.dataset.uid));
+  }
+
+  function renderConsumption(users, subs, byUser) {
+    const tbody = document.getElementById("ent-consumption-tbody");
+    if (!tbody) return;
+    const usage = new Map(byUser.map((r) => [r.user_id, r]));
+    // Users with no activity still belong in the table — "nothing used yet" is
+    // a real answer, and dropping them would hide a user who cannot connect.
+    const rows = users
+      .map((u) => ({ user: u, usage: usage.get(u.user_id) || {}, subs: subs.filter((s) => s.user_id === u.user_id) }))
+      .sort((a, b) => (b.usage.total_tokens_used || 0) - (a.usage.total_tokens_used || 0));
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="notif-empty">No users yet.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map((row) => {
+      // Show the tightest plan — the one that will cut the user off first.
+      const withQuota = row.subs.map((s) => ({ s, u: subUsage(s) })).filter((x) => x.u !== null);
+      withQuota.sort((a, b) => b.u - a.u);
+      const quota = withQuota.length ? quotaHtml(withQuota[0].s) : '<span class="quota-label">No limit set</span>';
+      return `<tr>
+        <td><span class="text-sm fw-semibold">${escapeHtml(row.user.label || row.user.user_id)}</span></td>
+        <td><span class="text-sm">${fmtInt(row.usage.total_requests || 0)}</span></td>
+        <td><span class="text-sm">${fmtInt(row.usage.total_tokens_used || 0)}</span></td>
+        <td><span class="text-sm">${fmtUsd(row.usage.total_cost_usd || 0)}</span></td>
+        <td>${quota}</td>
+      </tr>`;
+    }).join("");
+  }
+
+  function renderTopModels(byModel) {
+    const list = document.getElementById("ent-top-models");
+    if (!list) return;
+    if (!byModel.length) {
+      list.innerHTML = '<li class="notif-empty">No activity recorded yet.</li>';
+      return;
+    }
+    const max = Math.max.apply(null, byModel.map((m) => m.requests || 0)) || 1;
+    list.innerHTML = byModel.slice(0, 10).map((m) => `<li class="model-row">${providerMarkHtml(m.provider)}<div class="model-main"><div class="model-name">${escapeHtml(m.model)}</div><div class="model-sub">${escapeHtml(m.provider || "unknown")} · ${fmtInt(m.tokens_used || 0)} tok · ${fmtUsd(m.cost_usd || 0)}</div><div class="model-bar" style="width:${Math.max(2, (m.requests / max) * 100)}%"></div></div><span class="model-count">${fmtInt(m.requests)}</span></li>`).join("");
+  }
+
+  /** Open the existing Add-subscription modal pre-scoped to one user. */
+  async function openAddSubscription(userId) {
+    const { provider_keys } = await fetchJson("/api/enterprise/provider-keys");
+    if (!provider_keys.length) {
+      alert("Add a provider key first — a subscription needs a key to bill against.");
+      return;
+    }
+    const { users } = await fetchJson("/api/enterprise/users");
+    const userSel = document.getElementById("add-sub-user");
+    const pkSel = document.getElementById("add-sub-pk");
+    userSel.innerHTML = users.map((u) => `<option value="${u.user_id}"${u.user_id === userId ? " selected" : ""}>${escapeHtml(u.label || u.user_id)}</option>`).join("");
+    pkSel.innerHTML = provider_keys.map((k) => `<option value="${k.pk_id}">${escapeHtml(k.provider)} — ${escapeHtml(k.label || k.pk_id)}</option>`).join("");
+    bootstrap.Modal.getOrCreateInstance(document.getElementById("modal-add-sub")).show();
+  }
+
+  async function openAssignProvider(userId) {
+    const { provider_keys } = await fetchJson("/api/enterprise/provider-keys");
+    if (!provider_keys.length) {
+      alert("No provider keys yet — add one on the Provider Keys page.");
+      return;
+    }
+    const choice = prompt(
+      "Assign which provider key?\n\n" +
+      provider_keys.map((k, i) => `${i + 1}. ${k.provider} — ${k.label || k.pk_id}`).join("\n"),
+      "1");
+    const idx = parseInt(choice, 10) - 1;
+    if (isNaN(idx) || !provider_keys[idx]) return;
+    await fetchPostJson("/api/enterprise/users/assign-provider", {
+      user_id: userId, provider_key_id: provider_keys[idx].pk_id,
+    });
+    loadEnterpriseUsers();
   }
 
   async function loadEnterpriseProviderKeys() {
@@ -1693,7 +2417,7 @@
   // route in _PAGE_ROUTES — see dashboard.py) ─────────────────────────────
 
   const PAGE_TITLES = {
-    overview: "Overview", charts: "Charts", sessions: "Sessions", requests: "Recent requests",
+    overview: "Overview", live: "Live monitor", compliance: "AI Compliance", charts: "Charts", sessions: "Sessions", requests: "Recent requests",
     decisions: "Decisions", settings: "Settings", profile: "Profile", notifications: "Notifications",
     cluster: "Cluster", doctor: "Doctor", version: "Version", privacy: "Privacy",
     security: "Security", proxy: "Proxy",
@@ -1711,14 +2435,12 @@
     document.querySelectorAll("section[data-page]").forEach((section) => {
       section.style.display = section.dataset.page === name ? "" : "none";
     });
-    // .nav-link.active alone only tweaks padding in Material Dashboard's CSS —
-    // the visible highlighted pill comes from the bg-gradient-* utility class
-    // itself, so it has to be toggled alongside .active, not left to CSS.
     document.querySelectorAll(".sidenav .nav-link[data-page-link]").forEach((link) => {
-      const isActive = link.dataset.page === name;
-      link.classList.toggle("active", isActive);
-      link.classList.toggle("bg-gradient-info", isActive);
+      link.classList.toggle("active", link.dataset.page === name);
     });
+    // A chart laid out while its section was display:none measured 0×0 and
+    // drew nothing; re-measure now that the section is on screen.
+    requestAnimationFrame(() => charts.forEach((c) => c.resize()));
     document.getElementById("breadcrumb-page").textContent = PAGE_TITLES[name] || "Overview";
     // IP rules/events can change from other processes (auto-ban, rate limit) —
     // refresh them every time the page is opened, not just once at load.
@@ -1777,6 +2499,18 @@
   initEnterpriseModals();
   navigate(window.location.pathname, false);
   initTooltips();
+  initSidenavToggle();
+  initLiveMonitor();
+  initCompliance();
+  loadCompliance();
+
+  const notifRefresh = document.getElementById("notif-refresh");
+  if (notifRefresh) {
+    notifRefresh.addEventListener("click", async () => {
+      notifRefresh.disabled = true;
+      try { await loadNotifications(); } finally { notifRefresh.disabled = false; }
+    });
+  }
   setInterval(refresh, 20000);
   setInterval(loadNotifications, 60000);
   setInterval(loadClusterStatus, 15000);

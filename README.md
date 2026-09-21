@@ -1409,8 +1409,6 @@ synthelion dashboard-passwd -u alice -p ...   # change username and password non
 
 Changing the password immediately invalidates every session already logged in on that running dashboard process. The dashboard's own **Notifications** page also flags it for you if the default password is still active — see below.
 
-UI built with [Material Dashboard Free](https://www.creative-tim.com/product/material-dashboard) by [Creative Tim](https://www.creative-tim.com) (MIT License, vendored locally — no CDN, see `synthelion/plugins/dashboard_assets/vendor/material-dashboard/ATTRIBUTION.md`).
-
 ![Synthelion dashboard — login](docs/dashboard-login.png)
 
 ![Synthelion dashboard — overview](docs/dashboard-overview.png)

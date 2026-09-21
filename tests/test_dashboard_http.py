@@ -189,19 +189,11 @@ class TestDashboardLoginFlow:
         resp.read()
         assert resp.status == 200
 
-        resp = _get(dashboard_server, "/assets/vendor/material-dashboard/material-dashboard.min.css")
+        resp = _get(dashboard_server, "/assets/vendor/bootstrap/bootstrap.min.css")
         resp.read()
         assert resp.status == 200
 
-        resp = _get(dashboard_server, "/assets/vendor/material-dashboard/img/synthelion-login.png")
-        resp.read()
-        assert resp.status == 200
-
-        resp = _get(dashboard_server, "/assets/vendor/material-dashboard/css/inter.css")
-        resp.read()
-        assert resp.status == 200
-
-        resp = _get(dashboard_server, "/assets/vendor/material-dashboard/fonts/inter-latin.woff2")
+        resp = _get(dashboard_server, "/assets/vendor/chartjs/chart.umd.min.js")
         resp.read()
         assert resp.status == 200
 
@@ -281,6 +273,33 @@ class TestDashboardPageRoutes:
         resp = _get(dashboard_server, "/does-not-exist", cookie)
         resp.read()
         assert resp.status == 404
+
+    def test_every_sidebar_link_is_a_servable_route(self, dashboard_server):
+        """Every in-app link in the sidebar must survive a reload/deep-link.
+
+        In-page navigation is pushState-only, so a page missing from
+        _PAGE_ROUTES looks fine until someone reloads on it and gets a raw
+        404 JSON body instead of the app — which is exactly how the four
+        enterprise pages shipped broken. Derive the list from the shipped
+        markup rather than restating it, so a newly added page is covered
+        the moment its link exists.
+        """
+        import re
+        from pathlib import Path
+        from synthelion.plugins import dashboard as dash
+
+        html = (Path(dash.__file__).parent / "dashboard_assets" / "index.html").read_text(encoding="utf-8")
+        hrefs = set(re.findall(r'<a[^>]*data-page-link[^>]*href="(/[^"]*)"', html))
+        hrefs |= set(re.findall(r'href="(/[^"]*)"[^>]*data-page-link', html))
+        in_app = {h for h in hrefs if h != "/logout"}
+        assert in_app, "no sidebar links found — selector drifted from the markup"
+
+        cookie = _login(dashboard_server)
+        for path in sorted(in_app):
+            resp = _get(dashboard_server, path, cookie)
+            body = resp.read()
+            assert resp.status == 200, f"{path} is linked in the sidebar but not servable"
+            assert b"Synthelion Dashboard" in body, path
 
 
 class TestDashboardPrivacyTestApi:

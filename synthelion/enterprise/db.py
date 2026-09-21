@@ -145,6 +145,18 @@ class EnterpriseDB:
         self._is_sqlite: bool = False
         self._connect()
         self._init_tables()
+        # Master encryption key for provider API keys is generated the moment
+        # the enterprise DB itself is created — same lifecycle, never a
+        # separate manual step an admin could forget. Stored in the OS
+        # credential store, never as a file (see enterprise/crypto.py). A
+        # missing `keyring` backend must not break the rest of the DB/schema
+        # (e.g. a headless CI box with no OS keychain) — encrypt/decrypt will
+        # raise clearly for whoever actually tries to use a provider key.
+        try:
+            from .crypto import ensure_key
+            ensure_key()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Enterprise encryption key not initialized: %s", exc)
 
     # ── connection ──────────────────────────────────────────────────────
 

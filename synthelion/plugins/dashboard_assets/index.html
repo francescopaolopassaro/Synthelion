@@ -7,136 +7,147 @@
 <link rel="icon" type="image/x-icon" href="/favicon.ico">
 <link rel="icon" type="image/png" sizes="96x96" href="/assets/img/favicon-96x96.png">
 <link rel="apple-touch-icon" href="/assets/img/apple-touch-icon.png">
-<!-- Sidenav + navbar structure mapped from Material Dashboard 3 Free's
-     pages/dashboard.html and pages/profile.html (Creative Tim, MIT License) —
-     see /assets/vendor/material-dashboard/ATTRIBUTION.md. All assets are
-     vendored locally, nothing is fetched from a CDN at runtime. -->
-<link rel="stylesheet" href="/assets/vendor/material-dashboard/css/inter.css">
-<link id="pagestyle" href="/assets/vendor/material-dashboard/material-dashboard.min.css" rel="stylesheet" />
+<!-- Bootstrap (MIT) is used only as an unstyled base for the grid, form
+     controls and modal/dropdown behavior — every visible color/spacing/shape
+     choice is Synthelion's own, in dashboard.css. No third-party dashboard
+     theme is used or required to be attributed. -->
+<link rel="stylesheet" href="/assets/vendor/bootstrap/bootstrap.min.css">
 <link rel="stylesheet" href="/assets/dashboard.css">
 </head>
-<body class="dark-version g-sidenav-show bg-gray-900">
-  <aside class="sidenav navbar navbar-vertical navbar-expand-xs border-radius-lg fixed-start ms-2 bg-gradient-dark my-2" id="sidenav-main">
+<body class="g-sidenav-show">
+  <aside class="sidenav" id="sidenav-main">
     <div class="sidenav-header">
-      <span class="p-3 cursor-pointer text-white opacity-5 position-absolute end-0 top-0 d-none d-xl-none" aria-hidden="true" id="iconSidenav">&times;</span>
-      <a class="navbar-brand px-2 py-3 m-2 d-flex align-items-center" href="/" data-page-link>
-        <img src="/assets/img/apple-touch-icon.png" class="navbar-brand-img" width="64" height="64" alt="Synthelion">
-        <span class="ms-2 text-sm text-white">Synthelion</span>
+      <a class="navbar-brand" href="/" data-page-link>
+        <img src="/assets/img/apple-touch-icon.png" class="navbar-brand-img" width="34" height="34" alt="Synthelion">
+        <span>Synthelion</span>
       </a>
     </div>
-    <hr class="horizontal light mt-0 mb-2">
-    <div class="collapse navbar-collapse w-auto" id="sidenav-collapse-main">
+    <div class="sidenav-nav-scroll">
       <ul class="navbar-nav">
         <li class="nav-item">
-          <a class="nav-link text-white" href="/" data-page-link data-page="overview">
+          <a class="nav-link text-white" data-tooltip="Overview" href="/" data-page-link data-page="overview">
             <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
             <span class="nav-link-text ms-1">Overview</span>
           </a>
         </li>
         <li class="nav-item">
-          <a class="nav-link text-white" href="/charts" data-page-link data-page="charts">
+          <a class="nav-link text-white" data-tooltip="Live monitor" href="/live" data-page-link data-page="live">
+            <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l2.5-7 4 14L16 12h5"/></svg>
+            <span class="nav-link-text ms-1">Live monitor</span>
+            <span class="live-dot" id="live-nav-dot"></span>
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link text-white" data-tooltip="Charts" href="/charts" data-page-link data-page="charts">
             <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="20" x2="4" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="20" y1="20" x2="20" y2="14"/></svg>
             <span class="nav-link-text ms-1">Charts</span>
           </a>
         </li>
         <li class="nav-item">
-          <a class="nav-link text-white" href="/sessions" data-page-link data-page="sessions">
+          <a class="nav-link text-white" data-tooltip="Sessions" href="/sessions" data-page-link data-page="sessions">
             <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
             <span class="nav-link-text ms-1">Sessions</span>
           </a>
         </li>
         <li class="nav-item">
-          <a class="nav-link text-white" href="/requests" data-page-link data-page="requests">
+          <a class="nav-link text-white" data-tooltip="Recent requests" href="/requests" data-page-link data-page="requests">
             <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg>
             <span class="nav-link-text ms-1">Recent requests</span>
           </a>
         </li>
         <li class="nav-item">
-          <a class="nav-link text-white" href="/decisions" data-page-link data-page="decisions">
+          <a class="nav-link text-white" data-tooltip="Decisions" href="/decisions" data-page-link data-page="decisions">
             <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
             <span class="nav-link-text ms-1">Decisions</span>
           </a>
         </li>
         <li class="nav-item mt-3">
-          <h6 class="ps-4 ms-2 text-uppercase text-xs text-white font-weight-bolder opacity-5">System</h6>
+          <h6 class="sidenav-section-label">System</h6>
         </li>
         <li class="nav-item">
-          <a class="nav-link text-white" href="/cluster" data-page-link data-page="cluster">
+          <a class="nav-link text-white" data-tooltip="Cluster" href="/cluster" data-page-link data-page="cluster">
             <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="2.5"/><circle cx="5" cy="19" r="2.5"/><circle cx="19" cy="19" r="2.5"/><line x1="12" y1="7.5" x2="6.3" y2="17"/><line x1="12" y1="7.5" x2="17.7" y2="17"/></svg>
             <span class="nav-link-text ms-1">Cluster</span>
           </a>
         </li>
         <li class="nav-item">
-          <a class="nav-link text-white" href="/settings" data-page-link data-page="settings">
+          <a class="nav-link text-white" data-tooltip="Settings" href="/settings" data-page-link data-page="settings">
             <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3.5"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/><line x1="4.9" y1="4.9" x2="7" y2="7"/><line x1="17" y1="17" x2="19.1" y2="19.1"/><line x1="4.9" y1="19.1" x2="7" y2="17"/><line x1="17" y1="7" x2="19.1" y2="4.9"/></svg>
             <span class="nav-link-text ms-1">Settings</span>
           </a>
         </li>
         <li class="nav-item">
-          <a class="nav-link text-white" href="/privacy" data-page-link data-page="privacy">
+          <a class="nav-link text-white" data-tooltip="Privacy" href="/privacy" data-page-link data-page="privacy">
             <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 3 6v6c0 5 4 9 9 10 5-1 9-5 9-10V6z"/><path d="M8.5 12l2.3 2.3L15.5 9.5"/></svg>
             <span class="nav-link-text ms-1">Privacy</span>
           </a>
         </li>
         <li class="nav-item">
-          <a class="nav-link text-white" href="/security" data-page-link data-page="security">
+          <a class="nav-link text-white" data-tooltip="Security" href="/security" data-page-link data-page="security">
             <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 3 6v6c0 5 4 9 9 10 5-1 9-5 9-10V6z"/><rect x="9" y="11" width="6" height="5" rx="1"/><path d="M10.2 11V9.3a1.8 1.8 0 0 1 3.6 0V11"/></svg>
             <span class="nav-link-text ms-1">Security</span>
           </a>
         </li>
         <li class="nav-item">
-          <a class="nav-link text-white" href="/proxy" data-page-link data-page="proxy">
+          <a class="nav-link text-white" data-tooltip="Compliance" href="/compliance" data-page-link data-page="compliance">
+            <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3h8l3 4v14H5V7z"/><path d="M9 12l2 2 4-4"/></svg>
+            <span class="nav-link-text ms-1">Compliance</span>
+            <span class="badge bg-gradient-danger ms-1" id="compliance-nav-badge" style="display:none">0</span>
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link text-white" data-tooltip="Proxy" href="/proxy" data-page-link data-page="proxy">
             <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="7" height="7" rx="1"/><rect x="14" y="4" width="7" height="7" rx="1"/><rect x="8.5" y="15" width="7" height="6" rx="1"/><path d="M6.5 11v2a2 2 0 0 0 2 2h1M17.5 11v2a2 2 0 0 1-2 2h-1"/></svg>
             <span class="nav-link-text ms-1">Proxy</span>
           </a>
         </li>
         <li class="nav-item mt-3">
-          <h6 class="ps-4 ms-2 text-uppercase text-xs text-white font-weight-bolder opacity-5">Enterprise</h6>
+          <h6 class="sidenav-section-label">Enterprise</h6>
         </li>
         <li class="nav-item">
-          <a class="nav-link text-white" href="/enterprise-users" data-page-link data-page="enterprise-users">
+          <a class="nav-link text-white" data-tooltip="Users" href="/enterprise-users" data-page-link data-page="enterprise-users">
             <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
             <span class="nav-link-text ms-1">Users</span>
           </a>
         </li>
         <li class="nav-item">
-          <a class="nav-link text-white" href="/enterprise-provider-keys" data-page-link data-page="enterprise-provider-keys">
+          <a class="nav-link text-white" data-tooltip="Provider Keys" href="/enterprise-provider-keys" data-page-link data-page="enterprise-provider-keys">
             <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.78 7.78 5.5 5.5 0 0 1 7.78-7.78zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
             <span class="nav-link-text ms-1">Provider Keys</span>
           </a>
         </li>
         <li class="nav-item">
-          <a class="nav-link text-white" href="/enterprise-subscriptions" data-page-link data-page="enterprise-subscriptions">
+          <a class="nav-link text-white" data-tooltip="Subscriptions" href="/enterprise-subscriptions" data-page-link data-page="enterprise-subscriptions">
             <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
             <span class="nav-link-text ms-1">Subscriptions</span>
           </a>
         </li>
         <li class="nav-item">
-          <a class="nav-link text-white" href="/enterprise-activity" data-page-link data-page="enterprise-activity">
+          <a class="nav-link text-white" data-tooltip="Activity" href="/enterprise-activity" data-page-link data-page="enterprise-activity">
             <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
             <span class="nav-link-text ms-1">Activity</span>
           </a>
         </li>
         <li class="nav-item">
-          <a class="nav-link text-white" href="/doctor" data-page-link data-page="doctor">
+          <a class="nav-link text-white" data-tooltip="Doctor" href="/doctor" data-page-link data-page="doctor">
             <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3h6l1 4h3v14H5V7h3z"/><path d="M9 12h6M9 16h4"/></svg>
             <span class="nav-link-text ms-1">Doctor</span>
           </a>
         </li>
         <li class="nav-item">
-          <a class="nav-link text-white" href="/version" data-page-link data-page="version">
+          <a class="nav-link text-white" data-tooltip="Version" href="/version" data-page-link data-page="version">
             <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 3 6v6c0 5 4 9 9 10 5-1 9-5 9-10V6z"/></svg>
             <span class="nav-link-text ms-1">Version</span>
           </a>
         </li>
         <li class="nav-item">
-          <a class="nav-link text-white" href="/profile" data-page-link data-page="profile">
+          <a class="nav-link text-white" data-tooltip="Profile" href="/profile" data-page-link data-page="profile">
             <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>
             <span class="nav-link-text ms-1">Profile</span>
           </a>
         </li>
         <li class="nav-item">
-          <a class="nav-link text-white" href="/notifications" data-page-link data-page="notifications">
+          <a class="nav-link text-white" data-tooltip="Notifications" href="/notifications" data-page-link data-page="notifications">
             <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
             <span class="nav-link-text ms-1">Notifications</span>
             <span class="badge bg-gradient-danger ms-1" id="notif-badge" style="display:none">0</span>
@@ -144,13 +155,17 @@
         </li>
       </ul>
     </div>
-    <div class="sidenav-footer position-absolute w-100 bottom-0">
-      <div class="mx-3 mb-3">
-        <a class="btn bg-gradient-info w-100 d-flex align-items-center justify-content-center" href="/logout">
-          <svg class="nav-icon me-1" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v9"/><path d="M6.3 6.3a9 9 0 1 0 11.4 0"/></svg>
-          Log out
-        </a>
-      </div>
+    <div class="px-2 pb-2">
+      <a class="nav-link text-white" data-tooltip="Log out" href="/logout">
+        <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v9"/><path d="M6.3 6.3a9 9 0 1 0 11.4 0"/></svg>
+        <span class="nav-link-text ms-1">Log out</span>
+      </a>
+    </div>
+    <div class="sidenav-toggle-row">
+      <button type="button" id="sidenav-toggle" title="Collapse sidebar">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+        <span id="sidenav-toggle-label">Collapse</span>
+      </button>
     </div>
   </aside>
 
@@ -183,32 +198,45 @@
             </a>
           </div>
           <ul class="navbar-nav d-flex align-items-center justify-content-end">
-            <li class="nav-item d-xl-none ps-3 d-flex align-items-center">
-              <a href="javascript:;" class="nav-link p-0 text-white" id="iconNavbarSidenav">
-                <div class="sidenav-toggler-inner">
-                  <i class="sidenav-toggler-line bg-white"></i>
-                  <i class="sidenav-toggler-line bg-white"></i>
-                  <i class="sidenav-toggler-line bg-white"></i>
-                </div>
-              </a>
+            <li class="nav-item d-lg-none d-flex align-items-center">
+              <button type="button" class="icon-btn" id="mobile-sidenav-toggle" title="Menu" aria-label="Menu">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+              </button>
             </li>
-            <li class="nav-item px-3 d-flex align-items-center">
-              <a href="/settings" data-page-link data-page="settings" class="nav-link p-0 text-white" title="Settings">
-                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3.5"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/><line x1="4.9" y1="4.9" x2="7" y2="7"/><line x1="17" y1="17" x2="19.1" y2="19.1"/><line x1="4.9" y1="19.1" x2="7" y2="17"/><line x1="17" y1="7" x2="19.1" y2="4.9"/></svg>
-              </a>
-            </li>
-            <li class="nav-item dropdown pe-3 d-flex align-items-center">
-              <a href="javascript:;" class="nav-link p-0 text-white" id="dropdownMenuButton" data-bs-toggle="dropdown" aria-expanded="false" title="Notifications">
+            <li class="nav-item dropdown d-flex align-items-center">
+              <button type="button" class="icon-btn position-relative" id="dropdownMenuButton" data-bs-toggle="dropdown" aria-expanded="false" title="Notifications">
                 <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
-              </a>
-              <ul class="dropdown-menu dropdown-menu-end px-2 py-3 me-sm-n4" aria-labelledby="dropdownMenuButton" id="notif-dropdown" style="min-width: 20rem;">
+              </button>
+              <ul class="dropdown-menu dropdown-menu-end p-2" aria-labelledby="dropdownMenuButton" id="notif-dropdown" style="min-width: 20rem;">
                 <li class="text-secondary text-sm px-2">No notifications.</li>
               </ul>
             </li>
-            <li class="nav-item d-flex align-items-center">
-              <a href="/profile" data-page-link data-page="profile" class="nav-link font-weight-bold px-0 text-white" title="Profile">
-                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>
-              </a>
+            <li class="nav-item dropdown d-flex align-items-center ms-1">
+              <button type="button" class="user-chip" id="userMenuButton" data-bs-toggle="dropdown" aria-expanded="false">
+                <span class="user-avatar" id="user-avatar">–</span>
+                <span class="user-chip-name" id="user-chip-name">—</span>
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+              </button>
+              <ul class="dropdown-menu dropdown-menu-end p-2" aria-labelledby="userMenuButton" style="min-width: 15rem;">
+                <li class="user-menu-header">
+                  <div class="user-menu-name" id="user-menu-name">—</div>
+                  <div class="user-menu-role" id="user-menu-role">Signed in</div>
+                </li>
+                <li><hr class="dropdown-divider"></li>
+                <li><a class="dropdown-item" href="/profile" data-page-link data-page="profile">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>
+                  Profile</a></li>
+                <li><a class="dropdown-item" href="/settings" data-page-link data-page="settings">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3.5"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/></svg>
+                  Settings</a></li>
+                <li><a class="dropdown-item" href="/notifications" data-page-link data-page="notifications">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+                  Notifications</a></li>
+                <li><hr class="dropdown-divider"></li>
+                <li><a class="dropdown-item dropdown-item-danger" href="/logout">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v9"/><path d="M6.3 6.3a9 9 0 1 0 11.4 0"/></svg>
+                  Log out</a></li>
+              </ul>
             </li>
           </ul>
         </div>
@@ -221,317 +249,371 @@
       <div class="row g-3 mb-4" id="kpi-row">
         <div class="col-xl-3 col-sm-6">
           <div class="card kpi-card h-100">
-            <div class="card-header p-2 ps-3">
-              <div class="d-flex justify-content-between">
-                <div>
-                  <p class="text-sm mb-0 text-capitalize" data-bs-toggle="tooltip" data-bs-placement="top" title="Total number of tool calls that had Synthelion compression applied, across every recorded session in the selected date range.">Calls</p>
-                  <h4 class="mb-0" id="kpi-calls">–</h4>
-                </div>
-                <div class="icon icon-md icon-shape bg-gradient-info shadow text-center border-radius-lg">
-                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 12 8 12 10 18 14 6 16 12 21 12"/></svg>
-                </div>
-              </div>
+            <p class="kpi-label" data-bs-toggle="tooltip" data-bs-placement="top" title="Total number of tool calls that had Synthelion compression applied, across every recorded session in the selected date range.">Calls <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><circle cx="12" cy="8" r=".5" fill="currentColor"/></svg></p>
+            <h4 class="kpi-value" id="kpi-calls">–</h4>
+            <div class="kpi-meta">
+              <span class="kpi-delta" id="kpi-calls-delta" style="display:none"></span>
+              <span class="kpi-foot">Total tool calls compressed</span>
             </div>
-            <hr class="horizontal my-0 light">
-            <div class="card-footer p-2 ps-3">
-              <p class="mb-0 text-sm text-secondary">Total tool calls compressed</p>
+            <div class="kpi-spark" id="spark-calls" data-metric="calls" data-delta-for="kpi-calls"></div>
+          </div>
+        </div>
+        <div class="col-xl-3 col-sm-6">
+          <div class="card kpi-card h-100">
+            <p class="kpi-label" data-bs-toggle="tooltip" data-bs-placement="top" title="Sum of (tokens before − tokens after) across all recorded calls — the actual token volume avoided in requests to the model.">Tokens saved <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><circle cx="12" cy="8" r=".5" fill="currentColor"/></svg></p>
+            <h4 class="kpi-value" id="kpi-saved">–</h4>
+            <div class="kpi-meta">
+              <span class="kpi-delta" id="kpi-saved-delta" style="display:none"></span>
+              <span class="kpi-foot">Across all sessions</span>
+            </div>
+            <div class="kpi-spark" id="spark-saved" data-metric="saved" data-delta-for="kpi-saved"></div>
+          </div>
+        </div>
+        <div class="col-xl-3 col-sm-6">
+          <div class="card kpi-card h-100">
+            <p class="kpi-label" data-bs-toggle="tooltip" data-bs-placement="top" title="Average percentage reduction per call: tokens saved ÷ tokens before × 100, averaged across all recorded calls in this range.">Avg efficiency <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><circle cx="12" cy="8" r=".5" fill="currentColor"/></svg></p>
+            <h4 class="kpi-value" id="kpi-eff">–</h4>
+            <div class="kpi-meta">
+              <span class="kpi-delta" id="kpi-eff-delta" style="display:none"></span>
+              <span class="kpi-foot">Tokens saved per call</span>
+            </div>
+            <div class="kpi-spark" id="spark-eff" data-metric="eff" data-delta-for="kpi-eff"></div>
+          </div>
+        </div>
+        <div class="col-xl-3 col-sm-6">
+          <div class="card kpi-card h-100">
+            <p class="kpi-label" data-bs-toggle="tooltip" data-bs-placement="top" title="Estimated CO₂-equivalent avoided, derived from a fixed energy-per-token estimate applied to tokens saved — illustrative, not a precise measurement.">CO₂ saved <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><circle cx="12" cy="8" r=".5" fill="currentColor"/></svg></p>
+            <h4 class="kpi-value" id="kpi-co2">–</h4>
+            <div class="kpi-meta">
+              <span class="kpi-delta" id="kpi-co2-delta" style="display:none"></span>
+              <span class="kpi-foot">Estimated, from tokens saved</span>
+            </div>
+            <div class="kpi-spark" id="spark-co2" data-metric="co2" data-delta-for="kpi-co2"></div>
+          </div>
+        </div>
+        <div class="col-xl-3 col-sm-6">
+          <div class="card kpi-card h-100">
+            <p class="kpi-label" data-bs-toggle="tooltip" data-bs-placement="top" title="Distinct synthelion-mcp/CLI process lifetimes that recorded at least one compression call in this range.">Sessions <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><circle cx="12" cy="8" r=".5" fill="currentColor"/></svg></p>
+            <h4 class="kpi-value" id="kpi-sessions">–</h4>
+            <div class="kpi-meta">
+              <span class="kpi-delta" id="kpi-sessions-delta" style="display:none"></span>
+              <span class="kpi-foot">synthelion-mcp / CLI processes</span>
+            </div>
+            <div class="kpi-spark" id="spark-sessions" data-metric="sessions" data-delta-for="kpi-sessions"></div>
+          </div>
+        </div>
+        <div class="col-xl-3 col-sm-6">
+          <div class="card kpi-card h-100 no-spark">
+            <p class="kpi-label" data-bs-toggle="tooltip" data-bs-placement="top" title="Total calls divided by number of sessions — a rough proxy for how tool-call-heavy a typical session is.">Avg calls / session <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><circle cx="12" cy="8" r=".5" fill="currentColor"/></svg></p>
+            <h4 class="kpi-value" id="kpi-avg-calls">–</h4>
+            <div class="kpi-meta">
+              <span class="kpi-delta" id="kpi-avg-calls-delta" style="display:none"></span>
+              <span class="kpi-foot">Calls / session count</span>
             </div>
           </div>
         </div>
         <div class="col-xl-3 col-sm-6">
           <div class="card kpi-card h-100">
-            <div class="card-header p-2 ps-3">
-              <div class="d-flex justify-content-between">
-                <div>
-                  <p class="text-sm mb-0 text-capitalize" data-bs-toggle="tooltip" data-bs-placement="top" title="Sum of (tokens before − tokens after) across all recorded calls — the actual token volume avoided in requests to the model.">Tokens saved</p>
-                  <h4 class="mb-0" id="kpi-saved">–</h4>
-                </div>
-                <div class="icon icon-md icon-shape bg-gradient-info shadow text-center border-radius-lg">
-                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>
-                </div>
-              </div>
+            <p class="kpi-label" data-bs-toggle="tooltip" data-bs-placement="top" title="Number of distinct tool names that appear across the recorded calls in this range.">Tools used <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><circle cx="12" cy="8" r=".5" fill="currentColor"/></svg></p>
+            <h4 class="kpi-value" id="kpi-tools">–</h4>
+            <div class="kpi-meta">
+              <span class="kpi-delta" id="kpi-tools-delta" style="display:none"></span>
+              <span class="kpi-foot">Distinct tool names</span>
             </div>
-            <hr class="horizontal my-0 light">
-            <div class="card-footer p-2 ps-3">
-              <p class="mb-0 text-sm text-secondary">Across all sessions</p>
+            <div class="kpi-spark" id="spark-tools" data-metric="tools" data-delta-for="kpi-tools"></div>
+          </div>
+        </div>
+        <div class="col-xl-3 col-sm-6">
+          <div class="card kpi-card h-100">
+            <p class="kpi-label" data-bs-toggle="tooltip" data-bs-placement="top" title="The single recorded call with the highest tokens-saved value in this range.">Best single call <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><circle cx="12" cy="8" r=".5" fill="currentColor"/></svg></p>
+            <h4 class="kpi-value" id="kpi-best-call">–</h4>
+            <div class="kpi-meta">
+              <span class="kpi-delta" id="kpi-best-call-delta" style="display:none"></span>
+              <span class="kpi-foot">Highest single-call savings</span>
+            </div>
+            <div class="kpi-spark" id="spark-best" data-metric="best" data-delta-for="kpi-best-call"></div>
+          </div>
+        </div>
+        <div class="col-xl-3 col-sm-6">
+          <div class="card kpi-card h-100">
+            <p class="kpi-label" data-bs-toggle="tooltip" data-bs-placement="top" title="Mean wall-clock duration recorded for a compression call, in milliseconds.">Avg latency <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><circle cx="12" cy="8" r=".5" fill="currentColor"/></svg></p>
+            <h4 class="kpi-value" id="kpi-latency-avg">–</h4>
+            <div class="kpi-meta">
+              <span class="kpi-delta" id="kpi-latency-avg-delta" style="display:none"></span>
+              <span class="kpi-foot">Mean call duration</span>
+            </div>
+            <div class="kpi-spark" id="spark-lat_avg" data-metric="lat_avg" data-invert="1" data-delta-for="kpi-latency-avg"></div>
+          </div>
+        </div>
+        <div class="col-xl-3 col-sm-6">
+          <div class="card kpi-card h-100">
+            <p class="kpi-label" data-bs-toggle="tooltip" data-bs-placement="top" title="95th-percentile call duration — 95% of recorded calls finished at or below this time, in milliseconds.">p95 latency <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><circle cx="12" cy="8" r=".5" fill="currentColor"/></svg></p>
+            <h4 class="kpi-value" id="kpi-latency-p95">–</h4>
+            <div class="kpi-meta">
+              <span class="kpi-delta" id="kpi-latency-p95-delta" style="display:none"></span>
+              <span class="kpi-foot">95th percentile duration</span>
+            </div>
+            <div class="kpi-spark" id="spark-lat_p95" data-metric="lat_p95" data-invert="1" data-delta-for="kpi-latency-p95"></div>
+          </div>
+        </div>
+        <div class="col-xl-3 col-sm-6">
+          <div class="card kpi-card h-100">
+            <p class="kpi-label" data-bs-toggle="tooltip" data-bs-placement="top" title="Slowest recorded call duration in this range, in milliseconds.">Max latency <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><circle cx="12" cy="8" r=".5" fill="currentColor"/></svg></p>
+            <h4 class="kpi-value" id="kpi-latency-max">–</h4>
+            <div class="kpi-meta">
+              <span class="kpi-delta" id="kpi-latency-max-delta" style="display:none"></span>
+              <span class="kpi-foot">Slowest call duration</span>
+            </div>
+            <div class="kpi-spark" id="spark-lat_max" data-metric="lat_max" data-invert="1" data-delta-for="kpi-latency-max"></div>
+          </div>
+        </div>
+        <div class="col-xl-3 col-sm-6">
+          <div class="card kpi-card h-100">
+            <p class="kpi-label" data-bs-toggle="tooltip" data-bs-placement="top" title="Estimated USD saved on model input token costs, priced at $3.00/MTok (Sonnet 4.6 input price). See the Charts page for the exact pricing note.">Cost saved <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><circle cx="12" cy="8" r=".5" fill="currentColor"/></svg></p>
+            <h4 class="kpi-value" id="kpi-cost">–</h4>
+            <div class="kpi-meta">
+              <span class="kpi-delta" id="kpi-cost-delta" style="display:none"></span>
+              <span class="kpi-foot">Estimated, at input token price</span>
+            </div>
+            <div class="kpi-spark" id="spark-cost" data-metric="cost" data-delta-for="kpi-cost"></div>
+          </div>
+        </div>
+        <div class="col-xl-3 col-sm-6">
+          <div class="card kpi-card h-100">
+            <p class="kpi-label" data-bs-toggle="tooltip" data-bs-placement="top" title="Estimated energy avoided (megawatt-hours), derived from tokens saved via a fixed per-token energy estimate — illustrative only.">Energy saved <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><circle cx="12" cy="8" r=".5" fill="currentColor"/></svg></p>
+            <h4 class="kpi-value" id="kpi-energy">–</h4>
+            <div class="kpi-meta">
+              <span class="kpi-delta" id="kpi-energy-delta" style="display:none"></span>
+              <span class="kpi-foot">Estimated, from tokens saved</span>
+            </div>
+            <div class="kpi-spark" id="spark-energy" data-metric="energy" data-delta-for="kpi-energy"></div>
+          </div>
+        </div>
+        <div class="col-xl-3 col-sm-6">
+          <div class="card kpi-card h-100">
+            <p class="kpi-label" data-bs-toggle="tooltip" data-bs-placement="top" title="Total input tokens across all recorded calls, before any compression was applied — the raw volume Synthelion processed.">Tokens processed <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><circle cx="12" cy="8" r=".5" fill="currentColor"/></svg></p>
+            <h4 class="kpi-value" id="kpi-tokens-before">–</h4>
+            <div class="kpi-meta">
+              <span class="kpi-delta" id="kpi-tokens-before-delta" style="display:none"></span>
+              <span class="kpi-foot">Total input tokens, pre-compression</span>
+            </div>
+            <div class="kpi-spark" id="spark-before" data-metric="before" data-invert="1" data-delta-for="kpi-tokens-before"></div>
+          </div>
+        </div>
+        <div class="col-xl-3 col-sm-6">
+          <div class="card kpi-card h-100 no-spark">
+            <p class="kpi-label" data-bs-toggle="tooltip" data-bs-placement="top" title="Number of cross-session memory notes (session_record) saved via the active vector-store/lexical backend — not limited to the selected date range.">Decisions stored <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><circle cx="12" cy="8" r=".5" fill="currentColor"/></svg></p>
+            <h4 class="kpi-value" id="kpi-decisions">–</h4>
+            <div class="kpi-meta">
+              <span class="kpi-delta" id="kpi-decisions-delta" style="display:none"></span>
+              <span class="kpi-foot">Cross-session memory (all time)</span>
             </div>
           </div>
         </div>
         <div class="col-xl-3 col-sm-6">
           <div class="card kpi-card h-100">
-            <div class="card-header p-2 ps-3">
-              <div class="d-flex justify-content-between">
-                <div>
-                  <p class="text-sm mb-0 text-capitalize" data-bs-toggle="tooltip" data-bs-placement="top" title="Average percentage reduction per call: tokens saved ÷ tokens before × 100, averaged across all recorded calls in this range.">Avg efficiency</p>
-                  <h4 class="mb-0" id="kpi-eff">–</h4>
-                </div>
-                <div class="icon icon-md icon-shape bg-gradient-info shadow text-center border-radius-lg">
-                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></svg>
-                </div>
-              </div>
+            <p class="kpi-label" data-bs-toggle="tooltip" data-bs-placement="top" title="Total PII/sensitive-data items (email, IBAN, national tax/ID numbers, credit cards, etc.) masked with recoverable [PG_n] placeholders before compression — PrivacyGuard, active by default on the compress/hook path.">PII items masked <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><circle cx="12" cy="8" r=".5" fill="currentColor"/></svg></p>
+            <h4 class="kpi-value" id="kpi-pii-masked">–</h4>
+            <div class="kpi-meta">
+              <span class="kpi-delta" id="kpi-pii-masked-delta" style="display:none"></span>
+              <span class="kpi-foot">PrivacyGuard — 33 countries, GDPR/AI Act aware</span>
             </div>
-            <hr class="horizontal my-0 light">
-            <div class="card-footer p-2 ps-3">
-              <p class="mb-0 text-sm text-secondary">Tokens saved per call</p>
-            </div>
+            <div class="kpi-spark" id="spark-pii" data-metric="pii" data-delta-for="kpi-pii-masked"></div>
+          </div>
+        </div>
+      </div>
+      </section>
+
+      <section data-page="live" style="display:none">
+      <div class="page-hero">
+        <div class="page-hero-text">
+          <h1>Live monitor</h1>
+          <p>Requests, compression, firewall and policy decisions as they happen, across every Synthelion process on this machine.</p>
+        </div>
+      </div>
+
+      <div class="row g-3 mb-3">
+        <div class="col-xl-3 col-sm-6">
+          <div class="card kpi-card no-spark h-100">
+            <p class="kpi-label">Requests <span class="live-dot"></span></p>
+            <h4 class="kpi-value" id="live-requests">0</h4>
+            <div class="kpi-meta"><span class="kpi-foot">Proxied, last 5 min</span></div>
           </div>
         </div>
         <div class="col-xl-3 col-sm-6">
-          <div class="card kpi-card h-100">
-            <div class="card-header p-2 ps-3">
-              <div class="d-flex justify-content-between">
-                <div>
-                  <p class="text-sm mb-0 text-capitalize" data-bs-toggle="tooltip" data-bs-placement="top" title="Estimated CO₂-equivalent avoided, derived from a fixed energy-per-token estimate applied to tokens saved — illustrative, not a precise measurement.">CO₂ saved</p>
-                  <h4 class="mb-0" id="kpi-co2">–</h4>
+          <div class="card kpi-card no-spark h-100">
+            <p class="kpi-label">Compressions</p>
+            <h4 class="kpi-value" id="live-compressions">0</h4>
+            <div class="kpi-meta"><span class="kpi-foot">CLI, MCP and hook path</span></div>
+          </div>
+        </div>
+        <div class="col-xl-3 col-sm-6">
+          <div class="card kpi-card no-spark h-100">
+            <p class="kpi-label">Blocked</p>
+            <h4 class="kpi-value" id="live-blocked">0</h4>
+            <div class="kpi-meta"><span class="kpi-foot">Firewall, WAF and policy</span></div>
+          </div>
+        </div>
+        <div class="col-xl-3 col-sm-6">
+          <div class="card kpi-card no-spark h-100">
+            <p class="kpi-label">Awaiting approval</p>
+            <h4 class="kpi-value" id="live-gated">0</h4>
+            <div class="kpi-meta"><span class="kpi-foot">Gated by agent policy</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row g-3 mb-4">
+        <div class="col-12">
+          <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+              <div>
+                <h6 class="mb-0">Event stream</h6>
+                <p class="text-sm mb-0 text-muted" id="live-status">Connecting…</p>
+              </div>
+              <div class="d-flex align-items-center gap-2">
+                <div class="btn-group" role="group" aria-label="Filter">
+                  <button type="button" class="btn btn-sm btn-outline-info live-filter active" data-kind="">All</button>
+                  <button type="button" class="btn btn-sm btn-outline-info live-filter" data-kind="request">Requests</button>
+                  <button type="button" class="btn btn-sm btn-outline-info live-filter" data-kind="compression">Compression</button>
+                  <button type="button" class="btn btn-sm btn-outline-info live-filter" data-kind="security">Security</button>
                 </div>
-                <div class="icon icon-md icon-shape bg-gradient-info shadow text-center border-radius-lg">
-                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 21c9 0 14-5 14-14V5h-2C8 5 3 10 3 19v2z"/></svg>
-                </div>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="live-pause">Pause</button>
               </div>
             </div>
-            <hr class="horizontal my-0 light">
-            <div class="card-footer p-2 ps-3">
-              <p class="mb-0 text-sm text-secondary">Estimated, from tokens saved</p>
+            <div class="card-body p-0">
+              <ul class="live-stream" id="live-stream">
+                <li class="notif-empty">Waiting for activity…</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+      </section>
+
+      <section data-page="compliance" style="display:none">
+      <div class="page-hero">
+        <div class="page-hero-text">
+          <h1>AI Compliance</h1>
+          <p>One gate over every Synthelion guard, expressed as policy: risk level, remediation action and the article of law each control answers to.</p>
+        </div>
+      </div>
+
+      <div class="row g-3 mb-3">
+        <div class="col-xl-3 col-sm-6">
+          <div class="card kpi-card no-spark h-100">
+            <p class="kpi-label">Engine</p>
+            <h4 class="kpi-value" id="comp-kpi-status">–</h4>
+            <div class="kpi-meta"><span class="kpi-foot" id="comp-kpi-fallback">—</span></div>
+          </div>
+        </div>
+        <div class="col-xl-3 col-sm-6">
+          <div class="card kpi-card no-spark h-100">
+            <p class="kpi-label">Controls enabled</p>
+            <h4 class="kpi-value" id="comp-kpi-rules">–</h4>
+            <div class="kpi-meta"><span class="kpi-foot" id="comp-kpi-rules-foot">—</span></div>
+          </div>
+        </div>
+        <div class="col-xl-3 col-sm-6">
+          <div class="card kpi-card no-spark h-100">
+            <p class="kpi-label">Transactions</p>
+            <h4 class="kpi-value" id="comp-kpi-calls">–</h4>
+            <div class="kpi-meta"><span class="kpi-foot" id="comp-kpi-violations">—</span></div>
+          </div>
+        </div>
+        <div class="col-xl-3 col-sm-6">
+          <div class="card kpi-card no-spark h-100">
+            <p class="kpi-label">Audit trail</p>
+            <h4 class="kpi-value" id="comp-kpi-audit">–</h4>
+            <div class="kpi-meta"><span class="kpi-foot" id="comp-kpi-audit-note">—</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row g-3 mb-3" id="comp-warning-row" style="display:none">
+        <div class="col-12">
+          <div class="card">
+            <div class="card-header pb-2">
+              <h6 class="mb-0">Controls enabled but not operational</h6>
+              <p class="text-sm mb-0 text-muted">These rules are switched on in the policy, but the guard behind them is disabled — they currently inspect nothing.</p>
+            </div>
+            <div class="card-body p-0"><ul class="notif-list" id="comp-warnings"></ul></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row g-3 mb-3">
+        <div class="col-12 col-lg-7">
+          <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+              <div>
+                <h6 class="mb-0">Guardrails</h6>
+                <p class="text-sm mb-0 text-muted">Risk level, remediation action and scope per control</p>
+              </div>
+              <select class="form-select form-select-sm" id="comp-engine-status" style="width:auto">
+                <option value="active">Engine: active</option>
+                <option value="staging">Engine: staging</option>
+                <option value="inactive">Engine: inactive</option>
+              </select>
+            </div>
+            <div class="card-body p-0">
+              <div class="table-responsive">
+                <table class="table align-items-center mb-0">
+                  <thead>
+                    <tr>
+                      <th>Control</th>
+                      <th>Risk</th>
+                      <th>Action</th>
+                      <th>Scope</th>
+                      <th class="text-end">On</th>
+                    </tr>
+                  </thead>
+                  <tbody id="comp-rules-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="col-12 col-lg-5">
+          <div class="card h-100">
+            <div class="card-header pb-2">
+              <h6 class="mb-0">Regulatory documents</h6>
+              <p class="text-sm mb-0 text-muted">Generated from the live configuration and the real audit trail</p>
+            </div>
+            <div class="card-body">
+              <ul class="doc-list" id="comp-docs"></ul>
+              <p class="text-xs text-muted mb-0 mt-2">
+                DPIA and FRIA are pre-filled working drafts: sections needing an organisational
+                judgement are listed as open items for the controller or DPO to complete.
+                PDF output is standard PDF 1.4, not PDF/A.
+              </p>
             </div>
           </div>
         </div>
       </div>
 
       <div class="row g-3 mb-4">
-        <div class="col-xl-3 col-sm-6">
-          <div class="card kpi-card h-100">
-            <div class="card-header p-2 ps-3">
-              <div class="d-flex justify-content-between">
-                <div>
-                  <p class="text-sm mb-0 text-capitalize" data-bs-toggle="tooltip" data-bs-placement="top" title="Distinct synthelion-mcp/CLI process lifetimes that recorded at least one compression call in this range.">Sessions</p>
-                  <h4 class="mb-0" id="kpi-sessions">–</h4>
-                </div>
-                <div class="icon icon-md icon-shape bg-gradient-dark shadow text-center border-radius-lg">
-                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
-                </div>
+        <div class="col-12">
+          <div class="card">
+            <div class="card-header pb-2">
+              <h6 class="mb-0">Traceability: control to legal obligation</h6>
+              <p class="text-sm mb-0 text-muted">A disabled control shows here as an uncovered obligation rather than silently still looking compliant.</p>
+            </div>
+            <div class="card-body p-0">
+              <div class="table-responsive">
+                <table class="table align-items-center mb-0">
+                  <thead>
+                    <tr>
+                      <th>Control</th>
+                      <th>Framework</th>
+                      <th>Article</th>
+                      <th>Obligation</th>
+                      <th>Covered</th>
+                    </tr>
+                  </thead>
+                  <tbody id="comp-matrix-tbody"></tbody>
+                </table>
               </div>
-            </div>
-            <hr class="horizontal my-0 light">
-            <div class="card-footer p-2 ps-3">
-              <p class="mb-0 text-sm text-secondary">synthelion-mcp / CLI processes</p>
-            </div>
-          </div>
-        </div>
-        <div class="col-xl-3 col-sm-6">
-          <div class="card kpi-card h-100">
-            <div class="card-header p-2 ps-3">
-              <div class="d-flex justify-content-between">
-                <div>
-                  <p class="text-sm mb-0 text-capitalize" data-bs-toggle="tooltip" data-bs-placement="top" title="Total calls divided by number of sessions — a rough proxy for how tool-call-heavy a typical session is.">Avg calls / session</p>
-                  <h4 class="mb-0" id="kpi-avg-calls">–</h4>
-                </div>
-                <div class="icon icon-md icon-shape bg-gradient-dark shadow text-center border-radius-lg">
-                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
-                </div>
-              </div>
-            </div>
-            <hr class="horizontal my-0 light">
-            <div class="card-footer p-2 ps-3">
-              <p class="mb-0 text-sm text-secondary">Calls / session count</p>
-            </div>
-          </div>
-        </div>
-        <div class="col-xl-3 col-sm-6">
-          <div class="card kpi-card h-100">
-            <div class="card-header p-2 ps-3">
-              <div class="d-flex justify-content-between">
-                <div>
-                  <p class="text-sm mb-0 text-capitalize" data-bs-toggle="tooltip" data-bs-placement="top" title="Number of distinct tool names that appear across the recorded calls in this range.">Tools used</p>
-                  <h4 class="mb-0" id="kpi-tools">–</h4>
-                </div>
-                <div class="icon icon-md icon-shape bg-gradient-dark shadow text-center border-radius-lg">
-                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 1 0 1.4l-1.6 1.6 3.6 3.6 1.6-1.6a1 1 0 0 1 1.4 0l1.9 1.9a1 1 0 0 1 0 1.4l-4 4a1 1 0 0 1-1.4 0l-1.9-1.9a1 1 0 0 1 0-1.4l1.6-1.6-3.6-3.6-1.6 1.6a1 1 0 0 1-1.4 0l-1.9-1.9a1 1 0 0 1 0-1.4l4-4a1 1 0 0 1 1.4 0z"/></svg>
-                </div>
-              </div>
-            </div>
-            <hr class="horizontal my-0 light">
-            <div class="card-footer p-2 ps-3">
-              <p class="mb-0 text-sm text-secondary">Distinct tool names</p>
-            </div>
-          </div>
-        </div>
-        <div class="col-xl-3 col-sm-6">
-          <div class="card kpi-card h-100">
-            <div class="card-header p-2 ps-3">
-              <div class="d-flex justify-content-between">
-                <div>
-                  <p class="text-sm mb-0 text-capitalize" data-bs-toggle="tooltip" data-bs-placement="top" title="The single recorded call with the highest tokens-saved value in this range.">Best single call</p>
-                  <h4 class="mb-0" id="kpi-best-call">–</h4>
-                </div>
-                <div class="icon icon-md icon-shape bg-gradient-dark shadow text-center border-radius-lg">
-                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15 9 22 9.5 17 14.5 18.5 21.5 12 18 5.5 21.5 7 14.5 2 9.5 9 9 12 2"/></svg>
-                </div>
-              </div>
-            </div>
-            <hr class="horizontal my-0 light">
-            <div class="card-footer p-2 ps-3">
-              <p class="mb-0 text-sm text-secondary">Highest single-call savings</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="row g-3 mb-4">
-        <div class="col-xl-4 col-sm-6">
-          <div class="card kpi-card h-100">
-            <div class="card-header p-2 ps-3">
-              <div class="d-flex justify-content-between">
-                <div>
-                  <p class="text-sm mb-0 text-capitalize" data-bs-toggle="tooltip" data-bs-placement="top" title="Mean wall-clock duration recorded for a compression call, in milliseconds.">Avg latency</p>
-                  <h4 class="mb-0" id="kpi-latency-avg">–</h4>
-                </div>
-                <div class="icon icon-md icon-shape bg-gradient-secondary shadow text-center border-radius-lg">
-                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg>
-                </div>
-              </div>
-            </div>
-            <hr class="horizontal my-0 light">
-            <div class="card-footer p-2 ps-3">
-              <p class="mb-0 text-sm text-secondary">Mean call duration</p>
-            </div>
-          </div>
-        </div>
-        <div class="col-xl-4 col-sm-6">
-          <div class="card kpi-card h-100">
-            <div class="card-header p-2 ps-3">
-              <div class="d-flex justify-content-between">
-                <div>
-                  <p class="text-sm mb-0 text-capitalize" data-bs-toggle="tooltip" data-bs-placement="top" title="95th-percentile call duration — 95% of recorded calls finished at or below this time, in milliseconds.">p95 latency</p>
-                  <h4 class="mb-0" id="kpi-latency-p95">–</h4>
-                </div>
-                <div class="icon icon-md icon-shape bg-gradient-secondary shadow text-center border-radius-lg">
-                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg>
-                </div>
-              </div>
-            </div>
-            <hr class="horizontal my-0 light">
-            <div class="card-footer p-2 ps-3">
-              <p class="mb-0 text-sm text-secondary">95th percentile duration</p>
-            </div>
-          </div>
-        </div>
-        <div class="col-xl-4 col-sm-6">
-          <div class="card kpi-card h-100">
-            <div class="card-header p-2 ps-3">
-              <div class="d-flex justify-content-between">
-                <div>
-                  <p class="text-sm mb-0 text-capitalize" data-bs-toggle="tooltip" data-bs-placement="top" title="Slowest recorded call duration in this range, in milliseconds.">Max latency</p>
-                  <h4 class="mb-0" id="kpi-latency-max">–</h4>
-                </div>
-                <div class="icon icon-md icon-shape bg-gradient-secondary shadow text-center border-radius-lg">
-                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg>
-                </div>
-              </div>
-            </div>
-            <hr class="horizontal my-0 light">
-            <div class="card-footer p-2 ps-3">
-              <p class="mb-0 text-sm text-secondary">Slowest call duration</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="row g-3 mb-4">
-        <div class="col-xl-3 col-sm-6">
-          <div class="card kpi-card h-100">
-            <div class="card-header p-2 ps-3">
-              <div class="d-flex justify-content-between">
-                <div>
-                  <p class="text-sm mb-0 text-capitalize" data-bs-toggle="tooltip" data-bs-placement="top" title="Estimated USD saved on model input token costs, priced at $3.00/MTok (Sonnet 4.6 input price). See the Charts page for the exact pricing note.">Cost saved</p>
-                  <h4 class="mb-0" id="kpi-cost">–</h4>
-                </div>
-                <div class="icon icon-md icon-shape bg-gradient-success shadow text-center border-radius-lg">
-                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 9.5c0-1.4 1.3-2.5 3-2.5s3 1 3 2.3c0 3-6 1.5-6 4.5 0 1.3 1.3 2.4 3 2.4s3-1 3-2.4"/></svg>
-                </div>
-              </div>
-            </div>
-            <hr class="horizontal my-0 light">
-            <div class="card-footer p-2 ps-3">
-              <p class="mb-0 text-sm text-secondary">Estimated, at input token price</p>
-            </div>
-          </div>
-        </div>
-        <div class="col-xl-3 col-sm-6">
-          <div class="card kpi-card h-100">
-            <div class="card-header p-2 ps-3">
-              <div class="d-flex justify-content-between">
-                <div>
-                  <p class="text-sm mb-0 text-capitalize" data-bs-toggle="tooltip" data-bs-placement="top" title="Estimated energy avoided (megawatt-hours), derived from tokens saved via a fixed per-token energy estimate — illustrative only.">Energy saved</p>
-                  <h4 class="mb-0" id="kpi-energy">–</h4>
-                </div>
-                <div class="icon icon-md icon-shape bg-gradient-success shadow text-center border-radius-lg">
-                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 11 14 9 22 21 10 13 10 13 2"/></svg>
-                </div>
-              </div>
-            </div>
-            <hr class="horizontal my-0 light">
-            <div class="card-footer p-2 ps-3">
-              <p class="mb-0 text-sm text-secondary">Estimated, from tokens saved</p>
-            </div>
-          </div>
-        </div>
-        <div class="col-xl-3 col-sm-6">
-          <div class="card kpi-card h-100">
-            <div class="card-header p-2 ps-3">
-              <div class="d-flex justify-content-between">
-                <div>
-                  <p class="text-sm mb-0 text-capitalize" data-bs-toggle="tooltip" data-bs-placement="top" title="Total input tokens across all recorded calls, before any compression was applied — the raw volume Synthelion processed.">Tokens processed</p>
-                  <h4 class="mb-0" id="kpi-tokens-before">–</h4>
-                </div>
-                <div class="icon icon-md icon-shape bg-gradient-success shadow text-center border-radius-lg">
-                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="8" y1="4" x2="8" y2="20"/></svg>
-                </div>
-              </div>
-            </div>
-            <hr class="horizontal my-0 light">
-            <div class="card-footer p-2 ps-3">
-              <p class="mb-0 text-sm text-secondary">Total input tokens, pre-compression</p>
-            </div>
-          </div>
-        </div>
-        <div class="col-xl-3 col-sm-6">
-          <div class="card kpi-card h-100">
-            <div class="card-header p-2 ps-3">
-              <div class="d-flex justify-content-between">
-                <div>
-                  <p class="text-sm mb-0 text-capitalize" data-bs-toggle="tooltip" data-bs-placement="top" title="Number of cross-session memory notes (session_record) saved via the active vector-store/lexical backend — not limited to the selected date range.">Decisions stored</p>
-                  <h4 class="mb-0" id="kpi-decisions">–</h4>
-                </div>
-                <div class="icon icon-md icon-shape bg-gradient-success shadow text-center border-radius-lg">
-                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
-                </div>
-              </div>
-            </div>
-            <hr class="horizontal my-0 light">
-            <div class="card-footer p-2 ps-3">
-              <p class="mb-0 text-sm text-secondary">Cross-session memory (all time)</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="row g-3 mb-4">
-        <div class="col-xl-3 col-sm-6">
-          <div class="card kpi-card h-100">
-            <div class="card-header p-2 ps-3">
-              <div class="d-flex justify-content-between">
-                <div>
-                  <p class="text-sm mb-0 text-capitalize" data-bs-toggle="tooltip" data-bs-placement="top" title="Total PII/sensitive-data items (email, IBAN, national tax/ID numbers, credit cards, etc.) masked with recoverable [PG_n] placeholders before compression — PrivacyGuard, active by default on the compress/hook path.">PII items masked</p>
-                  <h4 class="mb-0" id="kpi-pii-masked">–</h4>
-                </div>
-                <div class="icon icon-md icon-shape bg-gradient-danger shadow text-center border-radius-lg">
-                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 3 6v6c0 5 4 9 9 10 5-1 9-5 9-10V6z"/><path d="M9 12l2 2 4-4"/></svg>
-                </div>
-              </div>
-            </div>
-            <hr class="horizontal my-0 light">
-            <div class="card-footer p-2 ps-3">
-              <p class="mb-0 text-sm text-secondary">PrivacyGuard — 33 countries, GDPR/AI Act aware</p>
             </div>
           </div>
         </div>
@@ -547,7 +629,7 @@
               <p class="text-sm">Compression savings by day, selected range</p>
               <div class="pe-2">
                 <div class="chart-box">
-                  <canvas id="chart-timeline" class="chart-canvas"></canvas>
+                  <div id="chart-timeline" class="chart-canvas"></div>
                 </div>
               </div>
               <div class="text-secondary text-sm mt-2" id="timeline-empty" style="display:none">No data in the selected range.</div>
@@ -566,7 +648,7 @@
               <p class="text-sm">Share of tokens saved per tool</p>
               <div class="pe-2">
                 <div class="chart-box">
-                  <canvas id="chart-tools" class="chart-canvas"></canvas>
+                  <div id="chart-tools" class="chart-canvas"></div>
                 </div>
               </div>
               <hr class="horizontal light">
@@ -707,8 +789,11 @@
       </section>
 
       <section data-page="cluster" style="display:none">
-      <div class="page-header min-height-200 border-radius-xl mt-2" style="background-image: url('/assets/img/synthelion-banner.png'); background-size: cover; background-position: center;">
-        <span class="mask bg-gradient-info opacity-6 border-radius-xl"></span>
+      <div class="page-hero">
+        <div class="page-hero-text">
+          <h1>Cluster</h1>
+          <p>Master/slave nodes, shared backends and generated deploy files.</p>
+        </div>
       </div>
       <div class="card card-body mx-2 mx-md-2 mt-n6">
       <div class="row g-3 mb-4">
@@ -828,8 +913,11 @@
       </section>
 
       <section data-page="settings" style="display:none">
-      <div class="page-header min-height-200 border-radius-xl mt-2" style="background-image: url('/assets/img/synthelion-banner.png'); background-size: cover; background-position: center;">
-        <span class="mask bg-gradient-info opacity-6 border-radius-xl"></span>
+      <div class="page-hero">
+        <div class="page-hero-text">
+          <h1>Settings</h1>
+          <p>Defaults for compression, storage backends and diagnostics.</p>
+        </div>
       </div>
       <div class="card card-body mx-2 mx-md-2 mt-n6">
       <div class="row g-3 mb-4">
@@ -979,8 +1067,11 @@
       </section>
 
       <section data-page="privacy" style="display:none">
-      <div class="page-header min-height-200 border-radius-xl mt-2" style="background-image: url('/assets/img/synthelion-banner.png'); background-size: cover; background-position: center;">
-        <span class="mask bg-gradient-info opacity-6 border-radius-xl"></span>
+      <div class="page-hero">
+        <div class="page-hero-text">
+          <h1>Privacy</h1>
+          <p>PII detection and masking across prompts, streams and documents.</p>
+        </div>
       </div>
       <div class="card card-body mx-2 mx-md-2 mt-n6">
       <div class="row g-3 mb-4">
@@ -1127,8 +1218,11 @@
       </section>
 
       <section data-page="proxy" style="display:none">
-      <div class="page-header min-height-200 border-radius-xl mt-2" style="background-image: url('/assets/img/synthelion-banner.png'); background-size: cover; background-position: center;">
-        <span class="mask bg-gradient-info opacity-6 border-radius-xl"></span>
+      <div class="page-hero">
+        <div class="page-hero-text">
+          <h1>Proxy</h1>
+          <p>The local gateway that compresses, masks and routes every agent call.</p>
+        </div>
       </div>
       <div class="card card-body mx-2 mx-md-2 mt-n6">
       <div class="row g-3 mb-4">
@@ -1468,31 +1562,75 @@
 
       <!-- Enterprise: Users -->
       <section data-page="enterprise-users" style="display:none">
-      <div class="page-header min-height-200 border-radius-xl mt-2" style="background-image: url('/assets/img/synthelion-banner.png'); background-size: cover; background-position: center;">
-        <span class="mask bg-gradient-info opacity-6 border-radius-xl"></span>
+      <div class="page-hero">
+        <div class="page-hero-text">
+          <h1>Users</h1>
+          <p>Employees, their virtual tokens, subscriptions and live consumption.</p>
+        </div>
       </div>
-      <div class="card card-body mx-2 mx-md-2 mt-n6">
-      <div class="row g-3 mb-4">
+
+      <div class="row g-3 mb-3">
+        <div class="col-xl-3 col-sm-6">
+          <div class="card kpi-card no-spark h-100">
+            <p class="kpi-label">Users</p>
+            <h4 class="kpi-value" id="ent-kpi-users">–</h4>
+            <div class="kpi-meta"><span class="kpi-foot" id="ent-kpi-users-foot">—</span></div>
+          </div>
+        </div>
+        <div class="col-xl-3 col-sm-6">
+          <div class="card kpi-card no-spark h-100">
+            <p class="kpi-label">Active subscriptions</p>
+            <h4 class="kpi-value" id="ent-kpi-subs">–</h4>
+            <div class="kpi-meta"><span class="kpi-foot" id="ent-kpi-subs-foot">—</span></div>
+          </div>
+        </div>
+        <div class="col-xl-3 col-sm-6">
+          <div class="card kpi-card no-spark h-100">
+            <p class="kpi-label">Tokens billed</p>
+            <h4 class="kpi-value" id="ent-kpi-tokens">–</h4>
+            <div class="kpi-meta"><span class="kpi-foot">Provider-reported usage</span></div>
+          </div>
+        </div>
+        <div class="col-xl-3 col-sm-6">
+          <div class="card kpi-card no-spark h-100">
+            <p class="kpi-label">Spend</p>
+            <h4 class="kpi-value" id="ent-kpi-cost">–</h4>
+            <div class="kpi-meta"><span class="kpi-foot">Priced from the synced model catalog</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row g-3 mb-3" id="ent-alerts-row" style="display:none">
         <div class="col-12">
-          <div class="card card-plain h-100">
-            <div class="card-header pb-0">
-              <h6 class="mb-0">Enterprise Users</h6>
-              <p class="text-sm mb-0">Manage users and their provider assignments</p>
-            </div>
-            <div class="card-body">
-              <div class="mb-3">
-                <button class="btn btn-sm btn-primary" id="enterprise-add-user">Add User</button>
+          <div class="card">
+            <div class="card-header pb-2"><h6 class="mb-0">Subscription alerts</h6></div>
+            <div class="card-body p-0"><ul class="notif-list" id="ent-alerts"></ul></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row g-3 mb-3">
+        <div class="col-12">
+          <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+              <div>
+                <h6 class="mb-0">Enterprise users</h6>
+                <p class="text-sm mb-0 text-muted">Virtual tokens, provider access and plans</p>
               </div>
+              <button class="btn btn-sm btn-primary" id="enterprise-add-user">Add user</button>
+            </div>
+            <div class="card-body p-0">
               <div class="table-responsive">
                 <table class="table align-items-center mb-0">
                   <thead>
                     <tr>
-                      <th class="text-uppercase text-secondary text-xxs font-weight-bolder">Label</th>
-                      <th class="text-uppercase text-secondary text-xxs font-weight-bolder">Role</th>
-                      <th class="text-uppercase text-secondary text-xxs font-weight-bolder">Status</th>
-                      <th class="text-uppercase text-secondary text-xxs font-weight-bolder">Token</th>
-                      <th class="text-uppercase text-secondary text-xxs font-weight-bolder">Synthelion</th>
-                      <th class="text-uppercase text-secondary text-xxs font-weight-bolder">Actions</th>
+                      <th>User</th>
+                      <th>Role</th>
+                      <th>Status</th>
+                      <th>Virtual token</th>
+                      <th>Providers</th>
+                      <th>Subscriptions</th>
+                      <th class="text-end">Actions</th>
                     </tr>
                   </thead>
                   <tbody id="enterprise-users-tbody"></tbody>
@@ -1502,16 +1640,54 @@
           </div>
         </div>
       </div>
+
+      <div class="row g-3 mb-4">
+        <div class="col-12 col-lg-7">
+          <div class="card h-100">
+            <div class="card-header pb-2">
+              <h6 class="mb-0">Consumption by user</h6>
+              <p class="text-sm mb-0 text-muted">Billed tokens and quota headroom</p>
+            </div>
+            <div class="card-body p-0">
+              <div class="table-responsive">
+                <table class="table align-items-center mb-0">
+                  <thead>
+                    <tr>
+                      <th>User</th>
+                      <th>Requests</th>
+                      <th>Tokens</th>
+                      <th>Cost</th>
+                      <th>Quota</th>
+                    </tr>
+                  </thead>
+                  <tbody id="ent-consumption-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="col-12 col-lg-5">
+          <div class="card h-100">
+            <div class="card-header pb-2">
+              <h6 class="mb-0">Most used models</h6>
+              <p class="text-sm mb-0 text-muted">By request count, across all users</p>
+            </div>
+            <div class="card-body p-0">
+              <ul class="model-list" id="ent-top-models">
+                <li class="notif-empty">No activity recorded yet.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
       </div>
       </section>
 
-      <!-- Enterprise: Subscriptions -->
-      <section data-page="enterprise-subscriptions" style="display:none">
-
-      <!-- Enterprise: Provider Keys -->
       <section data-page="enterprise-provider-keys" style="display:none">
-      <div class="page-header min-height-200 border-radius-xl mt-2" style="background-image: url('/assets/img/synthelion-banner.png'); background-size: cover; background-position: center;">
-        <span class="mask bg-gradient-info opacity-6 border-radius-xl"></span>
+      <div class="page-hero">
+        <div class="page-hero-text">
+          <h1>Provider Keys</h1>
+          <p>Real provider credentials, encrypted and held only by the administrator.</p>
+        </div>
       </div>
       <div class="card card-body mx-2 mx-md-2 mt-n6">
       <div class="row g-3 mb-4">
@@ -1547,8 +1723,11 @@
 
       <!-- Enterprise: Subscriptions (actual section starts here) -->
       <section data-page="enterprise-subscriptions" style="display:none">
-      <div class="page-header min-height-200 border-radius-xl mt-2" style="background-image: url('/assets/img/synthelion-banner.png'); background-size: cover; background-position: center;">
-        <span class="mask bg-gradient-info opacity-6 border-radius-xl"></span>
+      <div class="page-hero">
+        <div class="page-hero-text">
+          <h1>Subscriptions</h1>
+          <p>Metered and monthly plans, with live quota and cost per user.</p>
+        </div>
       </div>
       <div class="card card-body mx-2 mx-md-2 mt-n6">
       <div class="row g-3 mb-4">
@@ -1588,8 +1767,11 @@
 
       <!-- Enterprise: Activity -->
       <section data-page="enterprise-activity" style="display:none">
-      <div class="page-header min-height-200 border-radius-xl mt-2" style="background-image: url('/assets/img/synthelion-banner.png'); background-size: cover; background-position: center;">
-        <span class="mask bg-gradient-info opacity-6 border-radius-xl"></span>
+      <div class="page-hero">
+        <div class="page-hero-text">
+          <h1>Activity</h1>
+          <p>Every proxied call, attributed to a user and a subscription.</p>
+        </div>
       </div>
       <div class="card card-body mx-2 mx-md-2 mt-n6">
       <div class="row g-3 mb-4">
@@ -1719,8 +1901,8 @@
               <div class="mb-3">
                 <label class="form-label">Type</label>
                 <select class="form-select" id="add-sub-type">
-                  <option value="consumo">Consumo (pay-per-use)</option>
-                  <option value="mensile">Mensile (monthly)</option>
+                  <option value="consumo">Metered — pay per use</option>
+                  <option value="mensile">Monthly plan</option>
                 </select>
               </div>
               <div class="mb-3">
@@ -1728,11 +1910,11 @@
                 <input type="text" class="form-control" id="add-sub-model" placeholder="e.g. gpt-4">
               </div>
               <div class="mb-3" id="add-sub-max-tokens-group">
-                <label class="form-label">Max Tokens (consumo)</label>
+                <label class="form-label">Token allowance (metered plans)</label>
                 <input type="number" class="form-control" id="add-sub-max-tokens" value="0">
               </div>
               <div class="mb-3" id="add-sub-max-cost-group" style="display:none">
-                <label class="form-label">Max Monthly Cost USD (mensile)</label>
+                <label class="form-label">Monthly cost limit, USD (monthly plans)</label>
                 <input type="number" step="0.01" class="form-control" id="add-sub-max-cost" value="0">
               </div>
             </div>
@@ -1745,8 +1927,11 @@
       </div>
 
       <section data-page="security" style="display:none">
-      <div class="page-header min-height-200 border-radius-xl mt-2" style="background-image: url('/assets/img/synthelion-banner.png'); background-size: cover; background-position: center;">
-        <span class="mask bg-gradient-info opacity-6 border-radius-xl"></span>
+      <div class="page-hero">
+        <div class="page-hero-text">
+          <h1>Security</h1>
+          <p>WAF, EnterpriseGuard and the outbound data-loss firewall.</p>
+        </div>
       </div>
       <div class="card card-body mx-2 mx-md-2 mt-n6">
       <div class="row g-3 mb-4">
@@ -2099,8 +2284,11 @@
       </section>
 
       <section data-page="doctor" style="display:none">
-      <div class="page-header min-height-200 border-radius-xl mt-2" style="background-image: url('/assets/img/synthelion-banner.png'); background-size: cover; background-position: center;">
-        <span class="mask bg-gradient-info opacity-6 border-radius-xl"></span>
+      <div class="page-hero">
+        <div class="page-hero-text">
+          <h1>Doctor</h1>
+          <p>Installation health checks for this machine.</p>
+        </div>
       </div>
       <div class="card card-body mx-2 mx-md-2 mt-n6">
       <div class="row g-3 mb-4">
@@ -2122,8 +2310,11 @@
       </section>
 
       <section data-page="version" style="display:none">
-      <div class="page-header min-height-200 border-radius-xl mt-2" style="background-image: url('/assets/img/synthelion-banner.png'); background-size: cover; background-position: center;">
-        <span class="mask bg-gradient-info opacity-6 border-radius-xl"></span>
+      <div class="page-hero">
+        <div class="page-hero-text">
+          <h1>Version</h1>
+          <p>Installed build and available updates.</p>
+        </div>
       </div>
       <div class="card card-body mx-2 mx-md-2 mt-n6">
       <div class="row g-3 mb-4">
@@ -2147,8 +2338,11 @@
       </section>
 
       <section data-page="profile" style="display:none">
-      <div class="page-header min-height-200 border-radius-xl mt-2" style="background-image: url('/assets/img/synthelion-banner.png'); background-size: cover; background-position: center;">
-        <span class="mask bg-gradient-info opacity-6 border-radius-xl"></span>
+      <div class="page-hero">
+        <div class="page-hero-text">
+          <h1>Profile</h1>
+          <p>Your dashboard account and credentials.</p>
+        </div>
       </div>
       <div class="card card-body mx-2 mx-md-2 mt-n6">
         <div class="row gx-4 mb-2">
@@ -2221,13 +2415,42 @@
       </section>
 
       <section data-page="notifications" style="display:none">
+      <div class="page-hero">
+        <div class="page-hero-text">
+          <h1>Notifications</h1>
+          <p>Health, security and subscription signals computed from this machine — never fabricated demo content.</p>
+        </div>
+      </div>
+      <div class="row g-3 mb-3" id="notif-counters">
+        <div class="col-sm-4">
+          <div class="card notif-counter" data-level="error">
+            <span class="notif-counter-value" id="notif-count-error">0</span>
+            <span class="notif-counter-label">Critical</span>
+          </div>
+        </div>
+        <div class="col-sm-4">
+          <div class="card notif-counter" data-level="warning">
+            <span class="notif-counter-value" id="notif-count-warning">0</span>
+            <span class="notif-counter-label">Warnings</span>
+          </div>
+        </div>
+        <div class="col-sm-4">
+          <div class="card notif-counter" data-level="info">
+            <span class="notif-counter-value" id="notif-count-info">0</span>
+            <span class="notif-counter-label">Suggestions</span>
+          </div>
+        </div>
+      </div>
       <div class="row g-3 mb-4">
         <div class="col-12">
           <div class="card">
-            <div class="card-header pb-0"><h6 class="mb-0">Notifications</h6></div>
+            <div class="card-header d-flex justify-content-between align-items-center">
+              <h6 class="mb-0">All signals</h6>
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="notif-refresh">Re-check</button>
+            </div>
             <div class="card-body p-0">
-              <ul class="list-group list-group-flush" id="notif-page-list">
-                <li class="list-group-item text-secondary">Loading…</li>
+              <ul class="notif-list" id="notif-page-list">
+                <li class="notif-empty">Loading…</li>
               </ul>
             </div>
           </div>
@@ -2243,10 +2466,7 @@
   </main>
 
   <script src="/assets/vendor/bootstrap/bootstrap.bundle.min.js"></script>
-  <script src="/assets/vendor/material-dashboard/js/perfect-scrollbar.min.js"></script>
-  <script src="/assets/vendor/material-dashboard/js/smooth-scrollbar.min.js"></script>
-  <script src="/assets/vendor/material-dashboard/material-dashboard.min.js"></script>
-  <script src="/assets/vendor/chartjs/chart.umd.min.js"></script>
+  <script src="/assets/vendor/echarts/echarts.min.js"></script>
   <script src="/assets/dashboard.js"></script>
 </body>
 </html>

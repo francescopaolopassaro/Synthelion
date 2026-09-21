@@ -159,6 +159,56 @@ _DEFAULT_CONFIG: dict[str, Any] = {
         # until explicitly enabled.
         "auto_discover_clients": True,
     },
+    "compliance": {
+        # AI Compliance Engine (see synthelion/compliance/). Aggregates the
+        # existing guards behind one policy vocabulary and produces the
+        # regulatory documentation.
+        #   active   — rules are enforced
+        #   staging  — every rule is evaluated and logged, nothing is blocked
+        #              or rewritten (trial a policy against real traffic first)
+        #   inactive — the gate is off
+        "status": "active",
+        # What happens when a guard itself fails. fail_closed refuses the call
+        # for security/privacy rules (if the secrets scanner is down we cannot
+        # claim the payload is clean); fail_open allows and records it.
+        "fallback": "fail_closed",
+        "language": "en",
+        # Agent profile used by the AGENT_POLICY rule — see agent_policy.py.
+        "agent_profile": "base",
+        # System instructions injected ahead of the model, not modifiable by
+        # the end user. Empty = no override.
+        "system_prompt_override": "",
+        # Per-rule overrides on top of the built-in registry. Only state what
+        # differs, e.g.
+        #   "rules": {"SENSITIVE_CONTENT": {"enabled": false},
+        #             "PII_REDACTION": {"action": "block"}}
+        "rules": {},
+    },
+    "agent_policy": {
+        # Per-agent-type guardrails (see agent_policy.py). EnterpriseGuard asks
+        # "is this forbidden for anyone?"; this asks "is it acceptable for *this
+        # kind* of agent?" — `terraform apply` is routine for an ops agent and
+        # meaningless for a support one.
+        "enabled": True,
+        # Which rule pack stacks on top of the baseline: base | dev | support |
+        # rag | data | ops | browser. The baseline always applies.
+        "profile": "base",
+        # Gating is the third outcome next to allow/block: the call is
+        # legitimate but needs explicit human approval (force push, terraform
+        # apply, IAM escalation, a refund over the cap). Turning this off
+        # downgrades every gated rule to "allow", never to "block".
+        "gate_enabled": True,
+        # Correlate "read something private" -> "send data outward" within a
+        # session and cut the second step, even though neither call is
+        # forbidden on its own (the lethal-trifecta exfil breaker).
+        "chain_breaker": True,
+        # Support agents: refunds above this auto-approve outright; above it
+        # they are gated for a human.
+        "refund_cap_usd": 100.0,
+        # fnmatch-style tool-name patterns this deployment forbids outright,
+        # regardless of arguments (e.g. "browser_*", "*_delete").
+        "blocked_tools": [],
+    },
     "waf": {
         # Master switch — set to False to disable request inspection entirely.
         "enabled": True,

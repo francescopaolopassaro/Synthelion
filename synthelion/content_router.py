@@ -264,7 +264,7 @@ class ContentRouter:
 
         if ct == ContentType.HTML:
             extracted = self._html.extract(content)
-            nlp_result = self._nlp.compress(extracted, effective_level)
+            nlp_result = self._nlp.compress(extracted, effective_level, allow_structured=True)
             compressed = nlp_result.compressed_text
             return RoutedCompressionResult(
                 compressed=compressed, original=content,
@@ -307,7 +307,7 @@ class ContentRouter:
             )
 
         if ct == ContentType.SEARCH_RESULTS:
-            nlp_result = self._nlp.compress(content, effective_level)
+            nlp_result = self._nlp.compress(content, effective_level, allow_structured=True)
             compressed = nlp_result.compressed_text
             return RoutedCompressionResult(
                 compressed=compressed, original=content,
@@ -325,7 +325,7 @@ class ContentRouter:
                 tokens_before=tb, tokens_after=tb,
             )
 
-        nlp_result = self._nlp.compress(content, effective_level)
+        nlp_result = self._nlp.compress(content, effective_level, allow_structured=True)
         compressed = nlp_result.compressed_text
         return RoutedCompressionResult(
             compressed=compressed, original=content,

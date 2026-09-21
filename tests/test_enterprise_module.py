@@ -325,6 +325,81 @@ class TestEnterpriseMiddleware:
         assert result.allowed is False
         assert result.error_code == "missing_token"
 
+    def _setup_active_sub(self, tmp_path, monkeypatch):
+        _isolate_home(tmp_path, monkeypatch)
+        from synthelion.enterprise.users import add_user
+        from synthelion.enterprise.provider_keys import add_provider_key
+        from synthelion.enterprise.subscriptions import add_subscription
+        from synthelion.enterprise.db import get_db
+        user = add_user(label="alice")
+        pk = add_provider_key(provider="openai", label="k", api_key="sk-x")
+        # Seed a known price so estimate_cost() is deterministic in the test
+        get_db().insert("enterprise_model_costs", {
+            "provider": "openai", "model": "gpt-4o",
+            "input_per_token": 0.001, "output_per_token": 0.002,
+            "last_synced_at": "2026-01-01T00:00:00Z",
+        })
+        add_subscription(user_id=user["user_id"], provider_key_id=pk["pk_id"],
+                          sub_type="consumo", max_tokens=100000)
+        return user
+
+    def test_record_proxy_usage_prefers_real_usage_over_estimate(self, tmp_path, monkeypatch):
+        user = self._setup_active_sub(tmp_path, monkeypatch)
+        from synthelion.enterprise.middleware import record_proxy_usage
+        from synthelion.enterprise.subscriptions import find_active_sub
+        # tokens_before/after describe Synthelion's own request compression
+        # (100 -> 60 tokens); real_input/output_tokens is what the provider
+        # actually billed. The real numbers must win, not the compression
+        # savings — a provider bills for what was sent + what it generated,
+        # not for what compression happened to save on the input side.
+        record_proxy_usage(
+            user=user, provider="openai", model="gpt-4o", path="/v1/chat/completions",
+            status_code=200, tokens_before=100, tokens_after=60,
+            duration_ms=5.0, compressed=True,
+            real_input_tokens=60, real_output_tokens=40,
+        )
+        sub = find_active_sub(user["user_id"], "openai", "gpt-4o")
+        assert sub["current_tokens_used"] == 100  # 60 input + 40 output, not 100 + savings
+
+    def test_record_proxy_usage_falls_back_when_no_real_usage(self, tmp_path, monkeypatch):
+        user = self._setup_active_sub(tmp_path, monkeypatch)
+        from synthelion.enterprise.middleware import record_proxy_usage
+        from synthelion.enterprise.subscriptions import find_active_sub
+        record_proxy_usage(
+            user=user, provider="openai", model="gpt-4o", path="/v1/chat/completions",
+            status_code=200, tokens_before=100, tokens_after=60,
+            duration_ms=5.0, compressed=True,
+        )
+        sub = find_active_sub(user["user_id"], "openai", "gpt-4o")
+        # No real usage available (e.g. a streaming response) -> fall back to
+        # tokens actually sent upstream, not the old before+savings formula
+        # (which would have recorded 140).
+        assert sub["current_tokens_used"] == 60
+
+
+class TestExtractUsage:
+    def test_openai_style_usage(self):
+        from synthelion.plugins.proxy import _extract_usage
+        import json
+        body = json.dumps({"usage": {"prompt_tokens": 12, "completion_tokens": 34}}).encode()
+        assert _extract_usage(body) == (12, 34)
+
+    def test_anthropic_style_usage(self):
+        from synthelion.plugins.proxy import _extract_usage
+        import json
+        body = json.dumps({"usage": {"input_tokens": 5, "output_tokens": 9}}).encode()
+        assert _extract_usage(body) == (5, 9)
+
+    def test_missing_usage_returns_none(self):
+        from synthelion.plugins.proxy import _extract_usage
+        import json
+        body = json.dumps({"choices": []}).encode()
+        assert _extract_usage(body) is None
+
+    def test_malformed_json_returns_none(self):
+        from synthelion.plugins.proxy import _extract_usage
+        assert _extract_usage(b"not json{{{") is None
+
 
 # ---------------------------------------------------------------------------
 # Bootstrap
@@ -380,3 +455,81 @@ class TestEnterpriseDB:
         assert "enterprise_activity" in table_names
         assert "enterprise_model_costs" in table_names
         assert "enterprise_user_providers" in table_names
+
+
+# ---------------------------------------------------------------------------
+# Crypto — the master key lives in the OS credential store, never a file
+# ---------------------------------------------------------------------------
+
+class _FakeKeyring:
+    """In-memory stand-in for the `keyring` module, so these tests don't
+    read/write the real machine's OS credential store on every run."""
+    def __init__(self):
+        self._store: dict[tuple[str, str], str] = {}
+
+    def get_password(self, service, username):
+        return self._store.get((service, username))
+
+    def set_password(self, service, username, value):
+        self._store[(service, username)] = value
+
+
+class TestEnterpriseCrypto:
+    def _patch_keyring(self, monkeypatch):
+        import synthelion.enterprise.crypto as crypto
+        fake = _FakeKeyring()
+        monkeypatch.setattr(crypto, "_keyring", lambda: fake)
+        return crypto, fake
+
+    def test_ensure_key_generates_once(self, monkeypatch):
+        crypto, fake = self._patch_keyring(monkeypatch)
+        crypto.ensure_key()
+        first = fake.get_password(crypto._SERVICE_NAME, crypto._KEY_USERNAME)
+        assert first is not None and len(first) == 64
+        crypto.ensure_key()  # idempotent — must not regenerate/rotate
+        second = fake.get_password(crypto._SERVICE_NAME, crypto._KEY_USERNAME)
+        assert second == first
+
+    def test_show_key_creates_if_missing_and_returns_hex(self, monkeypatch):
+        crypto, fake = self._patch_keyring(monkeypatch)
+        key = crypto.show_key()
+        assert len(key) == 64
+        assert all(c in "0123456789abcdef" for c in key.lower())
+
+    def test_encrypt_decrypt_roundtrip_with_fake_keyring(self, monkeypatch):
+        crypto, fake = self._patch_keyring(monkeypatch)
+        crypto.ensure_key()
+        ct = crypto.encrypt("sk-real-secret")
+        assert ct != "sk-real-secret"
+        assert crypto.decrypt(ct) == "sk-real-secret"
+
+    def test_get_key_raises_clear_error_when_unconfigured(self, monkeypatch):
+        crypto, fake = self._patch_keyring(monkeypatch)
+        with pytest.raises(crypto.EnterpriseKeyUnavailable):
+            crypto._get_key()
+
+    def test_migrate_from_file_imports_and_does_not_delete(self, tmp_path, monkeypatch):
+        crypto, fake = self._patch_keyring(monkeypatch)
+        key_file = tmp_path / "old_key.hex"
+        key_file.write_text("ab" * 32, encoding="utf-8")
+        moved = crypto.migrate_from_file(key_file)
+        assert moved is True
+        assert fake.get_password(crypto._SERVICE_NAME, crypto._KEY_USERNAME) == "ab" * 32
+        assert key_file.exists()  # migration never auto-deletes the source file
+
+    def test_migrate_from_file_noop_if_key_already_present(self, tmp_path, monkeypatch):
+        crypto, fake = self._patch_keyring(monkeypatch)
+        crypto.ensure_key()
+        existing = fake.get_password(crypto._SERVICE_NAME, crypto._KEY_USERNAME)
+        key_file = tmp_path / "old_key.hex"
+        key_file.write_text("cd" * 32, encoding="utf-8")
+        moved = crypto.migrate_from_file(key_file)
+        assert moved is False
+        assert fake.get_password(crypto._SERVICE_NAME, crypto._KEY_USERNAME) == existing
+
+    def test_migrate_from_file_rejects_malformed_key(self, tmp_path, monkeypatch):
+        crypto, fake = self._patch_keyring(monkeypatch)
+        key_file = tmp_path / "bad_key.hex"
+        key_file.write_text("not-a-hex-key", encoding="utf-8")
+        with pytest.raises(ValueError):
+            crypto.migrate_from_file(key_file)

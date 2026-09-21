@@ -1,0 +1,37 @@
+{
+  "metadata": {
+    "total_size": 41680392
+  },
+  "weight_map": {
+    "_word_emb/weight": "model.safetensors",
+    "_feat_proj/weight": "model.safetensors",
+    "_feat_proj/bias": "model.safetensors",
+    "_pos_emb/weight": "model.safetensors",
+    "_encoder/layers/0/self_attn/in_proj_weight": "model.safetensors",
+    "_encoder/layers/0/self_attn/in_proj_bias": "model.safetensors",
+    "_encoder/layers/0/self_attn/out_proj/weight": "model.safetensors",
+    "_encoder/layers/0/self_attn/out_proj/bias": "model.safetensors",
+    "_encoder/layers/0/linear1/weight": "model.safetensors",
+    "_encoder/layers/0/linear1/bias": "model.safetensors",
+    "_encoder/layers/0/linear2/weight": "model.safetensors",
+    "_encoder/layers/0/linear2/bias": "model.safetensors",
+    "_encoder/layers/0/norm1/weight": "model.safetensors",
+    "_encoder/layers/0/norm1/bias": "model.safetensors",
+    "_encoder/layers/0/norm2/weight": "model.safetensors",
+    "_encoder/layers/0/norm2/bias": "model.safetensors",
+    "_encoder/layers/1/self_attn/in_proj_weight": "model.safetensors",
+    "_encoder/layers/1/self_attn/in_proj_bias": "model.safetensors",
+    "_encoder/layers/1/self_attn/out_proj/weight": "model.safetensors",
+    "_encoder/layers/1/self_attn/out_proj/bias": "model.safetensors",
+    "_encoder/layers/1/linear1/weight": "model.safetensors",
+    "_encoder/layers/1/linear1/bias": "model.safetensors",
+    "_encoder/layers/1/linear2/weight": "model.safetensors",
+    "_encoder/layers/1/linear2/bias": "model.safetensors",
+    "_encoder/layers/1/norm1/weight": "model.safetensors",
+    "_encoder/layers/1/norm1/bias": "model.safetensors",
+    "_encoder/layers/1/norm2/weight": "model.safetensors",
+    "_encoder/layers/1/norm2/bias": "model.safetensors",
+    "_head/weight": "model.safetensors",
+    "_head/bias": "model.safetensors"
+  }
+}

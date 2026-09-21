@@ -17,7 +17,7 @@ _log = logging.getLogger(__name__)
 
 from synthelion import cjk_segmenter
 from synthelion.detector import LanguageDetector
-from synthelion.models import CompressionLevel, CompressionResult
+from synthelion.models import CompressionLevel, CompressionResult, ContentType
 from synthelion.word_provider import FunctionWordProvider
 
 if TYPE_CHECKING:
@@ -228,6 +228,7 @@ class CompressionService:
         level: CompressionLevel = CompressionLevel.SEMANTIC,
         iso3: str | None = None,
         custom_filter: CompressionFilter | None = None,
+        allow_structured: bool = False,
     ) -> CompressionResult:
         if not text or not text.strip():
             return CompressionResult(compressed_text="")
@@ -238,7 +239,8 @@ class CompressionService:
         # differently call to call.
         cache_key = None
         if custom_filter is None:
-            cache_key = hashlib.md5(f"{text}\x00{level}\x00{iso3 or ''}".encode()).hexdigest()
+            cache_key = hashlib.md5(
+                f"{text}\x00{level}\x00{iso3 or ''}\x00{allow_structured}".encode()).hexdigest()
             with self._cache_lock:
                 entry = self._cache.get(cache_key)
                 if entry and time.time() - entry[1] < _CACHE_TTL:
@@ -246,7 +248,7 @@ class CompressionService:
 
         try:
             lang = iso3 or self._detector.detect(text)
-            result = self.apply_compression(text, lang, level, custom_filter)
+            result = self.apply_compression(text, lang, level, custom_filter, allow_structured)
         except Exception as exc:
             _log.warning("compress() failed: %s", exc, exc_info=True)
             return CompressionResult(compressed_text=text, error_message=str(exc))
@@ -284,9 +286,35 @@ class CompressionService:
         iso3: str,
         level: CompressionLevel,
         custom_filter: CompressionFilter | None = None,
+        allow_structured: bool = False,
     ) -> CompressionResult:
         if not text or not text.strip():
             return CompressionResult(compressed_text="")
+
+        # Every filter below is a *prose* filter: it tokenizes into words and
+        # drops the low-signal ones. Punctuation is not a word, so braces,
+        # quotes, colons and operators are dropped with it — which turns JSON
+        # into unparseable text, a Python function into a list of identifiers
+        # and a SELECT into a keyword soup with no FROM. Structured content
+        # therefore must not reach these filters at all: it is returned
+        # untouched, and the caller routes it through the dedicated
+        # structure-aware compressors (ContentRouter / route_content) that know
+        # which characters are load-bearing. Same rule ContentRouter already
+        # applies when a code or SQL strategy declines: return the original,
+        # never fall back to prose.
+        # `allow_structured` is the opt-out for a caller that has already
+        # classified the content and *decided* prose is the right treatment —
+        # ContentRouter does exactly that for JSON-Schema objects, whose value
+        # is in their English descriptions rather than their structure. Without
+        # it, this guard would silently override a deliberate routing decision.
+        if not allow_structured and _is_structured(text):
+            return CompressionResult(
+                compressed_text=text,
+                original_tokens=len(_tokenize(text)),
+                compressed_tokens=len(_tokenize(text)),
+                error_message="declined: structured content — use route_content()/ContentRouter, "
+                              "which applies a structure-preserving compressor instead",
+            )
 
         fw = self._provider.get_function_words(iso3)
         lemmas = self._provider.get_lemma_map(iso3)
@@ -347,6 +375,59 @@ class _Token:
         self.text = text
         self.is_punct = is_punct
         self.protected = protected
+
+
+# Content types whose meaning lives in punctuation and layout, not in word
+# choice. PLAIN_TEXT, LOG_OR_STACKTRACE and SEARCH_RESULTS are deliberately
+# absent: those are prose-ish and the word filters handle them correctly.
+_STRUCTURED_TYPES = frozenset({
+    ContentType.JSON_OBJECT, ContentType.JSON_ARRAY, ContentType.CODE,
+    ContentType.SQL, ContentType.HTML, ContentType.GIT_DIFF, ContentType.TABULAR,
+})
+
+
+# YAML/config has no ContentType of its own, so ContentDetector reports it as
+# plain text — and the word filters then strip the colons that carry the whole
+# structure. Detected here instead of adding a content type, which would also
+# change ContentRouter's routing and is a wider change than this needs.
+_YAML_KEY_LINE = regex.compile(r"^[ \t]*[\w.\-]+:(?:[ \t]|$)")
+_YAML_LIST_LINE = regex.compile(r"^[ \t]*-[ \t]+\S")
+
+
+def _looks_like_yaml(text: str) -> bool:
+    """Conservative: a colon in prose ("Note: this matters") must not trip it.
+
+    Requires several lines that are *structurally* key/list shaped — the key
+    at the start of the line, not a colon somewhere inside a sentence — and no
+    sentence-ending punctuation, which prose has and config does not.
+    """
+    lines = [ln for ln in text.splitlines() if ln.strip()]
+    if len(lines) < 3:
+        return False
+    shaped = sum(1 for ln in lines if _YAML_KEY_LINE.match(ln) or _YAML_LIST_LINE.match(ln))
+    if shaped / len(lines) < 0.8:
+        return False
+    # Prose ends sentences; a config file does not.
+    prose_enders = sum(1 for ln in lines if ln.rstrip().endswith((".", "!", "?")))
+    return prose_enders <= len(lines) * 0.2
+
+
+def _is_structured(text: str) -> bool:
+    """True when prose compression would corrupt rather than shorten the text.
+
+    Detection is best-effort by nature, so the failure modes are not
+    symmetric: a false positive merely leaves text uncompressed, while a false
+    negative silently produces broken JSON or unparseable code. When the
+    detector cannot make up its mind, the safe answer is "leave it alone".
+    """
+    try:
+        from synthelion.content_detector import ContentDetector
+        result = ContentDetector().detect(text)
+    except Exception:  # noqa: BLE001 — detection must never break compression
+        return False
+    if result.type in _STRUCTURED_TYPES:
+        return True
+    return _looks_like_yaml(text)
 
 
 def _tokenize(text: str) -> list[_Token]:

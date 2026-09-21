@@ -97,12 +97,37 @@ def models_root_candidates(env_dir: str | None = None) -> list[Path]:
     return roots
 
 
+# `ml_models/` is a root shared by more than one Synthelion subsystem: the
+# GLiNER PII models this module manages, and the SynthelionML *compression*
+# checkpoint (see synthelionml.py). The latter also ships a config.json plus
+# weights, so the layout check below would otherwise claim it as an installed
+# privacy model — listing it under `synthelion models list` and, worse,
+# letting `privacy.ml_model = synthelionml` resolve, which would hand GLiNER a
+# compression model to load as a PII detector. Every Synthelion-trained model
+# declares its own `model_type`, so exclude the ones that aren't ours to load.
+_NON_PRIVACY_MODEL_TYPES = frozenset({"synthelionml"})
+
+
+def _declared_model_type(config_path: Path) -> str:
+    try:
+        import json
+        with open(config_path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return ""
+    return data.get("model_type", "") if isinstance(data, dict) else ""
+
+
 def _looks_like_model_dir(d: Path) -> bool:
     """Minimal GLiNER layout check so `from_pretrained` on a local dir can never
-    fall back to the network: config.json + a weights file must be present."""
+    fall back to the network: config.json + a weights file must be present,
+    and the checkpoint must not be another subsystem's model."""
     if not d.is_dir():
         return False
-    if not (d / "config.json").is_file():
+    config = d / "config.json"
+    if not config.is_file():
+        return False
+    if _declared_model_type(config) in _NON_PRIVACY_MODEL_TYPES:
         return False
     return any(
         (d / w).is_file()

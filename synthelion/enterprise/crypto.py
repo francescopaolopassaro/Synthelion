@@ -1,46 +1,97 @@
 """AES-256-GCM encryption/decryption for enterprise provider API keys.
 
-Key is auto-generated on first use and stored in the source-root file
-``documentochiave.txt``.  The key is NOT configurable — it lives in a
-single fixed location so there is exactly one place to look.
+The master key is never written to disk as a plaintext file. It is
+generated automatically the first time the enterprise DB is created
+(`db.py`'s schema init calls `ensure_key()`) and stored in the OS-native
+credential store via the ``keyring`` package — Windows Credential Locker,
+macOS Keychain, or the Linux Secret Service/KWallet. Only whoever has OS-level
+access to that store (i.e. the machine's administrator account) can ever
+retrieve it, via ``synthelion enterprise show-key`` — there is no dashboard/
+HTTP endpoint that returns it, and Synthelion never offers to change it once
+generated (rotating it would make every already-encrypted provider key
+undecryptable).
+
+Previously this was a plaintext file (first ``documentochiave.txt`` at the
+repo root, then ``~/.synthelion/enterprise_key.hex``) — both are gone now:
+a file, gitignored or not, is one accidental copy/backup/archive away from
+exposing every provider API key encrypted with it. `migrate_from_file()`
+below is the one-shot escape hatch for a deployment that already generated
+one of those files before this change.
 """
 from __future__ import annotations
 
-import hashlib
 import logging
 import secrets
-from pathlib import Path
 
 _log = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Key file — fixed path, not configurable
-# ---------------------------------------------------------------------------
-_KEY_FILENAME = "documentochiave.txt"
-_KEY_PATH = Path(__file__).resolve().parents[2] / _KEY_FILENAME  # repo root
+_SERVICE_NAME = "synthelion-enterprise"
+_KEY_USERNAME = "aes_master_key"
 
 
-def _load_or_create_key() -> bytes:
-    """Return the 32-byte AES key, generating + writing it on first run."""
-    if _KEY_PATH.exists():
-        raw = _KEY_PATH.read_text(encoding="utf-8").strip()
-        # Accept hex-encoded (64 chars) or raw 32-byte base64
-        if len(raw) == 64 and all(c in "0123456789abcdef" for c in raw.lower()):
-            return bytes.fromhex(raw)
-        # Fallback: derive from whatever is in the file
-        return hashlib.sha256(raw.encode()).digest()
-    # First run — generate and persist
-    key = secrets.token_bytes(32)
-    _KEY_PATH.write_text(key.hex(), encoding="utf-8")
+class EnterpriseKeyUnavailable(RuntimeError):
+    pass
+
+
+def _keyring():
     try:
-        _KEY_PATH.chmod(0o600)
-    except OSError:
-        pass
-    _log.info("Enterprise encryption key generated: %s", _KEY_PATH)
-    return key
+        import keyring
+    except ImportError:
+        raise EnterpriseKeyUnavailable(
+            "keyring is required for the enterprise module's key storage. "
+            "Install with: pip install 'synthelion[enterprise]'"
+        )
+    return keyring
 
 
-AES_KEY: bytes = _load_or_create_key()
+def ensure_key() -> None:
+    """Generate the master key if one doesn't exist yet. Called once from
+    `db.py` when the enterprise schema is first created. Idempotent —
+    does nothing if a key is already stored (the key is never rotated)."""
+    kr = _keyring()
+    if kr.get_password(_SERVICE_NAME, _KEY_USERNAME) is None:
+        kr.set_password(_SERVICE_NAME, _KEY_USERNAME, secrets.token_bytes(32).hex())
+        _log.info("Enterprise encryption key generated and stored in the OS credential store.")
+
+
+def show_key() -> str:
+    """Return the current key, hex-encoded, generating one first if none
+    exists yet. For the admin-only `synthelion enterprise show-key` CLI
+    command — never exposed over the dashboard/HTTP API."""
+    ensure_key()
+    return _keyring().get_password(_SERVICE_NAME, _KEY_USERNAME)
+
+
+def migrate_from_file(path) -> bool:
+    """One-shot migration for a deployment that already has a plaintext key
+    file (the old `documentochiave.txt` / `enterprise_key.hex` locations).
+    Reads it into the OS credential store and leaves the file untouched —
+    the caller (CLI command) is responsible for telling the admin to delete
+    it by hand once they've confirmed the new location works. No-ops if a
+    key is already stored. Returns True if it stored a key."""
+    from pathlib import Path
+    p = Path(path)
+    if not p.exists():
+        return False
+    kr = _keyring()
+    if kr.get_password(_SERVICE_NAME, _KEY_USERNAME) is not None:
+        return False
+    raw = p.read_text(encoding="utf-8").strip()
+    if len(raw) != 64 or not all(c in "0123456789abcdef" for c in raw.lower()):
+        raise ValueError(f"{p} does not contain a valid 64-char hex key")
+    kr.set_password(_SERVICE_NAME, _KEY_USERNAME, raw)
+    return True
+
+
+def _get_key() -> bytes:
+    raw = _keyring().get_password(_SERVICE_NAME, _KEY_USERNAME)
+    if raw is None:
+        raise EnterpriseKeyUnavailable(
+            "No enterprise encryption key found in the OS credential store. "
+            "It should have been created automatically with the enterprise "
+            "DB — run `synthelion enterprise show-key` to generate one now."
+        )
+    return bytes.fromhex(raw)
 
 
 # ---------------------------------------------------------------------------
@@ -57,7 +108,7 @@ def encrypt(plaintext: str) -> str:
             "encryption.  Install with: pip install 'synthelion[enterprise]'"
         )
     nonce = secrets.token_bytes(12)
-    ct = AESGCM(AES_KEY).encrypt(nonce, plaintext.encode(), None)
+    ct = AESGCM(_get_key()).encrypt(nonce, plaintext.encode(), None)
     return (nonce + ct).hex()
 
 
@@ -72,4 +123,4 @@ def decrypt(ciphertext_hex: str) -> str:
         )
     raw = bytes.fromhex(ciphertext_hex)
     nonce, ct = raw[:12], raw[12:]
-    return AESGCM(AES_KEY).decrypt(nonce, ct, None).decode()
+    return AESGCM(_get_key()).decrypt(nonce, ct, None).decode()

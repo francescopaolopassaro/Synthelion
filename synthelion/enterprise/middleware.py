@@ -139,12 +139,32 @@ def record_proxy_usage(
     tokens_after: int,
     duration_ms: float,
     compressed: bool,
+    real_input_tokens: int | None = None,
+    real_output_tokens: int | None = None,
     blocked: bool = False,
     block_reason: str | None = None,
 ) -> None:
-    """Log activity + update subscription counters after a proxy request."""
-    tokens_used = tokens_before + max(0, tokens_before - tokens_after)  # input + saved output
-    cost = estimate_cost(provider, model or "", tokens_before, max(0, tokens_before - tokens_after))
+    """Log activity + update subscription counters after a proxy request.
+
+    Prefers the upstream provider's own reported usage (`real_input_tokens`/
+    `real_output_tokens`, parsed from the response body — see
+    `proxy.py::_extract_usage`) over any local estimate: that's the number
+    the provider actually bills, and it's the only source for output/
+    completion tokens at all, since Synthelion never sees the model's output
+    before the response comes back. Falls back to `tokens_after` (the tokens
+    actually sent upstream, post-compression) with 0 assumed output tokens
+    only when real usage isn't available (streaming responses, or a provider
+    that doesn't report `usage`) — better to undercount than to charge a
+    subscription for tokens compression *saved* and never sent anywhere.
+    """
+    if real_input_tokens is not None or real_output_tokens is not None:
+        input_tokens = real_input_tokens or 0
+        output_tokens = real_output_tokens or 0
+    else:
+        input_tokens = tokens_after
+        output_tokens = 0
+    tokens_used = input_tokens + output_tokens
+    cost = estimate_cost(provider, model or "", input_tokens, output_tokens)
 
     _act.log_request(
         user_id=user["user_id"],

@@ -199,3 +199,50 @@ class TestPrivacyMLPathResolution:
         from synthelion.privacy_ml import list_installed_models
         monkeypatch.setenv("SYNTHELION_ML_MODELS_DIR", str(tmp_path))
         assert list_installed_models() == []
+
+    def _write_model_dir(self, root, name, model_type=None):
+        """A directory with the GLiNER-shaped layout: config.json + weights."""
+        import json
+        d = root / name
+        d.mkdir(parents=True)
+        config = {"model_type": model_type} if model_type else {}
+        (d / "config.json").write_text(json.dumps(config), encoding="utf-8")
+        (d / "model.safetensors").write_text("weights", encoding="utf-8")
+        return d
+
+    def test_synthelionml_checkpoint_is_not_a_privacy_model(self, tmp_path, monkeypatch):
+        """The compression checkpoint shares the ml_models/ root and has the
+        same config.json + weights shape, but it is a different subsystem's
+        model — it must never be offered as a PII model, or GLiNER would be
+        handed a compression checkpoint to load."""
+        from synthelion.privacy_ml import list_installed_models, resolve_ml_model_path
+        self._write_model_dir(tmp_path, "synthelionml", model_type="synthelionml")
+        monkeypatch.setenv("SYNTHELION_ML_MODELS_DIR", str(tmp_path))
+        assert list_installed_models() == []
+        assert resolve_ml_model_path("synthelionml") is None
+
+    def test_real_privacy_model_is_still_listed(self, tmp_path, monkeypatch):
+        """The exclusion must be narrow: an actual GLiNER model still resolves."""
+        from synthelion.privacy_ml import list_installed_models, resolve_ml_model_path
+        self._write_model_dir(tmp_path, "gliner-small", model_type="gliner")
+        monkeypatch.setenv("SYNTHELION_ML_MODELS_DIR", str(tmp_path))
+        assert [n for n, _, _ in list_installed_models()] == ["gliner-small"]
+        assert resolve_ml_model_path("gliner-small") is not None
+
+    def test_model_without_declared_type_is_still_listed(self, tmp_path, monkeypatch):
+        """Most GLiNER checkpoints don't declare a model_type at all — absence
+        must not be read as 'exclude'."""
+        from synthelion.privacy_ml import list_installed_models
+        self._write_model_dir(tmp_path, "plain-model")
+        monkeypatch.setenv("SYNTHELION_ML_MODELS_DIR", str(tmp_path))
+        assert [n for n, _, _ in list_installed_models()] == ["plain-model"]
+
+    def test_unreadable_config_does_not_crash_the_scan(self, tmp_path, monkeypatch):
+        """A corrupt config.json must not take down `models list`."""
+        from synthelion.privacy_ml import list_installed_models
+        d = tmp_path / "broken"
+        d.mkdir()
+        (d / "config.json").write_text("{not json", encoding="utf-8")
+        (d / "model.safetensors").write_text("weights", encoding="utf-8")
+        monkeypatch.setenv("SYNTHELION_ML_MODELS_DIR", str(tmp_path))
+        assert [n for n, _, _ in list_installed_models()] == ["broken"]

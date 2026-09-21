@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import threading
 import time
+from collections import OrderedDict
 
 from synthelion.core import CompressionService
 from synthelion.detector import LanguageDetector
@@ -29,6 +30,38 @@ _tr = TextRankSummarizer()
 # elapsed time. Thread-local because execute_tool runs in a thread pool
 # (asyncio.to_thread in mcp_server.py) — each concurrent call gets its own.
 _call_timer = threading.local()
+
+# compress_for_context/compress_conversation are typically called again and
+# again on a growing document/history, and the caller is expected to feed
+# our own previous output back in as part of the next call's input (that's
+# the whole point of an incremental conversation-compression tool). Without
+# this, a message compressed on turn N gets compressed a *second* time on
+# turn N+1 once it's no longer new — wasteful, further lossy, and it also
+# defeats the whole prompt-cache-stability point of CacheAligner, since a
+# second compression pass isn't guaranteed to reproduce byte-identical
+# output. Bounded LRU of exact strings we've personally produced; a message
+# whose content matches one verbatim is passed through untouched instead of
+# being re-routed through the compressor.
+_MAX_SEEN_OUTPUTS = 4000
+_compressed_outputs: "OrderedDict[str, None]" = OrderedDict()
+_compressed_outputs_lock = threading.Lock()
+
+
+def _mark_as_compressed(text: str) -> None:
+    if not text:
+        return
+    with _compressed_outputs_lock:
+        _compressed_outputs[text] = None
+        _compressed_outputs.move_to_end(text)
+        if len(_compressed_outputs) > _MAX_SEEN_OUTPUTS:
+            _compressed_outputs.popitem(last=False)
+
+
+def _is_already_compressed(text: str) -> bool:
+    if not text:
+        return False
+    with _compressed_outputs_lock:
+        return text in _compressed_outputs
 
 _LEVEL_MAP = {
     "none": CompressionLevel.NONE,
@@ -189,7 +222,10 @@ def get_tool_definitions() -> list[dict]:
                     "Compress content to fit within a token budget before inserting it into "
                     "an LLM context window. Automatically chains routing → NLP compression → "
                     "summarization until the content fits. Token counts are word-count estimates. "
-                    "Returns fits_budget=true when the result is within max_tokens."
+                    "Returns fits_budget=true when the result is within max_tokens. Also sinks "
+                    "volatile tokens (UUIDs/timestamps/JWTs/hashes) to the end of the output so "
+                    "the stable part stays a reusable prefix for provider prompt caching / local "
+                    "KV-cache (see cache_reordered/cache_moved_blocks in the result)."
                 ),
                 "parameters": {
                     "type": "object",
@@ -221,7 +257,10 @@ def get_tool_definitions() -> list[dict]:
                 "description": (
                     "Compress a conversation history (list of {role, content} messages) to reduce "
                     "token usage. Keeps the last keep_last_n messages verbatim and compresses/summarizes "
-                    "older turns. Returns a compressed messages array compatible with the OpenAI/Anthropic format."
+                    "older turns. Returns a compressed messages array compatible with the OpenAI/Anthropic "
+                    "format. Volatile tokens (UUIDs/timestamps/JWTs/hashes) inside compressed older messages "
+                    "are sunk to the end of that message so the compressed history stays cache-friendly "
+                    "across calls (see cache_moved_blocks in the result)."
                 ),
                 "parameters": {
                     "type": "object",
@@ -478,6 +517,95 @@ def get_tool_definitions() -> list[dict]:
                     "properties": {
                         "text": {"type": "string", "description": "Text to scan for credential-shaped content."},
                         "path": {"type": "string", "description": "File path to check against protected security-zone patterns."},
+                    },
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "check_compliance",
+                "description": (
+                    "Run the AI Compliance Engine over a prompt or a response. Applies every "
+                    "enabled compliance rule (PII and financial redaction, secrets, prompt "
+                    "injection, agent policy, sensitive content, output sanitisation, AI "
+                    "disclosure) and returns one decision — allow, redact, warn or block — with "
+                    "the findings, any disclaimers to attach, and the possibly-rewritten text. "
+                    "Every call is written to the tamper-evident audit trail."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "text": {"type": "string", "description": "The prompt or response to evaluate."},
+                        "scope": {
+                            "type": "string", "enum": ["input", "output"],
+                            "description": "Whether this is a prompt (input) or a model response (output). Default: input.",
+                        },
+                        "user_id": {"type": "string", "description": "Optional user id recorded in the audit trail."},
+                        "model": {"type": "string", "description": "Optional model name recorded in the audit trail."},
+                    },
+                    "required": ["text"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "compliance_status",
+                "description": (
+                    "Report the compliance engine's configuration: status (active/staging/"
+                    "inactive), fallback policy, every rule with its risk level and remediation "
+                    "action, the traceability matrix from control to legal obligation, and any "
+                    "control that is enabled while the guard behind it is disabled."
+                ),
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "check_agent_policy",
+                "description": (
+                    "Per-agent-type guardrail check for a tool call you are about to make. "
+                    "Returns verdict 'allow', 'gate' (legitimate but needs explicit human "
+                    "approval — do not proceed on your own) or 'block', with the requirement "
+                    "id behind the decision. Profiles: base, dev, support, rag, data, ops, "
+                    "browser. Pass a stable session id so a read of private content followed "
+                    "by an outbound send is caught as a chain."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "tool_name": {"type": "string", "description": "Name of the tool about to be called."},
+                        "tool_input": {"type": "object", "description": "Arguments that would be passed to it."},
+                        "profile": {
+                            "type": "string",
+                            "enum": ["base", "dev", "support", "rag", "data", "ops", "browser"],
+                            "description": "Agent profile. Defaults to the configured agent_policy.profile.",
+                        },
+                        "session_id": {"type": "string", "description": "Session id used to correlate exfiltration chains."},
+                    },
+                    "required": ["tool_name"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "describe_agent_policy",
+                "description": (
+                    "List the guardrails a given agent profile enforces, each with its "
+                    "requirement id, verdict and rationale. Use it to explain why a call was "
+                    "refused, or to check what a profile allows before starting work."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "profile": {
+                            "type": "string",
+                            "enum": ["base", "dev", "support", "rag", "data", "ops", "browser"],
+                            "description": "Agent profile to describe. Default: base.",
+                        },
                     },
                 },
             },
@@ -1191,6 +1319,44 @@ def execute_tool(name: str, arguments: dict) -> dict:
     if name == "check_enterprise_guard":
         return _exec_check_enterprise_guard(arguments)
 
+    if name == "check_compliance":
+        from synthelion.compliance import ComplianceEngine
+        from synthelion.compliance.rules import Scope
+        engine = ComplianceEngine.from_config()
+        scope = Scope.OUTPUT if (arguments.get("scope") == "output") else Scope.INPUT
+        result = engine.evaluate(
+            arguments.get("text", ""), scope=scope,
+            user_id=arguments.get("user_id", ""), model=arguments.get("model", ""))
+        return result.to_dict()
+
+    if name == "compliance_status":
+        from synthelion.compliance import ComplianceEngine, traceability_matrix, audit
+        engine = ComplianceEngine.from_config()
+        return {
+            "status": engine.status,
+            "fallback": engine.fallback,
+            "rules": [r.to_dict() for r in engine.rules],
+            "traceability_matrix": traceability_matrix(engine.rules),
+            "ineffective_controls": engine.ineffective_rules(),
+            "audit_chain": audit.verify_chain().to_dict(),
+        }
+
+    if name == "check_agent_policy":
+        from synthelion.agent_policy import AgentPolicy
+        policy = AgentPolicy.from_config(profile=arguments.get("profile"))
+        decision = policy.check_tool_call(
+            arguments.get("tool_name", ""),
+            arguments.get("tool_input") or {},
+            session_id=arguments.get("session_id", ""),
+        )
+        out = decision.to_dict()
+        out["profile"] = policy.profile
+        return out
+
+    if name == "describe_agent_policy":
+        from synthelion.agent_policy import describe_profile
+        return describe_profile(arguments.get("profile") or "base")
+
     if name == "analyze_waste":
         return _exec_analyze_waste(arguments)
 
@@ -1416,6 +1582,7 @@ def _exec_mask_document(arguments: dict) -> dict:
 
 
 def _exec_compress_for_context(arguments: dict) -> dict:
+    from synthelion.cache_aligner import CacheAligner
     from synthelion.content_router import ContentRouter
     from synthelion.models import CompressionProfile
     from synthelion.nlp.text_rank import TextRankSummarizer
@@ -1431,8 +1598,35 @@ def _exec_compress_for_context(arguments: dict) -> dict:
     prefer = (arguments.get("prefer") or "auto").lower()
     profile = profile_map.get((arguments.get("profile") or "agent").lower(), CompressionProfile.AGENT)
 
+    # Caller fed back our own previous output (typical for a document being
+    # compressed incrementally as it grows) — pass it through untouched
+    # rather than compressing already-compressed text a second time.
+    if _is_already_compressed(content):
+        tokens = len(content.split())
+        fits = max_tokens is None or tokens <= max_tokens
+        out = {
+            "compressed": content,
+            "detected_type": "already_compressed",
+            "tokens_before": tokens,
+            "tokens_after": tokens,
+            "strategy": "unchanged",
+            "fits_budget": fits,
+            "cache_reordered": False,
+            "cache_moved_blocks": 0,
+            "synthelion_metrics": _fmt_metrics(tokens, tokens),
+        }
+        if max_tokens is not None and not fits:
+            out["budget_exceeded_by"] = tokens - max_tokens
+        return out
+
+    # Reorder before compression, not after: compression tokenizes and rejoins
+    # with spaces, so a paragraph break inserted post-hoc has nothing left to
+    # anchor to. Aligning the raw input instead sinks volatile tokens (UUIDs/
+    # timestamps/JWTs/hashes) to the end while the filter's keep/drop pass
+    # preserves relative token order, so the reordering survives compression.
+    align_result = CacheAligner().align(content)
     router = ContentRouter.from_profile(profile)
-    routed = router.route(content)
+    routed = router.route(align_result.prompt)
     result_text = routed.compressed or content
     result_tokens = routed.tokens_after
 
@@ -1453,6 +1647,7 @@ def _exec_compress_for_context(arguments: dict) -> dict:
         except Exception:
             pass
 
+    _mark_as_compressed(result_text)
     _record_ledger("compress_for_context", routed.tokens_before, result_tokens, routed.detected_type.value)
     out: dict = {
         "compressed": result_text,
@@ -1461,6 +1656,8 @@ def _exec_compress_for_context(arguments: dict) -> dict:
         "tokens_after": result_tokens,
         "strategy": strategy,
         "fits_budget": fits,
+        "cache_reordered": align_result.reordered,
+        "cache_moved_blocks": align_result.moved_blocks,
         "synthelion_metrics": _fmt_metrics(routed.tokens_before, result_tokens),
     }
     if max_tokens is not None and not fits:
@@ -1469,6 +1666,7 @@ def _exec_compress_for_context(arguments: dict) -> dict:
 
 
 def _exec_compress_conversation(arguments: dict) -> dict:
+    from synthelion.cache_aligner import CacheAligner
     from synthelion.content_router import ContentRouter
     from synthelion.models import CompressionProfile
     from synthelion.nlp.text_rank import TextRankSummarizer
@@ -1497,12 +1695,37 @@ def _exec_compress_conversation(arguments: dict) -> dict:
         }
 
     router = ContentRouter.from_profile(CompressionProfile.AGENT)
+    aligner = CacheAligner()
+    cache_moved_blocks = 0
     compressed_msgs: list[dict] = []
     for msg in to_compress:
         content = str(msg.get("content", ""))
-        if len(content.split()) > 15:
-            r = router.route(content)
-            compressed_msgs.append({**msg, "content": r.compressed or content})
+        if _is_already_compressed(content):
+            # This is our own output from an earlier call, fed back in as the
+            # conversation aged (the caller is expected to pass back what we
+            # returned last time plus whatever's new). Leave it exactly as-is:
+            # compressing it again is wasted work, can lose more information
+            # with no budget benefit, and isn't guaranteed to reproduce the
+            # same bytes — which would silently re-break the prompt-cache
+            # prefix this whole alignment step exists to protect.
+            compressed_msgs.append(msg)
+        elif len(content.split()) > 15:
+            # Older turns are the stable, cacheable part of the prompt — sink any
+            # volatile tokens (UUIDs/timestamps/JWTs/hashes) inside them so this
+            # message's text stays a stable prefix across later calls instead of
+            # breaking prompt-cache reuse. Must run *before* compression: the
+            # token-filter flattens paragraph breaks (rejoins with spaces), so a
+            # paragraph split inserted after compression has nothing to anchor
+            # to — reordering the raw content survives the filter because it
+            # only drops tokens, it never reorders the ones it keeps. The
+            # verbatim kept_tail is left alone: it's expected to change every
+            # turn regardless.
+            align_result = aligner.align(content)
+            cache_moved_blocks += align_result.moved_blocks
+            r = router.route(align_result.prompt)
+            new_content = r.compressed or content
+            _mark_as_compressed(new_content)
+            compressed_msgs.append({**msg, "content": new_content})
         else:
             compressed_msgs.append(msg)
 
@@ -1522,8 +1745,12 @@ def _exec_compress_conversation(arguments: dict) -> dict:
         try:
             summary = TextRankSummarizer().summarize(history_text, ratio=ratio)
             if summary:
+                summary_align = aligner.align(summary)
+                cache_moved_blocks += summary_align.moved_blocks
+                summary_content = f"[Compressed conversation history]\n{summary_align.prompt}"
+                _mark_as_compressed(summary_content)
                 result_messages = [
-                    {"role": "system", "content": f"[Compressed conversation history]\n{summary}"}
+                    {"role": "system", "content": summary_content}
                 ] + kept_tail
                 total_after = sum(_words(m) for m in result_messages)
                 strategy = "route+summarize"
@@ -1538,6 +1765,7 @@ def _exec_compress_conversation(arguments: dict) -> dict:
         "messages_before": len(messages),
         "messages_after": len(result_messages),
         "strategy": strategy,
+        "cache_moved_blocks": cache_moved_blocks,
         "synthelion_metrics": _fmt_metrics(total_before, total_after),
     }
 

@@ -8,10 +8,9 @@ be opened in a browser on the same machine, not exposed to a network.
 
 Protected by a login page (session cookie, see dashboard_auth.py). A default
 admin/admin login is created on first run so the dashboard works out of the
-box; change it with `synthelion dashboard-passwd`. The login page UI is built
-with Material Dashboard Free by Creative Tim (MIT License, vendored locally —
-see dashboard_assets/vendor/material-dashboard/ATTRIBUTION.md); the rest of
-the dashboard is original Synthelion code over vendored Bootstrap 5.
+box; change it with `synthelion dashboard-passwd`. The whole UI (styling,
+layout, login page) is original Synthelion code over vendored Bootstrap 5 —
+no third-party dashboard theme.
 
 Run:
     synthelion serve-dashboard
@@ -49,13 +48,7 @@ _STATIC_FILES = {
     "/assets/vendor/bootstrap/bootstrap.min.css": _ASSETS_DIR / "vendor" / "bootstrap" / "bootstrap.min.css",
     "/assets/vendor/bootstrap/bootstrap.bundle.min.js": _ASSETS_DIR / "vendor" / "bootstrap" / "bootstrap.bundle.min.js",
     "/assets/vendor/chartjs/chart.umd.min.js": _ASSETS_DIR / "vendor" / "chartjs" / "chart.umd.min.js",
-    "/assets/vendor/material-dashboard/material-dashboard.min.css": _ASSETS_DIR / "vendor" / "material-dashboard" / "material-dashboard.min.css",
-    "/assets/vendor/material-dashboard/material-dashboard.min.js": _ASSETS_DIR / "vendor" / "material-dashboard" / "material-dashboard.min.js",
-    "/assets/vendor/material-dashboard/img/synthelion-login.png": _ASSETS_DIR / "vendor" / "material-dashboard" / "img" / "synthelion-login.png",
-    "/assets/vendor/material-dashboard/css/inter.css": _ASSETS_DIR / "vendor" / "material-dashboard" / "css" / "inter.css",
-    "/assets/vendor/material-dashboard/fonts/inter-latin.woff2": _ASSETS_DIR / "vendor" / "material-dashboard" / "fonts" / "inter-latin.woff2",
-    "/assets/vendor/material-dashboard/js/perfect-scrollbar.min.js": _ASSETS_DIR / "vendor" / "material-dashboard" / "js" / "perfect-scrollbar.min.js",
-    "/assets/vendor/material-dashboard/js/smooth-scrollbar.min.js": _ASSETS_DIR / "vendor" / "material-dashboard" / "js" / "smooth-scrollbar.min.js",
+    "/assets/vendor/echarts/echarts.min.js": _ASSETS_DIR / "vendor" / "echarts" / "echarts.min.js",
     "/assets/img/logo.png": _ASSETS_DIR / "img" / "logo.png",
     "/assets/img/synthelion-banner.png": _ASSETS_DIR / "img" / "synthelion-banner.png",
     "/assets/img/mark.png": _ASSETS_DIR / "img" / "mark.png",
@@ -68,10 +61,16 @@ _STATIC_FILES = {
 # shell; dashboard.js shows/hides the matching <section data-page="..."> based
 # on the current path and intercepts sidenav/navbar link clicks with
 # history.pushState so navigating between them doesn't reload the page.
+# Every client-side route the SPA shell can be entered at directly. A route
+# missing here still works when reached by in-page navigation (pushState never
+# hits the server) but 404s on reload/deep-link — which is how the enterprise
+# pages shipped broken: present in the sidebar and the JS router, absent here.
 _PAGE_ROUTES = frozenset({
     "/", "/index.html", "/overview", "/charts", "/sessions", "/requests",
     "/decisions", "/settings", "/doctor", "/version", "/profile", "/notifications", "/cluster",
-    "/privacy", "/security", "/proxy",
+    "/privacy", "/security", "/proxy", "/live", "/compliance",
+    "/enterprise-users", "/enterprise-provider-keys", "/enterprise-subscriptions",
+    "/enterprise-activity",
 })
 
 # Node-to-node cluster endpoints authenticate with the cluster's shared
@@ -191,6 +190,15 @@ class _DashboardHandler(BaseHTTPRequestHandler):
                 self._serve_json({"logs": get_proxy_log().recent(limit)})
             elif path == "/api/proxy/providers":
                 self._serve_json(self._proxy_providers())
+            elif path == "/api/compliance/status":
+                self._serve_json(self._compliance_status())
+            elif path == "/api/compliance/matrix":
+                self._serve_json(self._compliance_matrix())
+            elif path == "/api/compliance/report":
+                self._compliance_report(qs)
+            elif path == "/api/live":
+                since = float(qs.get("since", ["0"])[0] or 0)
+                self._serve_json(_live_feed(since))
             # ── Enterprise GET routes ───────────────────────────────────
             elif path == "/api/enterprise/users":
                 self._serve_json(self._enterprise_users(qs))
@@ -309,6 +317,10 @@ class _DashboardHandler(BaseHTTPRequestHandler):
                 self._serve_json(self._enterprise_suspend_subscription())
             elif path == "/api/enterprise/subscriptions/reactivate":
                 self._serve_json(self._enterprise_reactivate_subscription())
+            elif path == "/api/compliance/rules/update":
+                self._serve_json(self._compliance_update_rule())
+            elif path == "/api/compliance/engine/update":
+                self._serve_json(self._compliance_update_engine())
             elif path == "/api/enterprise/costs/sync":
                 self._serve_json(self._enterprise_sync_costs())
             else:
@@ -719,6 +731,13 @@ class _DashboardHandler(BaseHTTPRequestHandler):
                     "message": f"Configured backend requires the '{module_name}' package (pip install 'synthelion[{label}]') — falling back to the local default until installed.",
                 })
 
+        items.extend(_guard_notifications())
+        items.extend(_enterprise_notifications())
+
+        # Most severe first, so the badge count and the top of the list agree
+        # about what matters. Stable within a level (insertion order kept).
+        order = {"error": 0, "warning": 1, "info": 2}
+        items.sort(key=lambda n: order.get(n.get("level"), 3))
         return {"notifications": items, "count": len(items)}
 
     def _update_account(self) -> dict:
@@ -938,6 +957,102 @@ class _DashboardHandler(BaseHTTPRequestHandler):
         providers.sort(key=lambda p: p["name"].lower())
         return {"providers": providers}
 
+    # ── Compliance handlers ─────────────────────────────────────────────────
+
+    @staticmethod
+    def _compliance_status() -> dict:
+        from synthelion.compliance import ComplianceEngine, audit
+        engine = ComplianceEngine.from_config()
+        return {
+            "status": engine.status,
+            "fallback": engine.fallback,
+            "language": engine.language,
+            "agent_profile": engine.agent_profile,
+            "rules": [r.to_dict() for r in engine.rules],
+            "backend_health": engine.backend_health(),
+            "ineffective_controls": engine.ineffective_rules(),
+            "audit_chain": audit.verify_chain().to_dict(),
+            "statistics": audit.statistics(),
+        }
+
+    @staticmethod
+    def _compliance_matrix() -> dict:
+        from synthelion.compliance import ComplianceEngine, coverage_gaps, traceability_matrix
+        engine = ComplianceEngine.from_config()
+        return {
+            "matrix": traceability_matrix(engine.rules),
+            "gaps": coverage_gaps(engine.rules),
+        }
+
+    def _compliance_report(self, qs: dict) -> None:
+        """Generate a compliance document and return it as a download."""
+        from synthelion.compliance import ComplianceEngine, documents
+
+        kind = qs.get("kind", ["technical-file"])[0]
+        fmt = qs.get("format", ["pdf"])[0]
+        if kind not in documents.GENERATORS:
+            self._error(400, f"unknown document {kind!r}")
+            return
+
+        engine = ComplianceEngine.from_config()
+        kwargs = {"days": int(qs.get("days", ["30"])[0])} if kind == "executive-report" else {}
+        doc = documents.generate(kind, engine=engine, **kwargs)
+
+        if fmt == "json":
+            self._serve_text(json.dumps(doc, indent=2, ensure_ascii=False), f"{kind}.json")
+            return
+        # Rendered in a temp file and read back: the PDF writer's public API is
+        # save-to-path, and a throwaway file keeps that contract intact.
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            out = documents.to_pdf(doc, Path(tmp) / f"{kind}.pdf")
+            self._serve_bytes(out.read_bytes(), "application/pdf", f"{kind}.pdf")
+
+    def _compliance_update_rule(self) -> dict:
+        """Persist a per-rule override (enabled / risk level / action / scope)."""
+        from synthelion.config import load_config, save_config
+        from synthelion.compliance.rules import Action, RiskLevel, Scope, default_rules
+
+        body = self._read_json_body()
+        rule_id = body.get("rule_id")
+        known = {r.id for r in default_rules()}
+        if rule_id not in known:
+            raise ValueError(f"unknown rule {rule_id!r}")
+
+        cfg = load_config()
+        rules_cfg = cfg.setdefault("compliance", {}).setdefault("rules", {})
+        override = rules_cfg.setdefault(rule_id, {})
+        if "enabled" in body:
+            override["enabled"] = bool(body["enabled"])
+        # Validate through the enums so an invalid value can never be persisted
+        # into the config and then blow up on every later engine construction.
+        if body.get("risk_level"):
+            override["risk_level"] = RiskLevel(body["risk_level"]).value
+        if body.get("action"):
+            override["action"] = Action(body["action"]).value
+        if body.get("scope"):
+            override["scope"] = Scope(body["scope"]).value
+        save_config(cfg)
+        return {"rule_id": rule_id, "override": override, "status": "saved"}
+
+    def _compliance_update_engine(self) -> dict:
+        from synthelion.config import load_config, save_config
+        from synthelion.compliance.engine import ACTIVE, FAIL_CLOSED, FAIL_OPEN, INACTIVE, STAGING
+
+        body = self._read_json_body()
+        cfg = load_config()
+        section = cfg.setdefault("compliance", {})
+        if body.get("status"):
+            if body["status"] not in (ACTIVE, STAGING, INACTIVE):
+                raise ValueError(f"invalid status {body['status']!r}")
+            section["status"] = body["status"]
+        if body.get("fallback"):
+            if body["fallback"] not in (FAIL_CLOSED, FAIL_OPEN):
+                raise ValueError(f"invalid fallback {body['fallback']!r}")
+            section["fallback"] = body["fallback"]
+        save_config(cfg)
+        return {"status": section.get("status"), "fallback": section.get("fallback")}
+
     # ── Enterprise handlers ─────────────────────────────────────────────────
 
     @staticmethod
@@ -971,8 +1086,9 @@ class _DashboardHandler(BaseHTTPRequestHandler):
     def _enterprise_dashboard(qs: dict) -> dict:
         from synthelion.enterprise.users import list_users
         from synthelion.enterprise.subscriptions import list_subscriptions
-        from synthelion.enterprise.activity import aggregate_all, aggregate_user
-        from synthelion.enterprise.cost_sync import get_cost
+        from synthelion.enterprise.activity import (
+            aggregate_all, aggregate_user, aggregate_by_model, aggregate_by_user,
+        )
         user_id = qs.get("user_id", [None])[0]
         since = qs.get("since", [None])[0]
         users = list_users()
@@ -985,6 +1101,8 @@ class _DashboardHandler(BaseHTTPRequestHandler):
             "users": users,
             "subscriptions": subs,
             "aggregate": agg,
+            "by_user": aggregate_by_user(since=since),
+            "by_model": aggregate_by_model(since=since),
         }
 
     @staticmethod
@@ -1338,6 +1456,15 @@ class _DashboardHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _serve_bytes(self, data: bytes, content_type: str, download_filename: str) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Disposition", f'attachment; filename="{download_filename}"')
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
+
     def _error(self, code: int, message: str) -> None:
         data = json.dumps({"error": message}).encode("utf-8")
         self.send_response(code)
@@ -1345,6 +1472,229 @@ class _DashboardHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
+
+
+def _live_feed(since: float, limit: int = 60) -> dict:
+    """Merged, time-ordered event feed across every subsystem, for the live
+    command-centre page.
+
+    Polled rather than pushed: the dashboard is a plain stdlib HTTP server with
+    no websocket layer, and every source here is an append-only file the poll
+    already has to read. `since` is a unix timestamp cursor, so a client only
+    pays for what happened after its last poll instead of re-reading history.
+    """
+    events: list[dict] = []
+    now = time.time()
+
+    def _ts_of(value) -> float:
+        """Sources record time as either a unix float or an ISO-8601 string."""
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str) and value:
+            try:
+                from datetime import datetime
+                return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+            except ValueError:
+                return 0.0
+        return 0.0
+
+    # Proxied requests
+    try:
+        for row in get_proxy_log().recent(200):
+            ts = _ts_of(row.get("ts") or row.get("timestamp"))
+            if ts <= since:
+                continue
+            saved = (row.get("tokens_before") or 0) - (row.get("tokens_after") or 0)
+            events.append({
+                "ts": ts, "kind": "request", "level": "error" if row.get("blocked") else "info",
+                "title": f"{row.get('method', 'POST')} {row.get('path', '')}",
+                "detail": f"{row.get('upstream', '')} · {row.get('status_code', '—')}"
+                          + (f" · saved {saved} tok" if saved > 0 else ""),
+            })
+    except Exception:  # noqa: BLE001 — one dead source must not blank the feed
+        pass
+
+    # Local compression (CLI/MCP/hook path — never goes through the proxy)
+    try:
+        from synthelion.analytics.ledger import get_ledger
+        for row in get_ledger().records_since(1)[-200:]:
+            ts = _ts_of(row.get("ts"))
+            if ts <= since:
+                continue
+            events.append({
+                "ts": ts, "kind": "compression", "level": "info",
+                "title": row.get("tool") or "compress",
+                "detail": f"{row.get('tokens_before', 0)} → {row.get('tokens_after', 0)} tok"
+                          f" · {row.get('content_type') or 'text'}",
+            })
+    except Exception:  # noqa: BLE001
+        pass
+
+    # WAF
+    try:
+        from synthelion.waf_guard import get_waf_engine
+        for row in get_waf_engine().all_events(limit=100, since_days=1.0):
+            ts = _ts_of(row.get("ts") or row.get("timestamp"))
+            if ts <= since:
+                continue
+            events.append({
+                "ts": ts, "kind": "waf", "level": "error" if row.get("blocked") else "warning",
+                "title": f"WAF · {row.get('rule_name') or row.get('rule') or 'match'}",
+                "detail": f"{row.get('ip', '')} {row.get('path', '')}".strip() or "inbound request",
+            })
+    except Exception:  # noqa: BLE001
+        pass
+
+    # EnterpriseGuard (outbound DLP)
+    try:
+        from synthelion.enterprise_guard import recent_blocks
+        for row in recent_blocks(limit=100):
+            ts = _ts_of(row.get("timestamp"))
+            if ts <= since:
+                continue
+            events.append({
+                "ts": ts, "kind": "firewall", "level": "error",
+                "title": f"Blocked · {row.get('category', 'policy')}",
+                "detail": f"{row.get('rule_name', '')} · via {row.get('source', '?')}",
+            })
+    except Exception:  # noqa: BLE001
+        pass
+
+    # Agent-policy decisions
+    try:
+        from synthelion.agent_policy import recent_decisions
+        for row in recent_decisions(limit=100):
+            ts = _ts_of(row.get("timestamp"))
+            if ts <= since:
+                continue
+            events.append({
+                "ts": ts, "kind": "policy", "level": "error" if row.get("verdict") == "block" else "warning",
+                "title": f"{row.get('verdict', '').upper()} · {row.get('rule_name', '')}",
+                "detail": f"{row.get('requirement', '')} · {row.get('profile', '')} · {row.get('tool', '')}",
+            })
+    except Exception:  # noqa: BLE001
+        pass
+
+    events.sort(key=lambda e: e["ts"], reverse=True)
+    events = events[:limit]
+
+    window = now - 300  # last 5 minutes
+    recent_all = [e for e in events if e["ts"] >= window]
+    return {
+        "now": now,
+        "events": events,
+        "counters": {
+            "requests": sum(1 for e in recent_all if e["kind"] == "request"),
+            "compressions": sum(1 for e in recent_all if e["kind"] == "compression"),
+            "blocked": sum(1 for e in recent_all if e["kind"] in ("firewall", "waf", "policy") and e["level"] == "error"),
+            "gated": sum(1 for e in recent_all if e["kind"] == "policy" and e["level"] == "warning"),
+        },
+    }
+
+
+def _guard_notifications() -> list[dict]:
+    """Security signals from the last 24h of guard activity.
+
+    Read-only and best-effort: a guard that isn't configured, or whose event
+    log doesn't exist yet, contributes nothing rather than an error — the
+    notifications panel must never be the thing that breaks the dashboard.
+    """
+    items: list[dict] = []
+    cutoff = time.time() - 86400
+
+    try:
+        from synthelion.enterprise_guard import recent_blocks
+        blocks = [b for b in recent_blocks(limit=500) if (b.get("timestamp") or 0) >= cutoff]
+        if blocks:
+            categories = sorted({b.get("category") or "unknown" for b in blocks})
+            items.append({
+                "level": "warning",
+                "title": f"EnterpriseGuard blocked {len(blocks)} attempt(s) in the last 24h",
+                "message": "Categories: " + ", ".join(categories) + ". Review them on the Security page.",
+                "link": "/security",
+            })
+    except Exception:  # noqa: BLE001 — a guard that can't report must not break the panel
+        pass
+
+    try:
+        from synthelion.waf_guard import get_waf_engine
+        events = get_waf_engine().all_events(limit=500, since_days=1.0)
+        blocked = [e for e in events if e.get("blocked")]
+        if blocked:
+            items.append({
+                "level": "warning",
+                "title": f"WAF blocked {len(blocked)} request(s) in the last 24h",
+                "message": "Inbound requests matched a WAF rule. Review them on the Security page.",
+                "link": "/security",
+            })
+    except Exception:  # noqa: BLE001
+        pass
+
+    return items
+
+
+def _enterprise_notifications() -> list[dict]:
+    """Enterprise subscription/credential signals.
+
+    Only surfaces state that already exists locally — quota consumption, keys
+    without a plan attached, a missing master key. Never contacts a provider.
+    """
+    items: list[dict] = []
+    try:
+        from synthelion.enterprise.subscriptions import list_subscriptions
+        from synthelion.enterprise.provider_keys import list_provider_keys
+    except Exception:  # noqa: BLE001 — enterprise extra not installed
+        return items
+
+    try:
+        subs = list_subscriptions()
+    except Exception:  # noqa: BLE001
+        return items
+
+    exhausted = [s for s in subs if s.get("status") == "exhausted"]
+    if exhausted:
+        items.append({
+            "level": "error",
+            "title": f"{len(exhausted)} subscription(s) exhausted",
+            "message": "Those users can no longer reach their provider through the proxy until the plan is topped up or reset.",
+            "link": "/enterprise-subscriptions",
+        })
+
+    near = []
+    for s in subs:
+        if s.get("status") != "active":
+            continue
+        if s.get("type") == "consumo" and s.get("max_tokens"):
+            used = (s.get("current_tokens_used") or 0) / s["max_tokens"]
+        elif s.get("type") == "mensile" and s.get("max_monthly_cost_usd"):
+            used = (s.get("current_month_cost_usd") or 0) / s["max_monthly_cost_usd"]
+        else:
+            continue
+        if used >= 0.8:
+            near.append(s)
+    if near:
+        items.append({
+            "level": "warning",
+            "title": f"{len(near)} subscription(s) above 80% of their limit",
+            "message": "They will start refusing requests once the quota is reached.",
+            "link": "/enterprise-subscriptions",
+        })
+
+    try:
+        keys = list_provider_keys()
+        keys_with_plan = {s.get("provider_key_id") for s in subs}
+        orphans = [k for k in keys if k.get("pk_id") not in keys_with_plan]
+        if orphans:
+            items.append({
+                "level": "info",
+                "title": f"{len(orphans)} provider key(s) without a subscription",
+                "message": "A key with no plan attached is never used — assign one so the proxy can route through it.",
+                "link": "/enterprise-provider-keys",
+            })
+    except Exception:  # noqa: BLE001
+        pass
+
+    return items
 
 
 def _guess_type(path: str) -> str:

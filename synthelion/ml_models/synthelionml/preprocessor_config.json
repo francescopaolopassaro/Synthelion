@@ -1,0 +1,6 @@
+{
+  "feature_extractor_type": "SynthelionMLFeatureExtractor",
+  "n_features": 18,
+  "char_ngram_buckets": 8192,
+  "function_words_path": null
+}

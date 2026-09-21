@@ -394,6 +394,34 @@ def _detect_model(body: bytes) -> str | None:
     return None
 
 
+def _extract_usage(response_body: bytes) -> tuple[int, int] | None:
+    """Extract (input_tokens, output_tokens) actually billed by the upstream
+    provider from a non-streaming JSON response, or None if unavailable.
+
+    Enterprise cost/quota tracking needs the real number the provider billed,
+    not an estimate — OpenAI/OpenRouter-style responses report it under
+    ``usage.prompt_tokens``/``usage.completion_tokens``, Anthropic under
+    ``usage.input_tokens``/``usage.output_tokens``. Output tokens in
+    particular can't be estimated locally at all (Synthelion never sees the
+    model's own output before this point), and are usually priced higher
+    per-token than input, so skipping them silently undercounts real spend.
+    """
+    try:
+        parsed = json.loads(response_body)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    usage = parsed.get("usage")
+    if not isinstance(usage, dict):
+        return None
+    if "prompt_tokens" in usage or "completion_tokens" in usage:
+        return int(usage.get("prompt_tokens") or 0), int(usage.get("completion_tokens") or 0)
+    if "input_tokens" in usage or "output_tokens" in usage:
+        return int(usage.get("input_tokens") or 0), int(usage.get("output_tokens") or 0)
+    return None
+
+
 class _ProxyHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     proxy_cfg: dict = {}
@@ -752,7 +780,16 @@ class _ProxyHandler(BaseHTTPRequestHandler):
         content_type = next((v for k, v in response_headers if k.lower() == "content-type"), "")
         is_streamy = "event-stream" in content_type or resp.getheader("Transfer-Encoding", "").lower() == "chunked"
         cacheable = raw_body_for_cache is not None and resp.status == 200 and not is_streamy
-        buffered = bytearray() if cacheable else None
+        # Also buffer (without necessarily caching) for enterprise usage
+        # tracking: a non-streaming JSON response carries the upstream
+        # provider's real usage.prompt_tokens/completion_tokens, which is
+        # the only accurate source for cost/quota accounting — Synthelion
+        # can't estimate output tokens locally, it never sees them before
+        # this point. Streaming responses fall back to the request-side
+        # estimate in record_proxy_usage since parsing token counts out of
+        # SSE chunks isn't reliably available from every provider.
+        track_usage = enterprise_auth is not None and enterprise_auth.user is not None and not is_streamy
+        buffered = bytearray() if (cacheable or track_usage) else None
 
         try:
             self.send_response(resp.status)
@@ -776,7 +813,7 @@ class _ProxyHandler(BaseHTTPRequestHandler):
                     buffered = None  # client vanished mid-stream — don't cache a partial body
                     break
             conn.close()
-            if buffered is not None:
+            if buffered is not None and cacheable:
                 cfg = self.proxy_cfg
                 cacheable_headers = [(k, v) for k, v in response_headers if k.lower() not in _RESPONSE_STRIP and k.lower() != "x-synthelion-cache"]
                 _response_cache.put(upstream, self.path, raw_body_for_cache, resp.status, cacheable_headers, bytes(buffered), int(cfg.get("response_cache_max_entries", 200)))
@@ -788,6 +825,7 @@ class _ProxyHandler(BaseHTTPRequestHandler):
                     from synthelion.enterprise.middleware import record_proxy_usage
                     provider = enterprise_auth.provider_key.get("provider", "") if enterprise_auth.provider_key else ""
                     model = _detect_model(raw_body_for_cache or b"")
+                    real_usage = _extract_usage(bytes(buffered)) if (buffered is not None and track_usage) else None
                     record_proxy_usage(
                         user=enterprise_auth.user,
                         provider=provider,
@@ -796,6 +834,8 @@ class _ProxyHandler(BaseHTTPRequestHandler):
                         status_code=resp.status,
                         tokens_before=tokens_before,
                         tokens_after=tokens_after,
+                        real_input_tokens=real_usage[0] if real_usage else None,
+                        real_output_tokens=real_usage[1] if real_usage else None,
                         duration_ms=(time.perf_counter() - start) * 1000,
                         compressed=(tokens_before != tokens_after),
                     )

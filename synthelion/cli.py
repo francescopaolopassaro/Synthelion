@@ -182,6 +182,50 @@ def main() -> None:
     p_fwck.add_argument("--no-client", action="store_true", help="Skip per-client policy lookup entirely, apply only the global default policy")
     p_fwck.add_argument("--json", action="store_true", help="Output as JSON")
 
+    # policy-check — per-agent-type guardrails (agent_policy.py)
+    p_polck = sub.add_parser(
+        "policy-check",
+        help="Pre-tool agent-policy check: allow / require approval / block a tool call for a given agent profile",
+    )
+    p_polck.add_argument("--tool", "-t", required=True, help="Name of the tool about to be called")
+    p_polck.add_argument("--args", "-a", help="JSON object of the arguments that would be passed to it")
+    p_polck.add_argument("--profile", "-p", default=None,
+                         help="Agent profile: base, dev, support, rag, data, ops, browser (default: agent_policy.profile from config)")
+    p_polck.add_argument("--session", "-s", default="", help="Session id, used to correlate exfiltration chains across calls")
+    p_polck.add_argument("--json", action="store_true", help="Output as JSON")
+
+    p_polshow = sub.add_parser("policy-show", help="List the guardrails a given agent profile enforces")
+    p_polshow.add_argument("--profile", "-p", default="base", help="Agent profile to describe")
+
+    p_polreset = sub.add_parser("policy-reset-chain", help="Clear a session's exfiltration-chain state after a reviewed egress")
+    p_polreset.add_argument("--session", "-s", required=True, help="Session id to reset")
+
+
+    # compliance — AI Compliance Engine (synthelion/compliance/)
+    p_comp = sub.add_parser("compliance", help="AI Compliance Engine: evaluate text, inspect rules, generate regulatory documents")
+    comp_sub = p_comp.add_subparsers(dest="compliance_cmd", required=True)
+
+    comp_sub.add_parser("status", help="Show engine status, rules and any control that is enabled but not operational")
+
+    p_comp_rules = comp_sub.add_parser("rules", help="List the configured compliance rules")
+    p_comp_rules.add_argument("--json", action="store_true", help="Output as JSON")
+
+    p_comp_matrix = comp_sub.add_parser("matrix", help="Traceability matrix: control to legal obligation")
+    p_comp_matrix.add_argument("--json", action="store_true", help="Output as JSON")
+
+    p_comp_check = comp_sub.add_parser("check", help="Evaluate a text against the engine")
+    p_comp_check.add_argument("text", nargs="?", help="Text to evaluate (omit to read stdin)")
+    p_comp_check.add_argument("--scope", choices=["input", "output"], default="input")
+    p_comp_check.add_argument("--json", action="store_true", help="Output as JSON")
+
+    p_comp_doc = comp_sub.add_parser("report", help="Generate a compliance document")
+    p_comp_doc.add_argument("kind", choices=["technical-file", "dpia", "fria", "executive-report"])
+    p_comp_doc.add_argument("--pdf", metavar="PATH", help="Write a PDF to PATH")
+    p_comp_doc.add_argument("--json", metavar="PATH", help="Write the JSON source to PATH (default: stdout)")
+    p_comp_doc.add_argument("--days", type=int, default=30, help="Reporting period for the executive report (default: 30)")
+
+    comp_sub.add_parser("verify-audit", help="Verify the audit chain has not been tampered with")
+
     # clients — EnterpriseGuard per-client (IP/MAC) registry
     p_clients = sub.add_parser("clients", help="Manage EnterpriseGuard's per-client (IP/MAC) protected-path registry")
     clients_sub = p_clients.add_subparsers(dest="clients_cmd", required=True)
@@ -344,6 +388,17 @@ def main() -> None:
     ent_costs_sub = p_ent_costs.add_subparsers(dest="costs_cmd")
     ent_costs_sub.add_parser("sync", help="Pull latest pricing into local DB")
 
+    # enterprise key — admin-only, view (never modify) the master encryption key
+    enterprise_sub.add_parser(
+        "show-key",
+        help="Show the enterprise master encryption key (generated automatically with the DB; admin-only, run locally)",
+    )
+    p_ent_migrate_key = enterprise_sub.add_parser(
+        "migrate-key",
+        help="One-shot: import a key from an old plaintext key file into the OS credential store",
+    )
+    p_ent_migrate_key.add_argument("--path", required=True, help="Path to the old key file")
+
     args = parser.parse_args()
 
     if args.cmd == "version":
@@ -399,6 +454,14 @@ def main() -> None:
         _cmd_loop_reset(args)
     elif args.cmd == "firewall-check":
         _cmd_firewall_check(args)
+    elif args.cmd == "policy-check":
+        _cmd_policy_check(args)
+    elif args.cmd == "policy-show":
+        _cmd_policy_show(args)
+    elif args.cmd == "policy-reset-chain":
+        _cmd_policy_reset_chain(args)
+    elif args.cmd == "compliance":
+        _cmd_compliance(args)
     elif args.cmd == "clients":
         _cmd_clients(args)
     elif args.cmd == "cluster":
@@ -791,6 +854,37 @@ def _cmd_enterprise(args) -> None:
         _cmd_enterprise_activity(args)
     elif args.enterprise_cmd == "costs":
         _cmd_enterprise_costs(args)
+    elif args.enterprise_cmd == "show-key":
+        _cmd_enterprise_show_key(args)
+    elif args.enterprise_cmd == "migrate-key":
+        _cmd_enterprise_migrate_key(args)
+
+
+def _cmd_enterprise_show_key(args) -> None:
+    from synthelion.enterprise.crypto import show_key
+    key = show_key()
+    print("Enterprise master encryption key (generated once, stored in the OS credential store):")
+    print(f"  {key}")
+    print()
+    print("This key decrypts every provider API key stored in the enterprise DB.")
+    print("Keep it somewhere safe outside this machine (e.g. a password manager) as a")
+    print("disaster-recovery backup — Synthelion has no way to regenerate or recover it")
+    print("if the OS credential store is lost, and it is never shown anywhere else")
+    print("(not in the dashboard, not over the proxy/MCP API).")
+
+
+def _cmd_enterprise_migrate_key(args) -> None:
+    from synthelion.enterprise.crypto import migrate_from_file
+    try:
+        moved = migrate_from_file(args.path)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+    if moved:
+        print(f"Imported the key from {args.path} into the OS credential store.")
+        print(f"Delete {args.path} by hand once you've confirmed `synthelion enterprise show-key` matches.")
+    else:
+        print("Nothing to do: either the file doesn't exist, or a key is already stored.")
 
 
 def _cmd_enterprise_user(args) -> None:
@@ -2349,6 +2443,153 @@ def _cmd_firewall_check(args) -> None:
         print("ALLOW")
 
     raise SystemExit(2 if result.blocked else 0)
+
+
+def _cmd_compliance(args) -> None:
+    """`synthelion compliance status|rules|matrix|check|report|verify-audit`."""
+    from synthelion.compliance import ComplianceEngine, audit, documents
+    from synthelion.compliance.rules import Scope, traceability_matrix
+
+    engine = ComplianceEngine.from_config()
+    cmd = args.compliance_cmd
+
+    if cmd == "status":
+        print(f"Engine status : {engine.status}")
+        print(f"Fallback      : {engine.fallback}")
+        print(f"Agent profile : {engine.agent_profile}")
+        enabled = sum(1 for r in engine.rules if r.enabled)
+        print(f"Rules         : {enabled} enabled of {len(engine.rules)}")
+        chain = audit.verify_chain()
+        print(f"Audit trail   : {chain.entries} entr(ies), chain "
+              f"{'valid' if chain.valid else 'BROKEN — ' + chain.reason}")
+        broken = engine.ineffective_rules()
+        if broken:
+            print("\nEnabled but NOT operational — these controls inspect nothing:")
+            for h in broken:
+                print(f"  {h['rule_id']:22} {h['backend']:22} {h['backend_state']}: {h['note']}")
+        else:
+            print("\nEvery enabled control has a working backend.")
+        return
+
+    if cmd == "rules":
+        rows = [r.to_dict() for r in engine.rules]
+        if args.json:
+            print(json.dumps(rows, indent=2, ensure_ascii=False))
+            return
+        print(f"{'RULE':<22} {'CATEGORY':<10} {'RISK':<7} {'ACTION':<9} {'SCOPE':<7} ON")
+        for r in rows:
+            print(f"{r['id']:<22} {r['category']:<10} {r['risk_level']:<7} "
+                  f"{r['action']:<9} {r['scope']:<7} {'yes' if r['enabled'] else 'NO'}")
+        return
+
+    if cmd == "matrix":
+        rows = traceability_matrix(engine.rules)
+        if args.json:
+            print(json.dumps(rows, indent=2, ensure_ascii=False))
+            return
+        for row in rows:
+            flag = " " if row["enabled"] else "!"
+            print(f"{flag} {row['rule_id']:<22} {row['framework']:<28} {row['article']:<14} {row['obligation']}")
+        gaps = [r for r in rows if not r["enabled"]]
+        if gaps:
+            print(f"\n! {len(gaps)} obligation(s) have no active control.")
+        return
+
+    if cmd == "check":
+        text = args.text if args.text else sys.stdin.read()
+        scope = Scope.OUTPUT if args.scope == "output" else Scope.INPUT
+        result = engine.evaluate(text, scope=scope)
+        if args.json:
+            print(json.dumps(result.to_dict(), indent=2, ensure_ascii=False))
+            return
+        print(f"Decision: {result.decision.upper()}  (engine {result.engine_status}, "
+              f"{result.latency_ms:.1f} ms)")
+        for f in result.findings:
+            print(f"  [{f.risk_level:<6}] {f.rule_id:<22} {f.action:<9} {f.detail}")
+        if result.disclaimers:
+            print("\nDisclaimers:")
+            for d in result.disclaimers:
+                print(f"  {d}")
+        if result.text != text:
+            print(f"\nRewritten text:\n{result.text}")
+        raise SystemExit(0 if result.allowed else 2)
+
+    if cmd == "report":
+        kwargs = {"days": args.days} if args.kind == "executive-report" else {}
+        doc = documents.generate(args.kind, engine=engine, **kwargs)
+        if args.pdf:
+            path = documents.to_pdf(doc, args.pdf)
+            print(f"PDF written: {path}  ({path.stat().st_size:,} bytes)")
+        if args.json:
+            from pathlib import Path as _P
+            p = _P(args.json).expanduser()
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
+            print(f"JSON written: {p}")
+        if not args.pdf and not args.json:
+            print(json.dumps(doc, indent=2, ensure_ascii=False))
+        return
+
+    if cmd == "verify-audit":
+        chain = audit.verify_chain()
+        if chain.valid:
+            print(f"Audit chain intact — {chain.entries} entr(ies), no tampering detected.")
+            return
+        print(f"AUDIT CHAIN BROKEN at entry {chain.broken_at}: {chain.reason}", file=sys.stderr)
+        raise SystemExit(2)
+
+
+def _cmd_policy_check(args) -> None:
+    """Pre-tool agent-policy guardrail, meant to run as an agent hook.
+
+    Exit code carries the verdict so a hook needs no JSON parsing, and uses
+    the same 0-allow / 2-refuse contract as `firewall-check`. A *gated* call
+    exits 2 as well: a PreToolUse hook has no channel to ask a human for
+    approval mid-call, so the only honest thing it can do is refuse and say
+    why — the operator then approves it out of band. --json distinguishes the
+    two for callers that can tell them apart.
+    """
+    from synthelion.agent_policy import AgentPolicy, Verdict
+
+    try:
+        arguments = json.loads(args.args) if args.args else {}
+    except json.JSONDecodeError as exc:
+        print(f"ERROR: --args is not valid JSON: {exc}", file=sys.stderr)
+        raise SystemExit(1)
+
+    policy = AgentPolicy.from_config(profile=args.profile)
+    decision = policy.check_tool_call(args.tool, arguments, session_id=args.session)
+
+    if args.json:
+        print(json.dumps(decision.to_dict(), ensure_ascii=False))
+    elif decision.verdict is Verdict.BLOCK:
+        print(f"BLOCK [{decision.requirement}] {decision.reason}", file=sys.stderr)
+    elif decision.verdict is Verdict.GATE:
+        print(f"APPROVAL REQUIRED [{decision.requirement}] {decision.reason}", file=sys.stderr)
+    else:
+        print("ALLOW")
+
+    raise SystemExit(0 if decision.allowed else 2)
+
+
+def _cmd_policy_show(args) -> None:
+    from synthelion.agent_policy import PROFILE_LABELS, describe_profile
+
+    info = describe_profile(args.profile)
+    print(f"{info['label']}  ({info['profile']})")
+    print(f"{len(info['rules'])} guardrail(s):\n")
+    for rule in info["rules"]:
+        print(f"  [{rule['verdict'].upper():5}] {rule['requirement']:15} {rule['name']}")
+        print(f"          {rule['reason']}")
+    if args.profile not in PROFILE_LABELS:
+        print(f"\nNote: {args.profile!r} is not a known profile — only the baseline applies.", file=sys.stderr)
+
+
+def _cmd_policy_reset_chain(args) -> None:
+    from synthelion.agent_policy import reset_chain
+
+    reset_chain(args.session)
+    print(f"Exfiltration-chain state cleared for session {args.session!r}.")
 
 
 def _client_to_row(c) -> dict:

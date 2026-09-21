@@ -891,6 +891,65 @@ class TestOpenAiTools:
         assert r["messages"] == []
         assert r["tokens_before"] == 0
 
+    def test_execute_compress_for_context_reports_cache_alignment(self):
+        # Volatile block (UUID) precedes stable block — must sink to the end so
+        # the stable content becomes a reusable prompt-cache prefix.
+        text = (
+            "Request id 550e8400-e29b-41d4-a716-446655440000 timestamp 2026-08-03T10:15:00Z\n\n"
+            "This is the permanent, stable part of the prompt that never changes between calls."
+        )
+        r = execute_tool("compress_for_context", {"content": text})
+        assert r["cache_reordered"] is True
+        assert r["cache_moved_blocks"] == 1
+        assert r["compressed"].index("permanent") < r["compressed"].index("2026-08-03")
+
+    def test_execute_compress_conversation_sinks_volatile_tokens_per_message(self):
+        messages = [
+            {
+                "role": "assistant",
+                "content": (
+                    "Timestamp reference 2026-08-03T10:15:00Z\n\n"
+                    "Here is the stable explanation of the proposed solution that stays the same over time."
+                ),
+            },
+            {"role": "user", "content": "ok"},
+            {"role": "assistant", "content": "sure"},
+            {"role": "user", "content": "latest message"},
+        ]
+        r = execute_tool("compress_conversation", {"messages": messages, "keep_last_n": 2})
+        assert r["cache_moved_blocks"] == 1
+        history_msg = r["messages"][0]["content"]
+        assert history_msg.index("stable") < history_msg.index("2026-08-03")
+
+    def test_execute_compress_for_context_skips_already_compressed_input(self):
+        text = "Compress me please, this is a reasonably long sentence to compress."
+        first = execute_tool("compress_for_context", {"content": text})
+        second = execute_tool("compress_for_context", {"content": first["compressed"]})
+        assert second["compressed"] == first["compressed"]
+        assert second["strategy"] == "unchanged"
+        assert second["detected_type"] == "already_compressed"
+
+    def test_execute_compress_conversation_does_not_recompress_own_output(self):
+        messages = [
+            {"role": "user", "content": "Hello, I would like to know about Python programming languages today."},
+            {"role": "assistant", "content": "Python is a high-level, general-purpose programming language."},
+            {"role": "user", "content": "ok"},
+            {"role": "assistant", "content": "sure"},
+            {"role": "user", "content": "latest message"},
+        ]
+        turn1 = execute_tool("compress_conversation", {"messages": messages, "keep_last_n": 2})
+
+        turn2_input = turn1["messages"] + [
+            {"role": "assistant", "content": "another reply"},
+            {"role": "user", "content": "yet another new message"},
+        ]
+        turn2 = execute_tool("compress_conversation", {"messages": turn2_input, "keep_last_n": 2})
+
+        # The messages already compressed on turn 1 must survive byte-identical
+        # into turn 2's output — not be re-routed through the compressor again.
+        assert turn2["messages"][0]["content"] == turn1["messages"][0]["content"]
+        assert turn2["messages"][1]["content"] == turn1["messages"][1]["content"]
+
     def test_execute_deduplicate_removes_near_dupes(self):
         texts = [
             "The quick brown fox jumps over the lazy dog",

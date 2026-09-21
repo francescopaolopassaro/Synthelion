@@ -8,90 +8,184 @@
   <link rel="icon" type="image/png" sizes="96x96" href="/assets/img/favicon-96x96.png">
   <link rel="apple-touch-icon" href="/assets/img/apple-touch-icon.png">
   <title>Sign in — Synthelion Dashboard</title>
-  <!--
-    Structure mapped from the "Sign Up" page of Material Dashboard 3 Free by
-    Creative Tim (https://www.creative-tim.com/product/material-dashboard),
-    MIT License — see /assets/vendor/material-dashboard/LICENSE-material-dashboard.md
-    and ATTRIBUTION.md in that folder. Every asset the template loads from a
-    CDN in its original demo pages (Inter font, Nucleo icons) is self-hosted
-    here instead — nothing is fetched from a CDN at runtime. Font Awesome
-    (used only for the demo's own marketing navbar) and that navbar itself
-    were dropped rather than vendored, since neither is part of the actual
-    Material Dashboard Free kit or relevant to a login form.
-  -->
-  <link rel="stylesheet" href="/assets/vendor/material-dashboard/css/inter.css">
-  <link id="pagestyle" href="/assets/vendor/material-dashboard/material-dashboard.min.css" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/vendor/bootstrap/bootstrap.min.css">
+  <link rel="stylesheet" href="/assets/dashboard.css">
   <style>
-    body { font-family: 'Inter', system-ui, sans-serif; }
-    .login-error { display: none; }
+    html, body { height: 100%; }
+    body { margin: 0; background: var(--sy-surface); overflow: hidden; }
+
+    .auth { display: flex; height: 100vh; }
+
+    /* ── left: the form ── */
+    .auth-form-side {
+      flex: 0 0 46%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 40px;
+      background: var(--sy-surface);
+    }
+    .auth-form { width: 100%; max-width: 340px; }
+    .auth-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 40px; }
+    .auth-brand img { width: 52px; height: 52px; border-radius: 13px; }
+    .auth-brand span { font-size: 1.45rem; font-weight: 650; letter-spacing: -.02em; color: var(--sy-text); }
+    .auth-form h1 { font-size: 1.75rem; font-weight: 600; letter-spacing: -.02em; margin: 0 0 6px; }
+    .auth-form .subtitle { color: var(--sy-text-muted); font-size: .9rem; margin-bottom: 28px; }
+    .auth-form .form-label { font-size: .8rem; margin-bottom: 5px; }
+    .auth-form .form-control { padding: .6rem .8rem; }
+    .auth-form .btn-primary { padding: .65rem; font-size: .92rem; font-weight: 550; }
+    .auth-foot { margin-top: 26px; font-size: .75rem; color: var(--sy-text-faint); text-align: center; }
+    .login-error { display: none; font-size: .85rem; }
     .login-error.show { display: block; }
-    /* dark-version only re-colors .card / borders, not input text — the free
-       kit's own auth pages never combine dark-version with input-group-outline,
-       so this combination needs an explicit override or typed text is invisible
-       (dark-gray #404040 default text on a #1d1d1d card). */
-    .dark-version .input-group.input-group-outline .form-control {
+
+    /* ── right: the pitch ── */
+    .auth-visual {
+      flex: 1 1 54%;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 64px;
+      overflow: hidden;
+      background: linear-gradient(145deg, #0a1f3d 0%, #0071e3 55%, #38a4ff 100%);
       color: #fff;
     }
-    .dark-version .input-group.input-group-outline .form-control:-webkit-autofill {
-      -webkit-text-fill-color: #fff;
+    /* Soft light blooms — pure CSS, no image asset to ship or keep in sync. */
+    .auth-visual::before,
+    .auth-visual::after {
+      content: "";
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(70px);
+      opacity: .5;
+      pointer-events: none;
+    }
+    .auth-visual::before { width: 460px; height: 460px; background: #7bc4ff; top: -140px; right: -120px; }
+    .auth-visual::after { width: 380px; height: 380px; background: #003a78; bottom: -130px; left: -90px; }
+
+    .auth-visual-inner { position: relative; z-index: 1; max-width: 520px; }
+    .auth-eyebrow {
+      font-size: .74rem;
+      font-weight: 650;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      opacity: .75;
+      margin-bottom: 22px;
+    }
+
+    /* Rotating strengths: all stacked, only the active one visible, so the
+       block never reflows as the text changes length. */
+    .pitch { position: relative; height: 128px; margin-bottom: 30px; }
+    .pitch-item {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      transform: translateY(10px);
+      transition: opacity .5s ease, transform .5s ease;
+    }
+    .pitch-item.active { opacity: 1; transform: translateY(0); }
+    .pitch-item h2 {
+      font-size: 2.5rem;
+      font-weight: 620;
+      letter-spacing: -.025em;
+      line-height: 1.12;
+      margin: 0 0 12px;
+    }
+    .pitch-item p { font-size: 1rem; line-height: 1.5; opacity: .82; margin: 0; }
+
+    .pitch-dots { display: flex; gap: 7px; }
+    .pitch-dot {
+      width: 22px; height: 3px; border-radius: 2px;
+      background: rgba(255, 255, 255, .3);
+      border: none; padding: 0; cursor: pointer;
+      transition: background .3s ease, width .3s ease;
+    }
+    .pitch-dot.active { background: #fff; width: 34px; }
+
+    .auth-stats { display: flex; gap: 40px; margin-top: 54px; position: relative; z-index: 1; }
+    .auth-stat-value { font-size: 1.6rem; font-weight: 620; letter-spacing: -.02em; }
+    .auth-stat-label { font-size: .76rem; opacity: .72; margin-top: 2px; }
+
+    @media (max-width: 991.98px) {
+      body { overflow: auto; }
+      .auth { flex-direction: column; height: auto; min-height: 100vh; }
+      .auth-visual { display: none; }
+      .auth-form-side { flex: 1 1 auto; min-height: 100vh; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .pitch-item { transition: none; }
     }
   </style>
 </head>
 
-<body class="dark-version bg-gray-900">
-  <main class="main-content mt-0">
-    <section>
-      <div class="page-header min-vh-100">
-        <div class="container">
-          <div class="row">
-            <div class="col-6 d-lg-flex d-none h-100 my-auto pe-0 position-absolute top-0 start-0 text-center justify-content-center flex-column">
-              <div class="position-relative bg-gradient-info h-100 m-3 px-7 border-radius-lg d-flex flex-column justify-content-center align-items-center text-center"
-                   style="background-image: url('/assets/vendor/material-dashboard/img/synthelion-login.png'); background-size: cover; background-position: center;">
-                <span class="mask bg-gradient-info opacity-6 border-radius-lg"></span>
-                <img src="/assets/img/apple-touch-icon.png" alt="Synthelion" width="350" height="350" class="mb-4 position-relative">
-                <h3 class="text-white font-weight-bolder position-relative">Synthelion Dashboard</h3>
-                <p class="text-white opacity-8 position-relative px-5">Token savings, sessions and decisions at a glance.</p>
-              </div>
-            </div>
-            <div class="col-xl-4 col-lg-5 col-md-7 d-flex flex-column ms-auto me-auto ms-lg-auto me-lg-5">
-              <div class="card card-plain">
-                <div class="card-header">
-                  <h4 class="font-weight-bolder">Sign in</h4>
-                  <p class="mb-0">Enter your credentials to access the dashboard</p>
-                </div>
-                <div class="card-body">
-                  <div class="alert alert-danger login-error" id="login-error">Invalid username or password.</div>
-                  <form role="form" method="post" action="/login" id="login-form">
-                    <input type="hidden" name="next" id="next-field" value="/">
-                    <div class="input-group input-group-outline mb-3">
-                      <label class="form-label">Username</label>
-                      <input type="text" name="username" class="form-control" autocomplete="username" autofocus required>
-                    </div>
-                    <div class="input-group input-group-outline mb-3">
-                      <label class="form-label">Password</label>
-                      <input type="password" name="password" class="form-control" autocomplete="current-password" required>
-                    </div>
-                    <div class="text-center">
-                      <button type="submit" class="btn btn-lg bg-gradient-info btn-lg w-100 mt-4 mb-0">Sign in</button>
-                    </div>
-                  </form>
-                </div>
-              </div>
-            </div>
+<body>
+  <div class="auth">
+    <div class="auth-form-side">
+      <div class="auth-form">
+        <div class="auth-brand">
+          <img src="/assets/img/apple-touch-icon.png" alt="">
+          <span>Synthelion</span>
+        </div>
+        <h1>Sign in</h1>
+        <p class="subtitle">Access your compression and security dashboard.</p>
+        <div class="alert alert-danger login-error" id="login-error">Invalid username or password.</div>
+        <form role="form" method="post" action="/login" id="login-form">
+          <input type="hidden" name="next" id="next-field" value="/">
+          <div class="mb-3">
+            <label class="form-label" for="username">Username</label>
+            <input type="text" id="username" name="username" class="form-control" autocomplete="username" autofocus required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="password">Password</label>
+            <input type="password" id="password" name="password" class="form-control" autocomplete="current-password" required>
+          </div>
+          <button type="submit" class="btn btn-primary w-100 mt-2">Sign in</button>
+        </form>
+        <p class="auth-foot">Local dashboard — runs on this machine, reads from ~/.synthelion/</p>
+      </div>
+    </div>
+
+    <div class="auth-visual">
+      <div class="auth-visual-inner">
+        <div class="auth-eyebrow">Synthelion Platform</div>
+        <div class="pitch" id="pitch">
+          <div class="pitch-item active">
+            <h2>Compression Token</h2>
+            <p>Cut prompt and context tokens before they ever reach the model — 50+ languages, no ML round-trip, fully offline.</p>
+          </div>
+          <div class="pitch-item">
+            <h2>Security IA</h2>
+            <p>PrivacyGuard masks PII, EnterpriseGuard blocks credentials and protected paths, and the WAF screens every inbound request.</p>
+          </div>
+          <div class="pitch-item">
+            <h2>Subscription IA management</h2>
+            <p>One provider key per employee, held only by the administrator. Metered and monthly plans, with real per-user usage and cost.</p>
+          </div>
+          <div class="pitch-item">
+            <h2>Prompt cache aware</h2>
+            <p>Volatile tokens sink to the end so the stable prefix stays byte-identical — provider prompt caches actually hit.</p>
           </div>
         </div>
+        <div class="pitch-dots" id="pitch-dots"></div>
       </div>
-    </section>
-  </main>
-  <!-- Core JS Files -->
-  <script src="/assets/vendor/bootstrap/bootstrap.bundle.min.js"></script>
-  <script src="/assets/vendor/material-dashboard/js/perfect-scrollbar.min.js"></script>
-  <script src="/assets/vendor/material-dashboard/js/smooth-scrollbar.min.js"></script>
-  <!-- Control Center for Material Dashboard: drives the floating-label
-       is-focused/is-filled behavior on .input-group-outline fields. Depends
-       on PerfectScrollbar/Scrollbar being loaded first even on pages with no
-       sidenav to scroll. -->
-  <script src="/assets/vendor/material-dashboard/material-dashboard.min.js"></script>
+
+      <div class="auth-stats">
+        <div>
+          <div class="auth-stat-value">56</div>
+          <div class="auth-stat-label">Languages</div>
+        </div>
+        <div>
+          <div class="auth-stat-value">Zero</div>
+          <div class="auth-stat-label">Data leaves the host</div>
+        </div>
+        <div>
+          <div class="auth-stat-value">MCP</div>
+          <div class="auth-stat-label">CLI · Proxy · SDK</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
     var params = new URLSearchParams(window.location.search);
     if (params.get('error')) {
@@ -101,6 +195,34 @@
     if (next) {
       document.getElementById('next-field').value = next;
     }
+
+    (function () {
+      var items = document.querySelectorAll('.pitch-item');
+      var dotsBox = document.getElementById('pitch-dots');
+      if (!items.length || !dotsBox) return;
+      var i = 0, timer = null;
+
+      function show(n) {
+        i = n;
+        items.forEach(function (el, k) { el.classList.toggle('active', k === n); });
+        dotsBox.querySelectorAll('.pitch-dot').forEach(function (d, k) {
+          d.classList.toggle('active', k === n);
+        });
+      }
+      function start() { timer = setInterval(function () { show((i + 1) % items.length); }, 5000); }
+
+      items.forEach(function (_, k) {
+        var d = document.createElement('button');
+        d.type = 'button';
+        d.className = 'pitch-dot' + (k === 0 ? ' active' : '');
+        d.setAttribute('aria-label', 'Show highlight ' + (k + 1));
+        d.addEventListener('click', function () { clearInterval(timer); show(k); start(); });
+        dotsBox.appendChild(d);
+      });
+
+      // Respect the OS "reduce motion" setting: show the first panel, no cycling.
+      if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) start();
+    })();
   </script>
 </body>
 
