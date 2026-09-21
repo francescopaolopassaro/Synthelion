@@ -34,18 +34,36 @@ def _engine(**kw):
 # ---------------------------------------------------------------------------
 
 class TestRules:
-    def test_every_rule_has_a_legal_reference(self):
+    def test_every_implemented_rule_has_a_legal_reference(self):
         for rule in default_rules():
+            if rule.backend == "not_implemented" and not rule.legal:
+                continue        # CUSTOM_RULES answers no specific article
             assert rule.legal, f"{rule.id} has no legal reference"
             for ref in rule.legal:
                 assert ref.framework and ref.article and ref.obligation
 
-    def test_every_rule_backend_is_dispatchable(self):
-        """A rule naming a backend nothing implements would silently pass."""
+    def test_every_enabled_rule_backend_is_dispatchable(self):
+        """An *enabled* rule naming a backend nothing implements would silently
+        pass. Rules declared `not_implemented` ship disabled on purpose, so the
+        gap is reported instead of hidden."""
         engine = _engine()
         for rule in engine.rules:
+            if not rule.enabled:
+                continue
             state, _ = engine._backend_state(rule.backend)
             assert state != "unavailable", f"{rule.id} -> {rule.backend} is not implemented"
+
+    def test_unimplemented_rules_are_declared_not_omitted(self):
+        """The registry must name the controls the specification asks for but
+        that do not exist, so the technical file reports them as uncovered
+        rather than presenting a complete-looking matrix."""
+        rules = default_rules()
+        declared = {r.id for r in rules if r.backend == "not_implemented"}
+        assert {"TOXICITY_HATE_SPEECH", "HALLUCINATION_CHECK", "PHI_HEALTH_DATA"} <= declared
+        for rule in rules:
+            if rule.backend == "not_implemented":
+                assert rule.enabled is False, f"{rule.id} claims coverage it does not have"
+                assert "NOT IMPLEMENTED" in rule.description
 
     def test_default_rules_are_independent_copies(self):
         a, b = default_rules(), default_rules()
@@ -57,12 +75,14 @@ class TestRules:
         expected = sum(len(r.legal) for r in rules)
         assert len(traceability_matrix(rules)) == expected
 
-    def test_disabled_rule_becomes_a_coverage_gap(self):
+    def test_disabling_a_rule_adds_it_to_the_coverage_gaps(self):
         rules = default_rules()
-        assert coverage_gaps(rules) == []
+        before = {g["rule_id"] for g in coverage_gaps(rules)}
+        assert "PII_REDACTION" not in before
         next(r for r in rules if r.id == "PII_REDACTION").enabled = False
-        gaps = coverage_gaps(rules)
-        assert gaps and all(g["rule_id"] == "PII_REDACTION" for g in gaps)
+        after = {g["rule_id"] for g in coverage_gaps(rules)}
+        assert "PII_REDACTION" in after
+        assert after - before == {"PII_REDACTION"}
 
     def test_scope_covers(self):
         assert Scope.BOTH.covers(Scope.INPUT) and Scope.BOTH.covers(Scope.OUTPUT)
@@ -276,6 +296,35 @@ class TestDocuments:
         assert data.startswith(b"%PDF-1.4")
         assert data.rstrip().endswith(b"%%EOF")
         assert len(data) > 1000
+
+    @pytest.mark.parametrize("kind", ["technical-file", "dpia", "fria", "executive-report"])
+    def test_every_generated_section_reaches_the_pdf(self, kind, tmp_path, monkeypatch):
+        """A section generated into the dict but not rendered is invisible in
+        the document a regulator actually reads — `backend_health` and the
+        FRIA's `oversight_measures` were both dropped that way."""
+        _isolate(tmp_path, monkeypatch)
+        doc = documents.generate(kind, engine=_engine())
+        rendered = {
+            "document", "generated_at", "disclaimer", "system", "engine", "guardrails",
+            "traceability_matrix", "record_keeping", "human_oversight",
+            "processing_description", "measures", "necessity_and_proportionality",
+            "deployment_context", "risks", "rights_assessment", "oversight_measures",
+            "statistics", "audit_chain", "backend_health", "ineffective_controls",
+            "coverage_gaps", "open_items",
+            "period_days",          # carried in the document title
+        }
+        unrendered = set(doc) - rendered
+        assert not unrendered, f"{kind}: generated but never rendered: {sorted(unrendered)}"
+
+    @pytest.mark.parametrize("kind", ["technical-file", "dpia", "fria", "executive-report"])
+    def test_no_python_repr_leaks_into_the_pdf(self, kind, tmp_path, monkeypatch):
+        """Handing `key_values` a list of dicts printed 2 kB of Python repr
+        into the DPIA. Structures must be rendered as tables or bullet lists."""
+        _isolate(tmp_path, monkeypatch)
+        out = documents.to_pdf(documents.generate(kind, engine=_engine()), tmp_path / f"{kind}.pdf")
+        data = out.read_bytes()
+        for marker in (b"{'id':", b"'risk_level':", b"'backend':", b"[{'"):
+            assert marker not in data, f"{kind}: raw Python repr reached the page"
 
     def test_unknown_document_kind_is_rejected(self):
         with pytest.raises(ValueError):

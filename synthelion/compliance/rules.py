@@ -200,18 +200,20 @@ DEFAULT_RULES: tuple[ComplianceRule, ...] = (
             LegalReference(_AI_ACT, "Art. 15", "Robustness — preventing harmful automated action."),
         ),
     ),
-    # ── Safety / content ───────────────────────────────────────────────────
     ComplianceRule(
-        id="SENSITIVE_CONTENT",
-        title="Sensitive content screening",
-        category=Category.SAFETY,
+        id="CREDENTIAL_SHAPE_SCREEN",
+        title="Credential-shape secondary screen",
+        category=Category.SECURITY,
         backend="sensitive_guard",
         risk_level=RiskLevel.MEDIUM,
         action=Action.WARN,
         scope=Scope.BOTH,
-        description="Screens for sensitive material that should not transit to a third-party model.",
+        description="A second, deliberately conservative pass for credential-shaped strings on the "
+                    "persistence path (sensitive_guard). Narrower than SECRETS_DETECTION and not a "
+                    "content-safety control: it does not screen for toxicity, hate speech or "
+                    "illegal-activity requests — see the NOT_IMPLEMENTED entries below.",
         legal=(
-            LegalReference(_AI_ACT, "Art. 5", "Prohibited practices."),
+            LegalReference(_NIS2, "Art. 21", "Technical measures to manage cybersecurity risk."),
         ),
     ),
     # ── Transparency ───────────────────────────────────────────────────────
@@ -244,13 +246,216 @@ DEFAULT_RULES: tuple[ComplianceRule, ...] = (
             LegalReference(_AI_ACT, "Art. 15", "Robustness of system output."),
         ),
     ),
+
+    # ── Declared but NOT implemented ───────────────────────────────────────
+    #
+    # These controls are required by the compliance specification and do not
+    # exist yet. They ship disabled, with backend "not_implemented", so they
+    # surface as *uncovered obligations* in the traceability matrix and the
+    # technical file. Omitting them entirely would be the dishonest option: a
+    # reader would see a complete-looking matrix and conclude the obligation
+    # is met. Enabling one without building it would be worse still.
+    ComplianceRule(
+        id="TOXICITY_HATE_SPEECH",
+        title="Toxicity and hate-speech filter",
+        category=Category.SAFETY,
+        backend="toxicity",
+        risk_level=RiskLevel.HIGH,
+        action=Action.BLOCK,
+        scope=Scope.BOTH,
+        description="Abusive language, harassment and targeting of protected groups. "
+                    "Lexicon and phrasing based, not a trained classifier: obfuscation, slang and "
+                    "non-English text are missed. Precision-biased on purpose.",
+        legal=(
+            LegalReference(_AI_ACT, "Art. 5", "Prohibited practices."),
+            LegalReference("DSA (Reg. 2022/2065)", "Art. 34", "Systemic-risk mitigation for harmful content."),
+        ),
+    ),
+    ComplianceRule(
+        id="ILLEGAL_ACTIVITY",
+        title="Hazardous and illegal-activity screening",
+        category=Category.SAFETY,
+        backend="illegal_activity",
+        risk_level=RiskLevel.HIGH,
+        action=Action.BLOCK,
+        scope=Scope.BOTH,
+        description="Requests for weapons, controlled substances or self-harm instructions. "
+                    "Requires intent phrasing beside a hazardous object, so a news report or a "
+                    "chemistry lesson does not fire it.",
+        legal=(LegalReference(_AI_ACT, "Art. 5", "Prohibited practices."),),
+    ),
+    ComplianceRule(
+        id="PHI_HEALTH_DATA",
+        title="Health data (PHI) detection",
+        category=Category.PRIVACY,
+        backend="phi",
+        risk_level=RiskLevel.HIGH,
+        action=Action.REDACT,
+        scope=Scope.BOTH,
+        description="Clinical vocabulary tied to an identifiable person. A medical article is not "
+                    "PHI and a bare name is ordinary PII, so both halves are required.",
+        legal=(LegalReference(_GDPR, "Art. 9", "Special categories — data concerning health."),),
+    ),
+    ComplianceRule(
+        id="DATA_RESIDENCY",
+        title="Cross-border transfer and data residency control",
+        category=Category.PRIVACY,
+        backend="data_residency",
+        risk_level=RiskLevel.HIGH,
+        action=Action.BLOCK,
+        scope=Scope.INPUT,
+        description="Flags endpoints outside the EEA allow-list. Deterministic host check; an "
+                    "unknown host counts as a third-country transfer, since both carry the same "
+                    "obligation. Providers covered by standard contractual clauses go in "
+                    "compliance.allowed_hosts.",
+        legal=(LegalReference(_GDPR, "Chapter V", "Transfers of personal data to third countries."),),
+    ),
+    ComplianceRule(
+        id="CODE_VULNERABILITY",
+        title="Code security and vulnerability scanning",
+        category=Category.SECURITY,
+        backend="code_vulnerability",
+        risk_level=RiskLevel.MEDIUM,
+        action=Action.WARN,
+        scope=Scope.BOTH,
+        description="Well-known dangerous code shapes — eval of input, shell injection, SQL "
+                    "concatenation, unsafe deserialisation, disabled TLS verification. Pattern "
+                    "based, like a linter's security rules; not a SAST tool.",
+        legal=(LegalReference(_AI_ACT, "Art. 15", "Accuracy, robustness and cybersecurity."),),
+    ),
+    ComplianceRule(
+        id="HALLUCINATION_CHECK",
+        title="Factuality and hallucination detection",
+        category=Category.QUALITY,
+        backend="grounding",
+        risk_level=RiskLevel.MEDIUM,
+        action=Action.WARN,
+        scope=Scope.OUTPUT,
+        description="Lexical grounding of the answer against the supplied context. Catches an "
+                    "answer invented out of nothing; will not catch a fluent answer with a wrong "
+                    "number. Silent when no context is supplied.",
+        legal=(LegalReference(_AI_ACT, "Art. 15", "Accuracy of the AI system."),),
+    ),
+    ComplianceRule(
+        id="COPYRIGHT_CHECK",
+        title="Copyright and licence screening",
+        category=Category.QUALITY,
+        backend="copyright",
+        risk_level=RiskLevel.MEDIUM,
+        action=Action.WARN,
+        scope=Scope.OUTPUT,
+        description="Licence headers and copyright notices in generated output. Detects a declared "
+                    "licence; it cannot tell that an unmarked passage was copied from a protected "
+                    "work, which would need a corpus to compare against.",
+        legal=(LegalReference(_AI_ACT, "Art. 53", "GPAI obligations — Union copyright law."),),
+    ),
+    ComplianceRule(
+        id="AI_WATERMARKING",
+        title="Machine-readable marking of generated content",
+        category=Category.CONTENT,
+        backend="content_marker",
+        risk_level=RiskLevel.MEDIUM,
+        action=Action.REDACT,   # marking the content *is* a rewrite
+        scope=Scope.OUTPUT,
+        description="Marks generated content with an invisible, machine-readable tag (AI Act Art. "
+                    "50(2)) and flags output that carries none. A marking, not a robust watermark: "
+                    "Unicode normalisation strips it.",
+        legal=(LegalReference(_AI_ACT, "Art. 50(2)", "Marking of AI-generated content in a machine-readable format."),),
+    ),
+    ComplianceRule(
+        id="RAG_PROVENANCE",
+        title="Data provenance and RAG source citation",
+        category=Category.QUALITY,
+        backend="rag_provenance",
+        risk_level=RiskLevel.LOW,
+        action=Action.LOG_ONLY,
+        scope=Scope.OUTPUT,
+        description="Records the retrieved sources behind an answer in the audit trail. The caller supplies them via `sources=`; the rule reports when an answer was produced with none, which is the case an auditor needs to see.",
+        legal=(LegalReference(_AI_ACT, "Art. 13", "Transparency and provision of information to deployers."),),
+    ),
+    ComplianceRule(
+        id="CUSTOM_RULES",
+        title="Administrator-defined regex and keyword rules",
+        category=Category.CUSTOM,
+        backend="custom_registry",
+        risk_level=RiskLevel.LOW,
+        action=Action.WARN,
+        scope=Scope.BOTH,
+        description="Administrator-defined regex and keyword rules, configured under `compliance.custom_rules` and merged into this registry at load time. This entry is the capability marker; each configured rule appears in the registry in its own right.",
+        legal=(),
+    ),
 )
+
 
 
 def default_rules() -> list[ComplianceRule]:
     """Fresh copies, so a caller mutating a rule can't corrupt the registry."""
     import copy
     return [copy.deepcopy(r) for r in DEFAULT_RULES]
+
+
+def custom_rules_from_config(entries: "list[dict] | None" = None) -> list[ComplianceRule]:
+    """Build admin-defined rules from `compliance.custom_rules` in the config.
+
+    Each entry needs an `id` and either `pattern` (a regular expression) or
+    `keywords` (a list of terms, matched whole-word and case-insensitively).
+    Everything else falls back to a conservative default — warn, medium risk,
+    both scopes — so a half-filled entry cannot silently become a blocker.
+
+    An invalid regex is skipped rather than raised: one malformed rule in the
+    config must not take the whole engine down, and the skip is visible because
+    the rule then never appears in the registry or the traceability matrix.
+    """
+    import logging
+    import re as _re
+
+    log = logging.getLogger(__name__)
+    if entries is None:
+        from synthelion.config import load_config
+        entries = load_config().get("compliance", {}).get("custom_rules", []) or []
+
+    out: list[ComplianceRule] = []
+    for entry in entries:
+        if not isinstance(entry, dict) or not entry.get("id"):
+            continue
+        pattern = entry.get("pattern")
+        keywords = entry.get("keywords") or []
+        if not pattern and keywords:
+            # Word-boundary anchored so a keyword cannot match inside a longer
+            # word ("art" must not fire on "start"). The  has to reach the
+            # regex engine as an escape sequence, not as a literal backspace.
+            alternatives = "|".join(_re.escape(str(k)) for k in keywords)
+            pattern = chr(92) + 'b(' + alternatives + ')' + chr(92) + 'b'
+        if not pattern:
+            continue
+        try:
+            _re.compile(pattern, _re.IGNORECASE)
+        except _re.error as exc:
+            log.warning("compliance.custom_rules: skipping %r — invalid regex: %s",
+                        entry["id"], exc)
+            continue
+        try:
+            rule = ComplianceRule(
+                id=str(entry["id"]),
+                title=entry.get("title") or str(entry["id"]),
+                category=Category(entry.get("category", "custom")),
+                backend="custom_regex",
+                risk_level=RiskLevel(entry.get("risk_level", "medium")),
+                action=Action(entry.get("action", "warn")),
+                scope=Scope(entry.get("scope", "both")),
+                enabled=bool(entry.get("enabled", True)),
+                description=entry.get("description", "Administrator-defined rule."),
+                legal=tuple(
+                    LegalReference(r.get("framework", ""), r.get("article", ""), r.get("obligation", ""))
+                    for r in entry.get("legal", []) if isinstance(r, dict)
+                ),
+            )
+        except ValueError as exc:      # an unknown category/risk/action/scope
+            log.warning("compliance.custom_rules: skipping %r — %s", entry["id"], exc)
+            continue
+        rule.pattern = pattern         # type: ignore[attr-defined]
+        out.append(rule)
+    return out
 
 
 def traceability_matrix(rules: "list[ComplianceRule] | None" = None) -> list[dict]:

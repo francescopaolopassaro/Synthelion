@@ -244,6 +244,37 @@ def executive_report(engine: ComplianceEngine | None = None, days: int = 30, dir
 # PDF rendering
 # ---------------------------------------------------------------------------
 
+def _render_section(doc: PdfDocument, section: dict) -> None:
+    """Render a section whose values may be scalars, lists or lists of rules.
+
+    `key_values` stringifies whatever it is handed, so passing it a list of
+    rule dicts put 2 kB of Python repr into the DPIA. Structures are split out
+    into their own readable block instead.
+    """
+    scalars: list[tuple[str, str]] = []
+    for key, value in section.items():
+        label = key.replace("_", " ").capitalize()
+        if isinstance(value, list) and value and isinstance(value[0], dict):
+            if scalars:
+                doc.key_values(scalars)
+                scalars = []
+            doc.heading(label, size=11, space_before=4)
+            if {"id", "risk_level", "action"} <= set(value[0]):
+                _render_rules_table(doc, value)
+            else:
+                for item in value:
+                    doc.paragraph("-  " + "; ".join(f"{k}: {v}" for k, v in item.items()),
+                                  indent=6, size=8.5)
+        elif isinstance(value, list):
+            scalars.append((label, ", ".join(str(v) for v in value) or "—"))
+        elif isinstance(value, dict):
+            scalars.append((label, ", ".join(f"{k}: {v}" for k, v in value.items()) or "—"))
+        else:
+            scalars.append((label, str(value)))
+    if scalars:
+        doc.key_values(scalars)
+
+
 def _render_open_items(doc: PdfDocument, items: list[str]) -> None:
     if not items:
         return
@@ -320,8 +351,7 @@ def to_pdf(document: dict, path: "str | Path") -> Path:
                        ("deployment_context", "Deployment context")):
         if key in document:
             doc.heading(title, size=13)
-            doc.key_values([(k.replace("_", " ").title(), str(v))
-                            for k, v in document[key].items()])
+            _render_section(doc, document[key])
 
     if "risks" in document:
         doc.heading("Risks", size=13)
@@ -331,6 +361,11 @@ def to_pdf(document: dict, path: "str | Path") -> Path:
         for m in document["risks"].get("mitigations", []):
             doc.paragraph(f"-  {m}", indent=6)
         doc.key_values([("Residual risk", str(document["risks"].get("residual_risk_acceptance", "")))])
+
+    if document.get("oversight_measures"):
+        doc.heading("Human oversight measures", size=13)
+        for m in document["oversight_measures"]:
+            doc.paragraph(f"-  {m}", indent=6)
 
     if "rights_assessment" in document:
         doc.heading("Fundamental rights assessment", size=13)
@@ -367,6 +402,18 @@ def to_pdf(document: dict, path: "str | Path") -> Path:
             ("Chain valid", "yes" if chain.get("valid") else "NO — see note"),
             ("Note", chain.get("reason") or "No tampering detected."),
         ])
+
+    health = document.get("backend_health")
+    if health:
+        doc.heading("Control implementation status", size=13)
+        doc.paragraph("Whether each control is enabled in the policy and whether the guard that "
+                      "implements it is actually operational.", size=9, gray=0.35)
+        doc.table(
+            ["Control", "Backend", "Enabled", "Operational"],
+            [[h["rule_id"], h["backend"], "yes" if h["rule_enabled"] else "no",
+              "yes" if h["effective"] else h["backend_state"]] for h in health],
+            [0.32, 0.26, 0.18, 0.24],
+        )
 
     ineffective = document.get("ineffective_controls")
     if ineffective:

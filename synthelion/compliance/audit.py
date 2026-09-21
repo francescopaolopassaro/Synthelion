@@ -21,6 +21,7 @@ import hashlib
 import json
 import os
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -78,8 +79,12 @@ def record(
     decision: str,
     findings: list[dict],
     request_hash: str = "",
+    response_hash: str = "",
     user_id: str = "",
+    client_ip: str = "",
     model: str = "",
+    request_id: str = "",
+    sources: "list[str] | None" = None,
     latency_ms: float = 0.0,
     directory: "Path | None" = None,
 ) -> dict:
@@ -92,12 +97,20 @@ def record(
     entry = {
         "ts": time.time(),
         "ts_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        # Correlates this decision with the caller's own request logs. Generated
+        # here when the caller doesn't supply one, so the field is never empty.
+        "request_id": request_id or uuid.uuid4().hex,
         "scope": scope,
         "decision": decision,
         "request_hash": request_hash,
+        "response_hash": response_hash,
         "user_id": user_id,
+        "client_ip": client_ip,
         "model": model,
         "latency_ms": round(latency_ms, 3),
+        # Retrieval provenance (AI Act Art. 13): which sources the answer was
+        # built from. Identifiers only — never the retrieved text.
+        "sources": list(sources or []),
         "findings": findings,
         "prev_hash": _last_hash(directory),
         "pid": os.getpid(),
@@ -204,7 +217,9 @@ def conformity_receipt(entry: dict) -> dict:
     return {
         "receipt_version": "1",
         "issued_at": entry.get("ts_utc"),
+        "request_id": entry.get("request_id"),
         "request_hash": entry.get("request_hash"),
+        "response_hash": entry.get("response_hash"),
         "decision": entry.get("decision"),
         "findings": len(entry.get("findings", [])),
         "chain_hash": entry.get("hash"),

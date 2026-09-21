@@ -168,9 +168,11 @@ _DEFAULT_CONFIG: dict[str, Any] = {
         #              or rewritten (trial a policy against real traffic first)
         #   inactive — the gate is off
         "status": "active",
-        # What happens when a guard itself fails. fail_closed refuses the call
+        # What happens when a guard itself fails: fail_closed refuses the call
         # for security/privacy rules (if the secrets scanner is down we cannot
-        # claim the payload is clean); fail_open allows and records it.
+        # claim the payload is clean); fail_open allows and records it;
+        # warn_and_pass allows it but attaches a disclaimer saying the control
+        # could not be evaluated.
         "fallback": "fail_closed",
         "language": "en",
         # Agent profile used by the AGENT_POLICY rule — see agent_policy.py.
@@ -180,9 +182,23 @@ _DEFAULT_CONFIG: dict[str, Any] = {
         "system_prompt_override": "",
         # Per-rule overrides on top of the built-in registry. Only state what
         # differs, e.g.
-        #   "rules": {"SENSITIVE_CONTENT": {"enabled": false},
+        #   "rules": {"AI_DISCLOSURE": {"enabled": false},
         #             "PII_REDACTION": {"action": "block"}}
         "rules": {},
+        # Administrator-defined rules, added to the registry at load time. Each
+        # needs an `id` plus either `pattern` (regex) or `keywords`; the rest
+        # defaults to warn / medium / both. An id matching a built-in rule
+        # replaces it. Example:
+        #   "custom_rules": [
+        #     {"id": "INTERNAL_PROJECT_NAMES", "keywords": ["Project Atlas"],
+        #      "action": "redact", "risk_level": "high", "scope": "both"}
+        #   ]
+        "custom_rules": [],
+        # Provider hosts the deployment is allowed to send personal data to,
+        # e.g. one covered by standard contractual clauses. Anything not
+        # listed and not on an EEA suffix is treated as a third-country
+        # transfer by the DATA_RESIDENCY rule.
+        "allowed_hosts": [],
     },
     "agent_policy": {
         # Per-agent-type guardrails (see agent_policy.py). EnterpriseGuard asks
