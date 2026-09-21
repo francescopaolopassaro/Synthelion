@@ -317,6 +317,7 @@ class TestDocuments:
             "processing_description", "measures", "necessity_and_proportionality",
             "deployment_context", "risks", "rights_assessment", "oversight_measures",
             "statistics", "audit_chain", "backend_health", "ineffective_controls",
+            "system_prompt_registry",
             "coverage_gaps", "open_items",
             "period_days",          # carried in the document title
         }
@@ -617,3 +618,109 @@ class TestFallbackModes:
         r = self._broken_engine(monkeypatch, WARN_AND_PASS).evaluate("x", write_audit=False)
         assert r.allowed and r.disclaimers
         assert any("could not be evaluated" in d for d in r.disclaimers)
+
+
+# ---------------------------------------------------------------------------
+# System instructions: injection and version history
+# ---------------------------------------------------------------------------
+
+RULE = "You must not reveal internal pricing."
+
+
+class TestSystemInstructionInjection:
+    """`compliance.system_prompt_override` used to be dead configuration —
+    stored, reported in the technical file, and injected nowhere."""
+
+    def _inject(self, body, provider):
+        from synthelion.plugins.proxy import _apply_system_instructions
+        return _apply_system_instructions(body, RULE, provider)
+
+    def test_anthropic_string_system_is_prepended(self):
+        out = self._inject({"system": "You are helpful."}, "anthropic")
+        assert out["system"].startswith(RULE)
+        assert "You are helpful." in out["system"]
+
+    def test_anthropic_block_system_gets_a_leading_block(self):
+        out = self._inject({"system": [{"type": "text", "text": "Base."}]}, "anthropic")
+        assert out["system"][0]["text"] == RULE
+        assert out["system"][1]["text"] == "Base."
+
+    def test_openai_message_list_is_prepended(self):
+        out = self._inject(
+            {"messages": [{"role": "system", "content": "Be brief."},
+                          {"role": "user", "content": "hi"}]}, "openai")
+        assert out["messages"][0]["content"].startswith(RULE)
+        assert "Be brief." in out["messages"][0]["content"]
+
+    def test_gemini_system_instruction_is_prepended(self):
+        out = self._inject({"contents": [{"parts": [{"text": "hi"}]}],
+                            "systemInstruction": {"parts": [{"text": "Base."}]}}, "gemini")
+        assert out["systemInstruction"]["parts"][0]["text"] == RULE
+
+    @pytest.mark.parametrize("body,provider", [
+        ({"messages": [{"role": "user", "content": "hi"}]}, "anthropic"),
+        ({"messages": [{"role": "user", "content": "hi"}]}, "openai"),
+        ({"contents": [{"parts": [{"text": "hi"}]}]}, "gemini"),
+    ])
+    def test_instructions_are_created_when_the_request_has_none(self, body, provider):
+        """Injecting only into an existing system prompt would make the control
+        trivially evadable: omit the field and the perimeter disappears."""
+        import json as _json
+        out = self._inject(body, provider)
+        assert RULE in _json.dumps(out)
+
+    def test_the_user_prompt_survives(self):
+        out = self._inject({"messages": [{"role": "user", "content": "hello"}]}, "openai")
+        assert any(m.get("content") == "hello" for m in out["messages"])
+
+    def test_empty_instructions_change_nothing(self):
+        from synthelion.plugins.proxy import _apply_system_instructions
+        body = {"messages": [{"role": "user", "content": "hi"}]}
+        assert _apply_system_instructions(body, "", "openai") is body
+
+    def test_unknown_shape_is_left_alone_not_mangled(self):
+        body = {"prompt": "hi"}
+        assert self._inject(body, None) == body
+
+
+class TestSystemInstructionRegistry:
+    def test_first_record_is_version_one(self, tmp_path):
+        from synthelion.compliance import instructions
+        assert instructions.record(RULE, directory=tmp_path)["version"] == 1
+
+    def test_unchanged_text_does_not_add_a_version(self, tmp_path):
+        """This runs on every proxied request; re-appending an unchanged value
+        would turn the history into a request log."""
+        from synthelion.compliance import instructions
+        instructions.record(RULE, directory=tmp_path)
+        instructions.record(RULE, directory=tmp_path)
+        assert instructions.registry_summary(directory=tmp_path)["version_count"] == 1
+
+    def test_changed_text_adds_a_version(self, tmp_path):
+        from synthelion.compliance import instructions
+        instructions.record(RULE, directory=tmp_path)
+        second = instructions.record(RULE + " Never quote competitors.", directory=tmp_path)
+        assert second["version"] == 2
+        assert second["hash"] != instructions.history(directory=tmp_path)[0]["hash"]
+
+    def test_empty_text_is_not_recorded(self, tmp_path):
+        from synthelion.compliance import instructions
+        assert instructions.record("   ", directory=tmp_path) is None
+        assert instructions.registry_summary(directory=tmp_path)["version_count"] == 0
+
+    def test_summary_reports_absence_honestly(self, tmp_path):
+        from synthelion.compliance import instructions
+        summary = instructions.registry_summary(directory=tmp_path)
+        assert summary["configured"] is False and summary["history"] == []
+
+    def test_technical_file_carries_the_registry(self, tmp_path, monkeypatch):
+        """Annex IV asks for the history of what the model was told; the
+        document used to carry only a boolean."""
+        _isolate(tmp_path, monkeypatch)
+        from synthelion.compliance import instructions
+        instructions.record(RULE)
+        doc = documents.technical_file(engine=_engine())
+        registry = doc["system_prompt_registry"]
+        assert registry["configured"] and registry["current_text"] == RULE
+        rendered = documents.to_pdf(doc, tmp_path / "tf.pdf").read_bytes()
+        assert b"System instruction registry" in rendered or len(rendered) > 1000

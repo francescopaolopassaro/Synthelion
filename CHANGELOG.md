@@ -39,6 +39,32 @@ All notable changes to Synthelion are documented here.
   plus the narrowness checks that prose, prose-with-colons and short indented text still
   compress).
 
+### Added — system instructions are injected, and versioned
+- `compliance.system_prompt_override` was **dead configuration**: stored, reported
+  in the technical file as a boolean, and injected nowhere. Worse than missing,
+  because the document claimed a control that did not operate.
+- The proxy now prepends it to every request, ahead of the compression/masking
+  walk so it is part of what the model sees and is counted in the token totals.
+  Two properties make it a control rather than a suggestion: it **prepends**, so
+  nothing later in the prompt can contradict it by merely coming after; and it
+  **creates** the system prompt when the request carries none — injecting only
+  into an existing field would let an end user evade the perimeter by simply
+  omitting it. Handles Anthropic (`system` string or block list), OpenAI-shaped
+  (`messages`) and Gemini (`systemInstruction`); an unrecognised shape is left
+  untouched rather than mangled.
+- **`compliance/instructions.py`** — a version registry. Annex IV asks for the
+  history of what the model was told, not just the current text: a config value
+  answers "what is it now" and nothing about "what was it when that decision was
+  made". Each change is appended with its content hash and surfaced in the
+  technical file, current text plus full history. Idempotent by hash, since this
+  runs on every proxied request and re-appending an unchanged value would turn
+  the history into a request log. The instruction text itself is stored, unlike
+  the payload hashes in the audit trail — these are words the operator wrote, not
+  user data, and a version history you cannot read is not a version history.
+- New tests: injection across all three provider shapes, creation when the
+  request has no system prompt, the user's own prompt surviving, an unknown body
+  left alone, and the registry's versioning/idempotence.
+
 ### Added — the compliance controls the specification asked for but that did not exist
 - A gap analysis against the full compliance specification found the registry
   **overstating its own coverage**: `SENSITIVE_CONTENT` was labelled a *safety*

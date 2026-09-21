@@ -695,6 +695,13 @@ needs and no individual guard can provide on its own.
 and an on-off switch — bound to the guard that implements it. Rules are configuration, so a
 deployment overrides only what differs.
 
+**Organisation-level system instructions**, prepended to every request and not
+editable by the end user. They are *created* when a request carries no system
+prompt — injecting only into an existing field would let anyone evade the
+perimeter by omitting it — and every change is versioned with its content hash,
+so the technical file can state what the model was told at the time of a given
+decision rather than only what it says today.
+
 **A traceability matrix from each control to the article of law it satisfies** — EU AI Act, GDPR,
 NIS 2/DORA, ISO/IEC 42001 — generated from the *live* configuration. That last part is the point:
 switch a control off and its obligations appear as uncovered, rather than continuing to look
