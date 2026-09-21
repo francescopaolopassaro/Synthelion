@@ -6,6 +6,45 @@ All notable changes to Synthelion are documented here.
 
 ## [1.2.5] — 2026-08-04
 
+### Fixed — every prose compression level silently destroyed structured content
+- **Measured, not assumed**: feeding JSON, Python, HTML, JavaScript, SQL and YAML through the
+  compression levels showed all six coming back corrupted. Every level in `core.py` is a
+  *word* filter — it drops low-signal tokens, and punctuation is not a word. JSON lost every
+  brace, quote and colon and no longer parsed; Python lost `def` and `=`; SQL lost `FROM`;
+  YAML lost the colons that carry its entire structure; HTML lost every tag. Nothing raised:
+  the output looked like a successful 60% compression.
+- Not specific to `synthelionml` — `light` through `syntactic` behaved identically. The
+  `ContentRouter` already refuses to prose-compress code and SQL, but that protection lives in
+  the routed entry point; anything calling `compress(text, level=...)` directly — the CLI's
+  `--level`, the MCP `compress` tool, the proxy — bypassed it entirely.
+- `apply_compression()` now declines structured input and returns it untouched with an
+  explanatory `error_message`, so a caller can tell "left alone" from "compressed to this".
+  Detection reuses `ContentDetector`, plus a deliberately conservative YAML/config heuristic
+  (YAML has no `ContentType` of its own, and a colon in prose — "Note: this matters" — must not
+  trip it). The failure modes are not symmetric: a false positive merely leaves text
+  uncompressed, a false negative ships broken JSON, so anything ambiguous is left alone.
+- New `allow_structured=True` opt-out for a caller that has already classified the content and
+  *decided* prose is right — `ContentRouter` does exactly that for JSON-Schema objects, whose
+  value is in their English descriptions. Without it this guard would have silently overridden
+  a deliberate routing decision (and did, until two existing tests caught it).
+- New tests: `tests/test_structured_guard.py` (44 tests — six content types across every level,
+  plus the narrowness checks that prose, prose-with-colons and short indented text still
+  compress).
+
+### Fixed — live monitor counters did not describe the window they advertised
+- The cards read "last 5 min" but were computed from the cursor-filtered event list, so they
+  actually counted "whatever arrived since the last poll" — the two agree only on the first
+  poll. Counters are now computed over a real five-minute window before the cursor is applied.
+- The 2.5s poll also tripped the WAF's inbound rate limiter and auto-banned the operator's own
+  IP from their own dashboard (with `waf.skip_authenticated` off). The poll is now 5s, backs
+  off exponentially on failure instead of hammering and extending the ban, and does not run at
+  all while the page is off-screen or the tab is backgrounded.
+
+### Added — Synthelion mark on generated compliance documents
+- `compliance/pdf.py` gained a stdlib-only PNG decoder (`zlib` + PNG unfiltering, compositing
+  RGBA onto white) so the brand mark is embedded as a PDF image XObject. Keeps the writer's
+  zero-dependency property rather than pulling in an imaging library to place a logo.
+
 ### Added — AI Compliance Engine (`synthelion/compliance/`)
 - A governance gate in front of every guard Synthelion already has. Deliberately
   an **aggregation layer**: detection stays in PrivacyGuard, EnterpriseGuard, the

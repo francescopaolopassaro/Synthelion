@@ -1787,8 +1787,13 @@
   // the poll has to read anyway. The `since` cursor means each poll only
   // carries what happened after the previous one.
 
-  const live = { cursor: 0, paused: false, filter: "", timer: null, rows: [] };
-  const LIVE_POLL_MS = 2500;
+  const live = { cursor: 0, paused: false, filter: "", timer: null, rows: [], backoff: 0 };
+  // 5s, not 1-2s: the WAF in front of this dashboard rate-limits inbound
+  // requests, and with waf.skip_authenticated turned off an aggressive poll
+  // gets the operator's own IP auto-banned from their own panel. The counters
+  // describe a 5-minute window anyway, so a faster poll buys nothing.
+  const LIVE_POLL_MS = 5000;
+  const LIVE_MAX_BACKOFF_MS = 60000;
   const LIVE_MAX_ROWS = 200;
   const SECURITY_KINDS = new Set(["firewall", "waf", "policy"]);
 
@@ -1820,8 +1825,16 @@
     live.rows.forEach((r) => { r.isNew = false; });
   }
 
+  function livePageVisible() {
+    const section = document.querySelector('section[data-page="live"]');
+    return !!section && section.style.display !== "none" && !document.hidden;
+  }
+
   async function pollLive() {
-    if (live.paused) return;
+    // Don't poll a page nobody is looking at, or a backgrounded tab: those
+    // requests still count against the WAF's inbound rate limit while showing
+    // the operator nothing.
+    if (live.paused || !livePageVisible()) return;
     try {
       const data = await fetchJson(`/api/live?since=${live.cursor}`);
       const status = document.getElementById("live-status");
@@ -1839,9 +1852,21 @@
       set("live-blocked", c.blocked);
       set("live-gated", c.gated);
       if (status) status.textContent = `Live · updated ${new Date().toLocaleTimeString("en-US")}`;
+      live.backoff = 0;
     } catch (err) {
+      // Back off instead of hammering. A failing poll is often the WAF rate
+      // limiter, and retrying at full speed just extends the ban that caused
+      // the failure in the first place.
+      live.backoff = live.backoff ? Math.min(live.backoff * 2, LIVE_MAX_BACKOFF_MS) : LIVE_POLL_MS * 2;
       const status = document.getElementById("live-status");
-      if (status) status.textContent = "Disconnected — retrying…";
+      if (status) {
+        status.textContent = `Disconnected — retrying in ${Math.round(live.backoff / 1000)}s`;
+      }
+      clearInterval(live.timer);
+      live.timer = setTimeout(function resume() {
+        pollLive();
+        live.timer = setInterval(pollLive, LIVE_POLL_MS);
+      }, live.backoff);
     }
   }
 

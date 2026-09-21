@@ -27,6 +27,8 @@ Supports 50+ languages out of the box. No AI model required. No configuration.
 - [Why Synthelion?](#why-synthelion)
 - [Privacy & Security — PrivacyGuard](#privacy--security--privacyguard)
 - [EnterpriseGuard — outbound data-loss-prevention firewall](#enterpriseguard--outbound-data-loss-prevention-firewall)
+- [Agent guardrails — per-agent-type policy engine](#agent-guardrails--per-agent-type-policy-engine)
+- [AI Compliance Engine](#ai-compliance-engine)
 - [Synthelion vs other prompt/context-compression tools](#synthelion-vs-other-promptcontext-compression-tools)
 - [Quick install — one command](#quick-install--one-command)
 - [Install (manual)](#install-manual)
@@ -626,6 +628,121 @@ Toggle/configure it in `~/.synthelion/config.json` (or the dashboard's Security 
   }
 }
 ```
+
+---
+
+## Agent guardrails — per-agent-type policy engine
+
+EnterpriseGuard asks *"is this content or path forbidden for anyone?"*. This asks the narrower
+question that a policy actually cares about: **"is this acceptable for this kind of agent?"** —
+`terraform apply` is routine for an ops agent and meaningless for a support one, and a $5,000
+refund means something only to the latter.
+
+Seven profiles, each stacked on a baseline that applies to every agent: `base`, `dev`, `support`,
+`rag`, `data`, `ops`, `browser`. Every rule carries the requirement id it implements, so a
+decision can always be traced back to the policy it came from.
+
+Three things here exist nowhere else in Synthelion:
+
+**Gating — a third outcome next to allow and block.** Every other guard is binary. Several
+controls are not: a force push, `terraform apply`, an IAM grant, a production-secret read, a
+`DELETE`/`UPDATE`, a bulk customer export, a refund over the cap, a financial click in a browser
+— all legitimate, all needing a human to say yes. A gated call is refused *with its reason*, not
+silently allowed. Turning gating off downgrades those rules to allow, never to block, and a
+BLOCK always wins over a GATE matched in the same call.
+
+**Chain breaking.** Some attacks are invisible one call at a time and exist only as a *sequence*:
+read something private, then send it outward. Neither half is forbidden alone, so no single-call
+guard can see it. The breaker correlates the two within a session and cuts the egress. Its state
+is an append-only file, not memory, because the read may happen in the MCP server process and the
+egress in a CLI hook process — an in-memory flag would never see both halves.
+
+**Profiles as data.** Rules are a table, not a branch: adding a requirement is a row.
+
+It deliberately delegates rather than reimplements — credentials and protected paths to
+EnterpriseGuard, SSRF to `ssrf_guard`, runaway loops to `loop_guard`, PII to PrivacyGuard, spend
+caps to the proxy budget tracker and the enterprise quotas.
+
+```bash
+synthelion policy-show --profile ops            # what this profile enforces, and why
+synthelion policy-check --tool Bash \
+    --args '{"command":"terraform apply"}' --profile ops
+# APPROVAL REQUIRED [REQ-OPS-02] `terraform apply` changes live infrastructure
+```
+
+`policy-check` is a `PreToolUse` hook: exit 0 allows, exit 2 refuses, the same contract as
+`firewall-check`. A *gated* call exits 2 as well — a hook has no channel to ask a human mid-call,
+so the only honest thing it can do is refuse and say why; `--json` distinguishes the two for
+callers that can tell them apart. `synthelion policy-reset-chain --session <id>` clears the chain
+after a reviewed egress. Also available as the `check_agent_policy` and `describe_agent_policy`
+MCP tools.
+
+Configured under `agent_policy.*`; the decision log
+(`~/.synthelion/agent_policy_events.jsonl`) records the verdict, profile, tool name and
+requirement id — **never the call's arguments**, so the log cannot become the place a secret ends
+up stored.
+
+---
+
+## AI Compliance Engine
+
+A governance gate in front of every guard above. It is deliberately an **aggregation layer**: the
+detection already exists elsewhere in Synthelion. What is new is everything a compliance function
+needs and no individual guard can provide on its own.
+
+**One rule registry, in policy vocabulary.** Nine controls, each with a risk level
+(high/medium/low), a remediation action (block / redact / warn / log-only), an input/output scope
+and an on-off switch — bound to the guard that implements it. Rules are configuration, so a
+deployment overrides only what differs.
+
+**A traceability matrix from each control to the article of law it satisfies** — EU AI Act, GDPR,
+NIS 2/DORA, ISO/IEC 42001 — generated from the *live* configuration. That last part is the point:
+switch a control off and its obligations appear as uncovered, rather than continuing to look
+compliant on paper.
+
+**Backend health.** A rule can be enabled in the policy while the guard behind it is switched off
+elsewhere in the configuration. That combination is the dangerous one — the technical file would
+claim a control that inspects nothing — so it is reported explicitly, in the dashboard and in the
+generated documents.
+
+**Engine states.** `active` enforces; `staging` evaluates and logs every rule but never blocks or
+rewrites, so a policy can be measured against real traffic before it starts refusing calls;
+`inactive` is off. The fallback policy defaults to fail-closed for the security and privacy
+categories only — a broken toxicity screen should not take down the gateway, a broken secrets
+scanner should.
+
+**A tamper-evident audit trail** (AI Act Art. 12): each entry carries the hash of the one before
+it, so an edited or removed entry breaks every link after it and `verify-audit` names where. It
+stores a SHA-256 fingerprint of each payload and **never the prompt or response** — an audit log
+of prompts would recreate the exposure the privacy rules exist to prevent, and would itself
+become personal data. It is tamper-*evident*, not tamper-proof: real immutability needs an
+append-only medium or an external notary.
+
+**Four documents, as JSON and PDF** — the technical file (Art. 11 / Annex IV), a DPIA (GDPR Art.
+35), a FRIA (AI Act Art. 27) and a periodic executive report. The dict is the source of truth and
+the PDF renders it, so nothing in a report exists only as pixels. The DPIA and FRIA are pre-filled
+working drafts: the sections that need an organisational judgement — necessity, proportionality,
+residual-risk acceptance — are emitted as explicit open items rather than filled with plausible
+text no engine is entitled to write.
+
+The PDF writer has **no dependencies**. Synthelion ships offline and vendors everything, so
+requiring a PDF library for its own core output would have been the only external runtime
+dependency in the product. It emits valid PDF 1.4 with automatic pagination, tables, bar charts
+and the Synthelion mark, and transliterates characters outside WinAnsi rather than dropping them —
+an accented name vanishing from a compliance document would be worse than an approximated one.
+It is **not PDF/A**: archival conformance additionally needs embedded fonts, an XMP packet and an
+output intent, and claiming it without those would be false.
+
+```bash
+synthelion compliance status                        # engine, controls, audit chain, dead controls
+synthelion compliance matrix                        # control -> framework -> article -> obligation
+synthelion compliance check "mail mario@example.com"
+synthelion compliance report technical-file --pdf technical-file.pdf
+synthelion compliance verify-audit
+```
+
+Also available as the `check_compliance` and `compliance_status` MCP tools, and as the
+**Compliance** page in the dashboard. Configured under `compliance.*`.
 
 ---
 
@@ -1413,7 +1530,11 @@ Changing the password immediately invalidates every session already logged in on
 
 ![Synthelion dashboard — overview](docs/dashboard-overview.png)
 
-**Overview**: calls, tokens saved, avg efficiency, CO₂ saved, active sessions, avg calls per session, tools used, best single call, and latency (avg / p95 / max) — plus a version badge showing exactly which Synthelion build is running. **Charts**: tokens saved over time, by tool, and by content type.
+**Overview**: calls, tokens saved, avg efficiency, CO₂ saved, active sessions, avg calls per session, tools used, best single call, and latency (avg / p95 / max) — plus a version badge showing exactly which Synthelion build is running. Each card carries a sparkline of that metric's own daily history; the two metrics that have no honest time series (a per-session ratio, and a cross-session counter) show the number alone rather than a decorative line. **Charts**: tokens saved over time, by tool, and by content type, rendered with [Apache ECharts](https://echarts.apache.org/) (Apache-2.0, vendored locally).
+
+![Synthelion dashboard — live monitor](docs/dashboard-live-monitor.png)
+
+**Live monitor**: one stream merging every subsystem on the machine — proxied requests, local compressions from the CLI/MCP/hook path, WAF matches, EnterpriseGuard blocks and agent-policy decisions — with counters over a rolling five-minute window, per-kind filters and a pause. Polled rather than pushed: every source behind it is an append-only file, and the poll only asks for what happened since its last cursor. It stops polling when the page isn't on screen, so a backgrounded tab costs nothing.
 
 ![Synthelion dashboard — sessions](docs/dashboard-sessions.png)
 
@@ -1432,6 +1553,14 @@ Changing the password immediately invalidates every session already logged in on
 **Security**: the WAF/firewall panel (request inspection, IP allow/block, auto-ban, rate limiting, recent events) plus, below it, **EnterpriseGuard** — see the close-up and full write-up in [EnterpriseGuard — outbound data-loss-prevention firewall](#enterpriseguard--outbound-data-loss-prevention-firewall).
 
 ![Synthelion dashboard — EnterpriseGuard detail](docs/dashboard-enterprise-guard.png)
+
+![Synthelion dashboard — AI Compliance](docs/dashboard-compliance.png)
+
+**AI Compliance**: the governance gate over every guard above, expressed as policy — risk level, remediation action (block / redact / warn / log-only) and input/output scope per control, each switchable in place. The traceability table maps every control to the article it answers to, generated from the live configuration, so a control you switch off appears as an uncovered obligation instead of continuing to look compliant on paper. A control that is *enabled* while the guard behind it is disabled is called out separately — that is the combination where a technical file would claim coverage that does not exist. The four regulatory documents download as PDF or JSON. See [AI Compliance Engine](#ai-compliance-engine).
+
+![Synthelion dashboard — enterprise users](docs/dashboard-enterprise-users.png)
+
+**Users**: employees, their virtual proxy tokens, assigned provider keys and plans, with a metered or monthly subscription activated inline. Below, consumption per user against the tightest plan they hold — the one that will cut them off first — plus a ranking of the most-used models. Provider marks are Synthelion's own glyphs, not the vendors' trademarked logos.
 
 ![Synthelion dashboard — doctor](docs/dashboard-doctor.png)
 

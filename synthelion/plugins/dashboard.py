@@ -1502,8 +1502,6 @@ def _live_feed(since: float, limit: int = 60) -> dict:
     try:
         for row in get_proxy_log().recent(200):
             ts = _ts_of(row.get("ts") or row.get("timestamp"))
-            if ts <= since:
-                continue
             saved = (row.get("tokens_before") or 0) - (row.get("tokens_after") or 0)
             events.append({
                 "ts": ts, "kind": "request", "level": "error" if row.get("blocked") else "info",
@@ -1519,8 +1517,6 @@ def _live_feed(since: float, limit: int = 60) -> dict:
         from synthelion.analytics.ledger import get_ledger
         for row in get_ledger().records_since(1)[-200:]:
             ts = _ts_of(row.get("ts"))
-            if ts <= since:
-                continue
             events.append({
                 "ts": ts, "kind": "compression", "level": "info",
                 "title": row.get("tool") or "compress",
@@ -1535,8 +1531,6 @@ def _live_feed(since: float, limit: int = 60) -> dict:
         from synthelion.waf_guard import get_waf_engine
         for row in get_waf_engine().all_events(limit=100, since_days=1.0):
             ts = _ts_of(row.get("ts") or row.get("timestamp"))
-            if ts <= since:
-                continue
             events.append({
                 "ts": ts, "kind": "waf", "level": "error" if row.get("blocked") else "warning",
                 "title": f"WAF · {row.get('rule_name') or row.get('rule') or 'match'}",
@@ -1550,8 +1544,6 @@ def _live_feed(since: float, limit: int = 60) -> dict:
         from synthelion.enterprise_guard import recent_blocks
         for row in recent_blocks(limit=100):
             ts = _ts_of(row.get("timestamp"))
-            if ts <= since:
-                continue
             events.append({
                 "ts": ts, "kind": "firewall", "level": "error",
                 "title": f"Blocked · {row.get('category', 'policy')}",
@@ -1565,8 +1557,6 @@ def _live_feed(since: float, limit: int = 60) -> dict:
         from synthelion.agent_policy import recent_decisions
         for row in recent_decisions(limit=100):
             ts = _ts_of(row.get("timestamp"))
-            if ts <= since:
-                continue
             events.append({
                 "ts": ts, "kind": "policy", "level": "error" if row.get("verdict") == "block" else "warning",
                 "title": f"{row.get('verdict', '').upper()} · {row.get('rule_name', '')}",
@@ -1576,19 +1566,24 @@ def _live_feed(since: float, limit: int = 60) -> dict:
         pass
 
     events.sort(key=lambda e: e["ts"], reverse=True)
-    events = events[:limit]
 
-    window = now - 300  # last 5 minutes
-    recent_all = [e for e in events if e["ts"] >= window]
+    # The counters describe a real 5-minute window, so they must be computed
+    # *before* the `since` cursor is applied. Deriving them from the cursored
+    # list instead would make the cards count "whatever arrived since the last
+    # poll" while the labels promise "last 5 minutes" — the two agree only on
+    # the very first poll.
+    window = now - 300
+    recent = [e for e in events if e["ts"] >= window]
+    counters = {
+        "requests": sum(1 for e in recent if e["kind"] == "request"),
+        "compressions": sum(1 for e in recent if e["kind"] == "compression"),
+        "blocked": sum(1 for e in recent if e["kind"] in ("firewall", "waf", "policy") and e["level"] == "error"),
+        "gated": sum(1 for e in recent if e["kind"] == "policy" and e["level"] == "warning"),
+    }
     return {
         "now": now,
-        "events": events,
-        "counters": {
-            "requests": sum(1 for e in recent_all if e["kind"] == "request"),
-            "compressions": sum(1 for e in recent_all if e["kind"] == "compression"),
-            "blocked": sum(1 for e in recent_all if e["kind"] in ("firewall", "waf", "policy") and e["level"] == "error"),
-            "gated": sum(1 for e in recent_all if e["kind"] == "policy" and e["level"] == "warning"),
-        },
+        "events": [e for e in events if e["ts"] > since][:limit],
+        "counters": counters,
     }
 
 
