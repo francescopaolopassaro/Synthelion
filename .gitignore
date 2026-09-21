@@ -19,3 +19,11 @@ logs/
 # ~/.synthelion/ instead) — ignored defensively in case an old checkout
 # regenerates it here before picking up the migration.
 documentochiave.txt
+
+# Large data assets that ship in the built wheel (package-data in
+# pyproject.toml) but don't belong in git history: worddata is ~140MB of
+# precomputed per-language function-word/IDF/POS tables, and the Wikipedia
+# training corpus (devtools/wikipedia_corpus/) is ~48GB, used only to train
+# SynthelionML/PrivacyGuardML checkpoints, never read at runtime.
+synthelion/worddata/
+devtools/wikipedia_corpus/
