@@ -45,6 +45,14 @@ def _now() -> str:
     return time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
 
 
+def _instruction_registry() -> dict:
+    try:
+        from synthelion.compliance.instructions import registry_summary
+        return registry_summary()
+    except Exception:  # noqa: BLE001 — a document must still generate
+        return {"configured": False, "version_count": 0, "history": []}
+
+
 def _engine_snapshot(engine: ComplianceEngine) -> dict:
     return {
         "status": engine.status,
@@ -81,6 +89,10 @@ def technical_file(engine: ComplianceEngine | None = None, directory=None) -> di
                           "telemetry is emitted to the vendor.",
         },
         "engine": _engine_snapshot(engine),
+        # Annex IV asks for the history of what the model was told, not just
+        # the current text — a boolean "an override is configured" answered
+        # neither question.
+        "system_prompt_registry": _instruction_registry(),
         "guardrails": [r.to_dict() for r in engine.rules],
         "traceability_matrix": traceability_matrix(engine.rules),
         "coverage_gaps": coverage_gaps(engine.rules),
@@ -333,6 +345,30 @@ def to_pdf(document: dict, path: "str | Path") -> Path:
     if document.get("traceability_matrix"):
         doc.heading("4. Traceability: control to legal obligation", size=13)
         _render_matrix(doc, document["traceability_matrix"])
+
+    registry = document.get("system_prompt_registry")
+    if registry:
+        doc.heading("System instruction registry", size=13)
+        if not registry.get("configured"):
+            doc.paragraph("No organisation-level system instructions are configured; requests "
+                          "reach the model with only the caller's own prompt.", gray=0.35)
+        else:
+            doc.key_values([
+                ("Current version", str(registry.get("current_version"))),
+                ("Content hash", str(registry.get("current_hash"))),
+                ("In force since", str(registry.get("changed_at"))),
+                ("Versions recorded", str(registry.get("version_count"))),
+            ])
+            doc.paragraph("Text in force:", size=9, gray=0.35)
+            doc.paragraph(registry.get("current_text", ""), indent=6)
+            if len(registry.get("history", [])) > 1:
+                doc.heading("Version history", size=11)
+                doc.table(
+                    ["Version", "Changed at", "Hash", "Author"],
+                    [[str(h.get("version")), h.get("ts_utc", ""), h.get("hash", ""),
+                      h.get("author") or "—"] for h in registry["history"]],
+                    [0.14, 0.34, 0.32, 0.20],
+                )
 
     if "record_keeping" in document:
         doc.heading("5. Record keeping (Art. 12)", size=13)

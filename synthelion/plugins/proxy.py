@@ -345,6 +345,52 @@ def _apply_output_shaping(body: dict) -> dict:
     return body
 
 
+def _apply_system_instructions(body: dict, instructions: str, provider: str | None) -> dict:
+    """Prepend organisation-level system instructions the end user cannot edit.
+
+    Two things distinguish this from `_apply_output_shaping`:
+
+    * it **prepends**, so nothing later in the prompt can contradict it by
+      simply coming after;
+    * it **creates** the system prompt when the request carries none. Injecting
+      only into an existing field would make the control trivially evadable —
+      omit the system prompt and the perimeter disappears.
+
+    Where the system prompt lives is provider-specific, so the shape is chosen
+    from the detected provider rather than guessed from the body. An unknown
+    shape is left untouched rather than mangled.
+    """
+    if not instructions:
+        return body
+
+    if provider == "anthropic" or "system" in body:
+        existing = body.get("system")
+        if isinstance(existing, list):
+            return {**body, "system": [{"type": "text", "text": instructions}] + list(existing)}
+        if isinstance(existing, str) and existing.strip():
+            return {**body, "system": instructions + "\n\n" + existing}
+        return {**body, "system": instructions}
+
+    if provider == "gemini" or "contents" in body:
+        existing = body.get("systemInstruction")
+        if isinstance(existing, dict):
+            parts = [{"text": instructions}] + list(existing.get("parts") or [])
+            return {**body, "systemInstruction": {**existing, "parts": parts}}
+        return {**body, "systemInstruction": {"parts": [{"text": instructions}]}}
+
+    if isinstance(body.get("messages"), list):
+        messages = list(body["messages"])
+        first = messages[0] if messages else None
+        if isinstance(first, dict) and first.get("role") in ("system", "developer") \
+                and isinstance(first.get("content"), str):
+            messages[0] = {**first, "content": instructions + "\n\n" + first["content"]}
+        else:
+            messages.insert(0, {"role": "system", "content": instructions})
+        return {**body, "messages": messages}
+
+    return body
+
+
 def _resolve_upstream(path: str, cfg: dict) -> str | None:
     # User-defined routes win first (first prefix match, in the order the
     # user listed them) — lets someone point an arbitrary path at an
@@ -627,6 +673,18 @@ class _ProxyHandler(BaseHTTPRequestHandler):
                 ccr = _CcrStore(cfg)
                 if cfg.get("output_shaping_enabled") and isinstance(parsed, dict):
                     parsed = _apply_output_shaping(parsed)
+                # Organisation-level system instructions, injected before the
+                # compression/masking walk so they are part of what the model
+                # sees and are counted in the token totals like any other text.
+                if isinstance(parsed, dict):
+                    try:
+                        from synthelion.compliance.instructions import active_instructions
+                        instructions = active_instructions()
+                    except Exception:  # noqa: BLE001 — never block a call over this
+                        instructions = ""
+                    if instructions:
+                        parsed = _apply_system_instructions(
+                            parsed, instructions, _detect_provider(self.path))
                 try:
                     parsed = _walk_body(parsed, pcfg, cfg, totals, ccr) if isinstance(parsed, dict) else _walk(parsed, pcfg, totals, ccr=ccr)
                 except _Blocked as exc:

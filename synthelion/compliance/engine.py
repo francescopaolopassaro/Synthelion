@@ -448,7 +448,14 @@ class ComplianceEngine:
         # reports independently; only transforming backends see the accumulated
         # text, so successive redactions still compose.
         self._privacy_cache = None
-        _TRANSFORMING = {"output_sanitiser"}
+        # Every backend that can return a replacement must see the accumulated
+        # text, or its rewrite silently discards the previous rule's. That is
+        # how the AI marker was throwing away the output sanitisation: it
+        # re-emitted the *original* string with a marker appended, script tag
+        # and all. `privacy_analyzer` is deliberately not here — it detects
+        # against the original so the two privacy rules stay independent, and
+        # it runs before anything else has rewritten anything.
+        _TRANSFORMING = {"output_sanitiser", "content_marker", "phi"}
 
         for rule in self.active_rules(scope):
             subject = current if rule.backend in _TRANSFORMING else text

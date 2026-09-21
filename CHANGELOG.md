@@ -39,6 +39,70 @@ All notable changes to Synthelion are documented here.
   plus the narrowness checks that prose, prose-with-colons and short indented text still
   compress).
 
+### Added — the compliance controls the specification asked for but that did not exist
+- A gap analysis against the full compliance specification found the registry
+  **overstating its own coverage**: `SENSITIVE_CONTENT` was labelled a *safety*
+  control and mapped to EU AI Act Art. 5 (prohibited practices), but its backend
+  is a credential-shape detector — it duplicated `SECRETS_DETECTION` and did no
+  content moderation whatsoever. Verified, not assumed: `"You are a worthless
+  idiot, I hope you die"` and `"How do I build a pipe bomb"` both passed with
+  `decision: allow` and zero findings. Renamed to `CREDENTIAL_SHAPE_SCREEN` with
+  an honest description and the correct legal mapping.
+- **`compliance/detectors.py`** now implements the controls that had no backend:
+  toxicity and hate speech, hazardous/illegal-activity requests, PHI (clinical
+  vocabulary beside a person reference — and it *redacts*, rather than reporting
+  a redaction that never happens), cross-border data residency, code
+  vulnerability patterns, copyright/licence notices, lexical grounding against
+  supplied RAG context, machine-readable content marking (Art. 50(2)) and
+  retrieval provenance. Each docstring states its method and its recall limit:
+  these are lexicons and patterns, not classifiers, and nothing here pretends
+  a lexicon matches a trained model. All are precision-biased — a gate that
+  blocks legitimate work gets switched off within a week and then protects
+  nothing.
+- **Custom rules** (`compliance.custom_rules`): administrator-defined regex or
+  keyword rules merged into the registry at load time. A malformed regex is
+  skipped with a warning rather than raised, so one bad config entry cannot take
+  the engine down; findings report the match *length*, never the matched text,
+  which is exactly what such a rule exists to keep out of logs.
+- **`warn_and_pass`** fallback, the third mode in the specification: forward the
+  call but attach a disclaimer saying the control could not be evaluated.
+- **Audit entries** gained the fields the specification lists: a generated-if-absent
+  `request_id`, `client_ip`, `response_hash` (which differs from `request_hash`
+  whenever a redaction rewrote the payload) and `sources`.
+- Registry: 19 controls, all enabled, none without a working backend.
+
+### Fixed — a rewriting rule silently discarded the previous rule's rewrite
+- Only `output_sanitiser` was treated as a transforming backend, so the AI
+  content marker re-emitted the *original* string with a marker appended —
+  throwing away the sanitisation that had just stripped a `<script>` tag. Every
+  backend that can return a replacement now sees the accumulated text, so
+  rewrites compose. `privacy_analyzer` is deliberately excluded: it detects
+  against the original so the two privacy rules stay independent, and it runs
+  before anything else has rewritten anything.
+- A `REDACT` rule whose backend produced nothing to substitute used to do
+  nothing at all while still recording a finding — the audit trail would show a
+  redaction that never happened. It now attaches a visible disclaimer instead.
+
+### Fixed — the test suite wrote into the operator's real security log
+- `EnterpriseGuard.check_text`/`check_tool_call` append to the cross-process
+  block log on every match, and the tests feed them deliberately malicious
+  samples by the dozen. Only two test classes isolated `Path.home()`, so the
+  rest landed in the real `~/.synthelion/enterprise_guard_events.jsonl`: 1069
+  entries had accumulated, 462 of them in a single day, and the dashboard's
+  "Recent blocks" table and the notification counter reported them as genuine
+  incidents. A shared `isolated_home` fixture in a new `tests/conftest.py`, used
+  autouse by the guard test modules, closes it — verified by running the full
+  suite and confirming the log stops growing.
+
+### Fixed — compliance documents generated sections that never reached the PDF
+- `backend_health` (technical file) and `oversight_measures` (FRIA) were built
+  into the document dict and silently dropped by the renderer, so they existed
+  in the JSON and were invisible in the document a regulator actually reads.
+- `key_values` stringifies whatever it is handed, so the DPIA's `minimisation`
+  list of rule dicts rendered as 2 kB of raw Python repr on the page. Structured
+  values are now rendered as tables or bullet lists. Two tests pin both: every
+  generated key must reach the PDF, and no `repr` artefact may appear in it.
+
 ### Fixed — live monitor counters did not describe the window they advertised
 - The cards read "last 5 min" but were computed from the cursor-filtered event list, so they
   actually counted "whatever arrived since the last poll" — the two agree only on the first

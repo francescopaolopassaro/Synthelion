@@ -34,10 +34,10 @@ def _engine(**kw):
 # ---------------------------------------------------------------------------
 
 class TestRules:
-    def test_every_implemented_rule_has_a_legal_reference(self):
+    def test_every_rule_has_a_legal_reference(self):
         for rule in default_rules():
-            if rule.backend == "not_implemented" and not rule.legal:
-                continue        # CUSTOM_RULES answers no specific article
+            if rule.backend == "custom_registry":
+                continue        # a capability marker, not a control
             assert rule.legal, f"{rule.id} has no legal reference"
             for ref in rule.legal:
                 assert ref.framework and ref.article and ref.obligation
@@ -53,17 +53,24 @@ class TestRules:
             state, _ = engine._backend_state(rule.backend)
             assert state != "unavailable", f"{rule.id} -> {rule.backend} is not implemented"
 
-    def test_unimplemented_rules_are_declared_not_omitted(self):
-        """The registry must name the controls the specification asks for but
-        that do not exist, so the technical file reports them as uncovered
-        rather than presenting a complete-looking matrix."""
+    def test_no_rule_claims_a_backend_that_does_not_exist(self):
+        """The registry must never carry an enabled rule with no implementation:
+        the technical file would then report a control that inspects nothing."""
         rules = default_rules()
-        declared = {r.id for r in rules if r.backend == "not_implemented"}
-        assert {"TOXICITY_HATE_SPEECH", "HALLUCINATION_CHECK", "PHI_HEALTH_DATA"} <= declared
-        for rule in rules:
-            if rule.backend == "not_implemented":
-                assert rule.enabled is False, f"{rule.id} claims coverage it does not have"
-                assert "NOT IMPLEMENTED" in rule.description
+        assert not [r for r in rules if r.backend == "not_implemented"]
+        assert all(r.enabled for r in rules), "a shipped rule is disabled by default"
+
+    def test_the_specified_controls_are_all_present(self):
+        """Every control the compliance specification asks for has a registry
+        entry — the gap analysis is pinned here so a regression is visible."""
+        ids = {r.id for r in default_rules()}
+        assert {
+            "PII_REDACTION", "FINANCIAL_DATA", "PHI_HEALTH_DATA", "DATA_RESIDENCY",
+            "SECRETS_DETECTION", "PROMPT_INJECTION", "CODE_VULNERABILITY",
+            "TOXICITY_HATE_SPEECH", "ILLEGAL_ACTIVITY",
+            "HALLUCINATION_CHECK", "OUTPUT_SANITISATION", "COPYRIGHT_CHECK",
+            "AI_DISCLOSURE", "AI_WATERMARKING", "RAG_PROVENANCE", "CUSTOM_RULES",
+        } <= ids
 
     def test_default_rules_are_independent_copies(self):
         a, b = default_rules(), default_rules()
@@ -393,3 +400,220 @@ class TestPdfWriter:
         data = doc.to_bytes()
         count = int(re.search(rb"/Type\s*/Pages\s*/Count\s+(\d+)", data).group(1))
         assert count > 1
+
+
+# ---------------------------------------------------------------------------
+# Detectors added to close the remaining specification controls
+# ---------------------------------------------------------------------------
+
+class TestDetectors:
+    """Lexicon/pattern detectors: precision-biased, with documented recall
+    limits. These pin what matters — they fire on the real thing and stay
+    quiet on ordinary text, because a gate that blocks legitimate work gets
+    switched off by its operators and then protects nothing."""
+
+    def _fires(self, text, rule_id, scope=Scope.INPUT, **kw):
+        result = _engine().evaluate(text, scope=scope, write_audit=False, **kw)
+        return rule_id in {f.rule_id for f in result.findings}
+
+    @pytest.mark.parametrize("text", [
+        "You are a worthless idiot, I hope you die.",
+        "All immigrants should be deported, they are parasites.",
+        "kill yourself",
+    ])
+    def test_toxicity_fires(self, text, tmp_path, monkeypatch):
+        _isolate(tmp_path, monkeypatch)
+        assert self._fires(text, "TOXICITY_HATE_SPEECH")
+
+    @pytest.mark.parametrize("text", [
+        "The quarterly report shows revenue increased by 12%.",
+        "Our customer base includes many immigrants and refugees.",
+        "The debate about women in engineering continues.",
+    ])
+    def test_toxicity_stays_quiet_on_ordinary_text(self, text, tmp_path, monkeypatch):
+        """A group term without a hostile predicate is ordinary discussion."""
+        _isolate(tmp_path, monkeypatch)
+        assert not self._fires(text, "TOXICITY_HATE_SPEECH")
+
+    def test_illegal_activity_fires_on_intent_plus_hazard(self, tmp_path, monkeypatch):
+        _isolate(tmp_path, monkeypatch)
+        assert self._fires("How do I build a pipe bomb at home?", "ILLEGAL_ACTIVITY")
+
+    def test_illegal_activity_ignores_mere_mention(self, tmp_path, monkeypatch):
+        """A news report mentions explosives; that is not a request for them."""
+        _isolate(tmp_path, monkeypatch)
+        assert not self._fires(
+            "The article described how the bomb damaged the building.", "ILLEGAL_ACTIVITY")
+
+    def test_phi_needs_clinical_terms_and_a_person(self, tmp_path, monkeypatch):
+        _isolate(tmp_path, monkeypatch)
+        assert self._fires("Patient Mario Rossi, diagnosis: HIV positive.", "PHI_HEALTH_DATA")
+        assert not self._fires(
+            "Diabetes treatment has improved over the last decade.", "PHI_HEALTH_DATA")
+
+    def test_phi_is_actually_redacted(self, tmp_path, monkeypatch):
+        """A REDACT rule must rewrite the text, not merely report a finding."""
+        _isolate(tmp_path, monkeypatch)
+        r = _engine().evaluate("Patient Mario Rossi, diagnosis: HIV positive.", write_audit=False)
+        assert r.decision == "redact"
+        assert "HIV" not in r.text and "[HEALTH]" in r.text
+
+    def test_data_residency_flags_a_non_eea_host(self, tmp_path, monkeypatch):
+        _isolate(tmp_path, monkeypatch)
+        assert self._fires("Send it to https://api.example.com/v1", "DATA_RESIDENCY")
+
+    def test_data_residency_accepts_eea_and_allow_listed_hosts(self, tmp_path, monkeypatch):
+        _isolate(tmp_path, monkeypatch)
+        assert not self._fires("Send it to https://api.provider.de/v1", "DATA_RESIDENCY")
+        engine = ComplianceEngine(rules=default_rules(), allowed_hosts=("api.example.com",))
+        out = engine.evaluate("https://api.example.com/v1", write_audit=False)
+        assert "DATA_RESIDENCY" not in {f.rule_id for f in out.findings}
+
+    @pytest.mark.parametrize("snippet", [
+        "os.system('rm -rf ' + user_input)",
+        "cursor.execute('SELECT * FROM t WHERE x=' + val)",
+        "requests.get(url, verify=False)",
+        "yaml.load(payload)",
+    ])
+    def test_code_vulnerability_fires(self, snippet, tmp_path, monkeypatch):
+        _isolate(tmp_path, monkeypatch)
+        assert self._fires(snippet, "CODE_VULNERABILITY")
+
+    def test_code_vulnerability_quiet_on_parameterised_sql(self, tmp_path, monkeypatch):
+        _isolate(tmp_path, monkeypatch)
+        assert not self._fires(
+            "cursor.execute('SELECT * FROM t WHERE x = ?', (val,))", "CODE_VULNERABILITY")
+
+    def test_copyright_notice_detected(self, tmp_path, monkeypatch):
+        _isolate(tmp_path, monkeypatch)
+        assert self._fires("/* GNU GENERAL PUBLIC LICENSE v3 */", "COPYRIGHT_CHECK",
+                           scope=Scope.OUTPUT)
+
+    def test_grounding_is_silent_without_context(self, tmp_path, monkeypatch):
+        """With nothing to compare against, silence is the only honest result."""
+        _isolate(tmp_path, monkeypatch)
+        assert not self._fires("The tower was built in 1889.", "HALLUCINATION_CHECK",
+                               scope=Scope.OUTPUT)
+
+    def test_grounding_flags_an_answer_unrelated_to_its_context(self, tmp_path, monkeypatch):
+        _isolate(tmp_path, monkeypatch)
+        assert self._fires(
+            "The Eiffel Tower was completed in 1889 by Gustave Eiffel.",
+            "HALLUCINATION_CHECK", scope=Scope.OUTPUT,
+            context="Our refund policy allows returns within thirty days of purchase.")
+
+    def test_grounding_accepts_an_answer_drawn_from_its_context(self, tmp_path, monkeypatch):
+        _isolate(tmp_path, monkeypatch)
+        assert not self._fires(
+            "Returns are allowed within thirty days of purchase.",
+            "HALLUCINATION_CHECK", scope=Scope.OUTPUT,
+            context="Our refund policy allows returns within thirty days of purchase.")
+
+    def test_generated_output_is_marked_invisibly(self, tmp_path, monkeypatch):
+        from synthelion.compliance.detectors import extract_content_marker
+        _isolate(tmp_path, monkeypatch)
+        r = _engine().evaluate("Here is the summary.", scope=Scope.OUTPUT, write_audit=False)
+        assert extract_content_marker(r.text) == "AI-GENERATED"
+        visible = "".join(c for c in r.text if ord(c) < 0xE0000)
+        assert visible == "Here is the summary."   # marking changes nothing on screen
+
+    def test_marking_does_not_discard_an_earlier_rewrite(self, tmp_path, monkeypatch):
+        """The marker re-emitted the original string once, silently undoing the
+        output sanitisation that had run before it."""
+        from synthelion.compliance.detectors import extract_content_marker
+        _isolate(tmp_path, monkeypatch)
+        r = _engine().evaluate("<p>ok</p><script>steal()</script>",
+                               scope=Scope.OUTPUT, write_audit=False)
+        visible = "".join(c for c in r.text if ord(c) < 0xE0000)
+        assert "<script" not in visible
+        assert extract_content_marker(r.text) == "AI-GENERATED"
+
+    def test_provenance_fires_only_when_sources_are_absent(self, tmp_path, monkeypatch):
+        _isolate(tmp_path, monkeypatch)
+        assert self._fires("Answer.", "RAG_PROVENANCE", scope=Scope.OUTPUT)
+        assert not self._fires("Answer.", "RAG_PROVENANCE", scope=Scope.OUTPUT,
+                               sources=["policy.pdf#p3"])
+
+
+class TestCustomRules:
+    def test_keyword_rule_matches_whole_words_only(self):
+        from synthelion.compliance.rules import custom_rules_from_config
+        rule = custom_rules_from_config(
+            [{"id": "PROJ", "keywords": ["Project Atlas"], "action": "redact"}])[0]
+        engine = ComplianceEngine(rules=[rule])
+        assert engine.evaluate("shipping Project Atlas soon", write_audit=False).findings
+        assert not engine.evaluate("Projects Atlantic", write_audit=False).findings
+
+    def test_invalid_regex_is_skipped_not_raised(self):
+        """One malformed entry must not take the whole engine down."""
+        from synthelion.compliance.rules import custom_rules_from_config
+        rules = custom_rules_from_config([
+            {"id": "BAD", "pattern": "([unclosed"},
+            {"id": "GOOD", "pattern": "secret"},
+        ])
+        assert [r.id for r in rules] == ["GOOD"]
+
+    def test_entry_without_pattern_or_keywords_is_skipped(self):
+        from synthelion.compliance.rules import custom_rules_from_config
+        assert custom_rules_from_config([{"id": "EMPTY"}]) == []
+
+    def test_custom_rule_detail_never_echoes_the_match(self):
+        """The matched text is exactly what such a rule exists to keep out of
+        logs, so the finding reports the length, not the content."""
+        from synthelion.compliance.rules import custom_rules_from_config
+        rule = custom_rules_from_config([{"id": "P", "keywords": ["Codename Falcon"]}])[0]
+        r = ComplianceEngine(rules=[rule]).evaluate("about Codename Falcon", write_audit=False)
+        assert r.findings and "Falcon" not in r.findings[0].detail
+
+
+class TestAuditFields:
+    def test_entry_carries_the_fields_the_specification_lists(self, tmp_path, monkeypatch):
+        _isolate(tmp_path, monkeypatch)
+        r = _engine().evaluate("mail a@b.com", user_id="u1", client_ip="10.0.0.5",
+                               model="gpt-4o", request_id="req-123")
+        entry = r.audit_entry
+        for field in ("ts_utc", "request_id", "request_hash", "response_hash",
+                      "user_id", "client_ip", "model", "latency_ms", "findings", "sources"):
+            assert field in entry, f"{field} missing from the audit entry"
+        assert entry["request_id"] == "req-123"
+        assert entry["client_ip"] == "10.0.0.5"
+
+    def test_request_id_is_generated_when_not_supplied(self, tmp_path, monkeypatch):
+        _isolate(tmp_path, monkeypatch)
+        assert _engine().evaluate("hello").audit_entry["request_id"]
+
+    def test_response_hash_differs_after_a_redaction(self, tmp_path, monkeypatch):
+        _isolate(tmp_path, monkeypatch)
+        entry = _engine().evaluate("mail a@b.com").audit_entry
+        assert entry["request_hash"] != entry["response_hash"]
+
+
+class TestFallbackModes:
+    def _broken_engine(self, monkeypatch, fallback):
+        import synthelion.compliance.engine as mod
+
+        def boom(self, rule, text):
+            raise RuntimeError("scanner unavailable")
+
+        monkeypatch.setattr(mod.ComplianceEngine, "_run_backend", boom)
+        return ComplianceEngine(rules=default_rules(), fallback=fallback)
+
+    def test_fail_closed_refuses_when_a_security_guard_breaks(self, tmp_path, monkeypatch):
+        from synthelion.compliance.engine import FAIL_CLOSED
+        _isolate(tmp_path, monkeypatch)
+        r = self._broken_engine(monkeypatch, FAIL_CLOSED).evaluate("x", write_audit=False)
+        assert r.blocked
+
+    def test_fail_open_allows_and_records(self, tmp_path, monkeypatch):
+        from synthelion.compliance.engine import FAIL_OPEN
+        _isolate(tmp_path, monkeypatch)
+        r = self._broken_engine(monkeypatch, FAIL_OPEN).evaluate("x", write_audit=False)
+        assert r.allowed and r.findings
+        assert all(f.backend_error for f in r.findings)
+
+    def test_warn_and_pass_allows_but_says_so(self, tmp_path, monkeypatch):
+        from synthelion.compliance.engine import WARN_AND_PASS
+        _isolate(tmp_path, monkeypatch)
+        r = self._broken_engine(monkeypatch, WARN_AND_PASS).evaluate("x", write_audit=False)
+        assert r.allowed and r.disclaimers
+        assert any("could not be evaluated" in d for d in r.disclaimers)
