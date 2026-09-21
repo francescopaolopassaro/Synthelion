@@ -280,6 +280,30 @@ class CompressionService:
                 results[futures[fut]] = fut.result()
         return results  # type: ignore[return-value]
 
+    def _compress_structured(self, text: str) -> "CompressionResult | None":
+        """Hand structured content to its dedicated compressor.
+
+        Imported lazily: content_router imports this module, so a top-level
+        import would be circular. Passing `self` as the router's NLP service
+        keeps this instance's configuration (global IDF, caches) instead of
+        silently building a default one. Returns None if routing fails, so the
+        caller can fall back to leaving the text alone — never to prose, which
+        is what would corrupt it.
+        """
+        try:
+            from synthelion.content_router import ContentRouter
+            routed = ContentRouter(compression_service=self).route(text)
+        except Exception as exc:  # noqa: BLE001 — never let routing break compression
+            _log.warning("structured routing failed: %s", exc, exc_info=True)
+            return None
+        if routed.error_message or not routed.compressed:
+            return None
+        return CompressionResult(
+            compressed_text=routed.compressed,
+            original_tokens=len(_tokenize(text)),
+            compressed_tokens=len(_tokenize(routed.compressed)),
+        )
+
     def apply_compression(
         self,
         text: str,
@@ -295,25 +319,37 @@ class CompressionService:
         # drops the low-signal ones. Punctuation is not a word, so braces,
         # quotes, colons and operators are dropped with it — which turns JSON
         # into unparseable text, a Python function into a list of identifiers
-        # and a SELECT into a keyword soup with no FROM. Structured content
-        # therefore must not reach these filters at all: it is returned
-        # untouched, and the caller routes it through the dedicated
-        # structure-aware compressors (ContentRouter / route_content) that know
-        # which characters are load-bearing. Same rule ContentRouter already
-        # applies when a code or SQL strategy declines: return the original,
-        # never fall back to prose.
+        # and a SELECT into a keyword soup with no FROM.
+        #
+        # Structured content therefore never reaches these filters. It is not
+        # refused either: refusing would keep it intact but compress nothing,
+        # and compressing it is the job. It goes instead to the dedicated
+        # structure-aware compressors (JsonCrusher, CodeCompressor,
+        # SqlCompressor, HtmlExtractor) that know which characters are
+        # load-bearing — real savings with the structure kept.
+        #
         # `allow_structured` is the opt-out for a caller that has already
         # classified the content and *decided* prose is the right treatment —
         # ContentRouter does exactly that for JSON-Schema objects, whose value
-        # is in their English descriptions rather than their structure. Without
-        # it, this guard would silently override a deliberate routing decision.
+        # is in their English descriptions rather than their structure. It is
+        # also what stops this from recursing: the router calls back into
+        # compress() with the flag set.
         if not allow_structured and _is_structured(text):
+            if _router_handles(text):
+                routed = self._compress_structured(text)
+                if routed is not None:
+                    return routed
+            # Structured, but nothing knows how to compress this shape (YAML and
+            # config files have no dedicated strategy). Leaving it alone is the
+            # only safe answer: routing it would fall through to the prose
+            # filters with the guard already bypassed, and strip the colons that
+            # carry the whole structure.
             return CompressionResult(
                 compressed_text=text,
                 original_tokens=len(_tokenize(text)),
                 compressed_tokens=len(_tokenize(text)),
-                error_message="declined: structured content — use route_content()/ContentRouter, "
-                              "which applies a structure-preserving compressor instead",
+                error_message="declined: structured content with no structure-aware "
+                              "compressor — returned unchanged rather than corrupted",
             )
 
         fw = self._provider.get_function_words(iso3)
@@ -410,6 +446,21 @@ def _looks_like_yaml(text: str) -> bool:
     # Prose ends sentences; a config file does not.
     prose_enders = sum(1 for ln in lines if ln.rstrip().endswith((".", "!", "?")))
     return prose_enders <= len(lines) * 0.2
+
+
+def _router_handles(text: str) -> bool:
+    """True when ContentRouter has a real strategy for this shape.
+
+    Only the types in `_STRUCTURED_TYPES` have one. Anything detected purely by
+    the YAML heuristic below is structured *and* unhandled — sending it to the
+    router would land it in the router's own NLP fallback, which runs with the
+    structured guard already bypassed.
+    """
+    try:
+        from synthelion.content_detector import ContentDetector
+        return ContentDetector().detect(text).type in _STRUCTURED_TYPES
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _is_structured(text: str) -> bool:

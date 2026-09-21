@@ -21,6 +21,13 @@ from synthelion.enterprise_guard import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _isolate(isolated_home):
+    """Every check here logs a block; keep them out of the real security log
+    (see the `isolated_home` fixture in conftest.py)."""
+
+
+
 def _guard(**overrides):
     cfg = {
         "enabled": True,

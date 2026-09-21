@@ -13,6 +13,17 @@ import pytest
 from synthelion.enterprise_guard import EnterpriseGuard, EnterpriseGuardBlockedError, GuardResult
 
 
+@pytest.fixture(autouse=True)
+def _isolate(isolated_home):
+    """Keep every test in this module out of the real ~/.synthelion/.
+
+    `check_text`/`check_tool_call` append to the cross-process block log on
+    every match, and these tests feed the guard deliberately malicious samples
+    by the dozen. Autouse rather than opt-in precisely so a test added later
+    cannot forget it. See the `isolated_home` fixture in conftest.py.
+    """
+
+
 def _guard(**overrides):
     cfg = {
         "enabled": True,

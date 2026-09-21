@@ -17,9 +17,17 @@ All notable changes to Synthelion are documented here.
   `ContentRouter` already refuses to prose-compress code and SQL, but that protection lives in
   the routed entry point; anything calling `compress(text, level=...)` directly — the CLI's
   `--level`, the MCP `compress` tool, the proxy — bypassed it entirely.
-- `apply_compression()` now declines structured input and returns it untouched with an
-  explanatory `error_message`, so a caller can tell "left alone" from "compressed to this".
-  Detection reuses `ContentDetector`, plus a deliberately conservative YAML/config heuristic
+- `apply_compression()` now routes structured input to its **dedicated structure-aware
+  compressor** (`JsonCrusher`, `CodeCompressor`, `SqlCompressor`, `HtmlExtractor`) instead of
+  the word filters. Refusing it outright was the first attempt and was wrong: it kept the
+  content intact but compressed nothing, and compressing it is the job. Measured on realistic
+  input — JSON −37%, a Python source file −4.5% and still parsing, SQL clauses intact.
+- A shape the router has **no** strategy for (YAML and config files) is returned unchanged with
+  an explanatory `error_message`, because routing it would land in the router's own NLP
+  fallback — which runs with the structured guard already bypassed — and strip the colons that
+  are the entire structure. "Compress it properly or leave it alone" are the only two honest
+  outcomes; corrupting it is not one.
+- Detection reuses `ContentDetector`, plus a deliberately conservative YAML/config heuristic
   (YAML has no `ContentType` of its own, and a colon in prose — "Note: this matters" — must not
   trip it). The failure modes are not symmetric: a false positive merely leaves text
   uncompressed, a false negative ships broken JSON, so anything ambiguous is left alone.

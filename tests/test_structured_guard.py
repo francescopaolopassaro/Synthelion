@@ -1,6 +1,6 @@
 # Synthelion — Python port of Caveman (https://github.com/francescopaolopassaro/caveman)
 # (c) 2026 Passaro Francesco Paolo — Digitalsolutions.it
-"""The prose compressors must never mangle structured content.
+"""Structured content must be compressed, not corrupted — and not refused.
 
 Every compression level in core.py is a *word* filter: it drops low-signal
 tokens, and punctuation is not a word. Applied to JSON that removes every
@@ -8,7 +8,14 @@ brace, quote and colon; applied to Python it removes `def` and `=`; applied to
 SQL it removes FROM. The output is not "compressed", it is destroyed — and
 silently, because nothing raises.
 
-These tests pin the guard that declines structured input instead.
+The fix routes structured input to its dedicated structure-aware compressor
+instead, so it still shrinks. Two separate contracts are pinned here:
+
+* shapes the router has a strategy for (JSON, code, SQL, HTML) must come back
+  compressed *and* still usable — code that still parses, SQL that still has
+  its clauses, JSON whose data survives the compact rewrite;
+* shapes it has no strategy for (YAML/config) must come back untouched, never
+  prose-compressed.
 """
 from __future__ import annotations
 
@@ -64,9 +71,23 @@ def svc():
 
 class TestStructuredContentSurvives:
     @pytest.mark.parametrize("level", ALL_LEVELS)
-    def test_json_stays_parseable(self, svc, level):
+    def test_json_keeps_its_data(self, svc, level):
+        """JsonCrusher rewrites JSON into a compact key/value form on purpose —
+        that is the token saving. What must survive is the *data*: every key
+        and every value still present, none of it word-filtered away."""
         out = svc.compress(JSON_SAMPLE, level=level).compressed_text
-        json.loads(out)          # raises if the braces/quotes were stripped
+        for fragment in ("id", "42", "Mario Rossi", "active", "admin", "editor",
+                         "2026-09-21T10:00:00Z"):
+            assert fragment in out, f"{fragment!r} was lost"
+
+    @pytest.mark.parametrize("level", ALL_LEVELS)
+    def test_json_actually_shrinks(self, svc, level):
+        import json as _json
+        big = _json.dumps({"users": [
+            {"id": i, "name": f"User {i}", "email": f"u{i}@example.com",
+             "roles": ["admin"], "active": True} for i in range(40)]}, indent=2)
+        out = svc.compress(big, level=level).compressed_text
+        assert len(out) < len(big) * 0.9, "structured routing produced no saving"
 
     @pytest.mark.parametrize("level", ALL_LEVELS)
     def test_python_stays_parseable(self, svc, level):
@@ -74,9 +95,12 @@ class TestStructuredContentSurvives:
         ast.parse(out)
 
     @pytest.mark.parametrize("level", ALL_LEVELS)
-    def test_html_keeps_its_tags(self, svc, level):
-        out = svc.compress(HTML_SAMPLE, level=level).compressed_text
-        assert "<div" in out and "</div>" in out and "<strong>" in out
+    def test_html_keeps_its_readable_content(self, svc, level):
+        """HtmlExtractor pulls the readable text out of markup — the markup
+        itself is chrome an agent does not need. The content must survive;
+        case does not, since the extracted text is then lemmatised."""
+        out = svc.compress(HTML_SAMPLE, level=level).compressed_text.lower()
+        assert "report" in out and "12%" in out
 
     @pytest.mark.parametrize("level", ALL_LEVELS)
     def test_sql_keeps_its_clauses(self, svc, level):
@@ -85,21 +109,25 @@ class TestStructuredContentSurvives:
             assert keyword in out, f"{keyword} was dropped"
 
     @pytest.mark.parametrize("level", ALL_LEVELS)
-    def test_yaml_keeps_its_keys(self, svc, level):
-        out = svc.compress(YAML_SAMPLE, level=level).compressed_text
-        for key in ("service:", "name:", "port:"):
-            assert key in out, f"{key} lost its colon"
+    def test_yaml_is_returned_untouched(self, svc, level):
+        """No YAML strategy exists, so the only safe answer is to leave it
+        alone — prose-compressing it strips the colons that are the structure."""
+        result = svc.compress(YAML_SAMPLE, level=level)
+        assert result.compressed_text == YAML_SAMPLE
+        assert result.error_message and "no structure-aware" in result.error_message
 
     @pytest.mark.parametrize("level", ALL_LEVELS)
     def test_javascript_keeps_its_syntax(self, svc, level):
         out = svc.compress(JS_SAMPLE, level=level).compressed_text
         assert "function" in out and "{" in out and "}" in out
 
-    def test_declining_is_reported_not_silent(self, svc):
-        """A caller must be able to tell 'left alone' from 'compressed to this'."""
-        result = svc.compress(JSON_SAMPLE, level=CompressionLevel.AGGRESSIVE)
-        assert result.compressed_text == JSON_SAMPLE
-        assert result.error_message and "structured" in result.error_message
+    @pytest.mark.parametrize("level", ALL_LEVELS)
+    def test_python_actually_shrinks(self, svc, level):
+        from pathlib import Path
+        source = Path("synthelion/cache_aligner.py").read_text(encoding="utf-8")
+        out = svc.compress(source, level=level).compressed_text
+        ast.parse(out)                      # still valid Python
+        assert len(out) < len(source)       # and smaller
 
 
 class TestProseStillCompresses:

@@ -1550,9 +1550,7 @@ Changing the password immediately invalidates every session already logged in on
 
 ![Synthelion dashboard — security (WAF + EnterpriseGuard)](docs/dashboard-security.png)
 
-**Security**: the WAF/firewall panel (request inspection, IP allow/block, auto-ban, rate limiting, recent events) plus, below it, **EnterpriseGuard** — see the close-up and full write-up in [EnterpriseGuard — outbound data-loss-prevention firewall](#enterpriseguard--outbound-data-loss-prevention-firewall).
-
-![Synthelion dashboard — EnterpriseGuard detail](docs/dashboard-enterprise-guard.png)
+**Security**: the WAF/firewall panel (request inspection, IP allow/block, auto-ban, rate limiting, recent events) plus, further down the same page, the **EnterpriseGuard** card — category toggles, the protected-path editor, the per-client registry and recent blocks. Full write-up in [EnterpriseGuard — outbound data-loss-prevention firewall](#enterpriseguard--outbound-data-loss-prevention-firewall).
 
 ![Synthelion dashboard — AI Compliance](docs/dashboard-compliance.png)
 
