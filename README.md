@@ -113,7 +113,7 @@ Toggle it in `~/.synthelion/config.json` (or the dashboard's Settings → Privac
     "auto_masking": true,
     "prompt_injection_guard": true,
     "use_ml": false,
-    "ml_model": "gliner_small-v2.1",
+    "ml_model": "privacyguardml",
     "ml_min_confidence": 0.6,
     "language": "en",
     "ai_transparency_notice": false
@@ -126,16 +126,11 @@ Setting `"enabled": false` restores exactly the pre-1.2.2 behavior — no privac
 
 PrivacyGuard includes an opt-in **ML-assisted confirmation tier** for users who need higher recall on genuinely sensitive bare values — phone numbers, national-ID formats, credit cards — that appear in prose without a surrounding context keyword (e.g. a phone number in a log line, an IBAN in a spreadsheet header).
 
-The core regex + checksum pipeline intentionally trades away recall in favor of zero false positives: a bare 11-digit number in prose is never treated as a PESEL unless the word "pesel" is nearby. The ML tier fills that exact gap: it runs a **small zero-shot NER model** (GLiNER) over the text, and when it detects an entity whose label maps to the right rule family, it confirms the match — while a failed algorithmic checksum still vetoes detection no matter what the model says. ML never introduces false positives; it only recovers true positives the strict context gate trades away.
+The core regex + checksum pipeline intentionally trades away recall in favor of zero false positives: a bare 11-digit number in prose is never treated as a PESEL unless the word "pesel" is nearby. The ML tier fills that exact gap: it runs a small BIO-tagging model over the text, and when it detects an entity whose label maps to the right rule family, it confirms the match — while a failed algorithmic checksum still vetoes detection no matter what the model says. ML never introduces false positives; it only recovers true positives the strict context gate trades away.
 
-**The model used:** [urchade/gliner_small-v2.1](https://huggingface.co/urchade/gliner_small-v2.1) — a lightweight, CPU-friendly zero-shot NER model (~460 MB) that takes a set of entity-type labels at inference time (no fine-tuning required).
-
-**Fully offline after install:** the model and all required libraries (gliner, torch, huggingface_hub) are downloaded once by a single command, then live entirely inside `~/.synthelion/ml_models/` (or a package-local dir). Synthelion never contacts the network at analysis time.
+**The model used:** **PrivacyGuardML** — Synthelion's own model; no third-party model is used or supported. Same self-distillation philosophy as SynthelionML (see below): it's trained on synthetic PII values generated from Synthelion's own checksum validators (`synthelion/privacy_validators.py`) and rule patterns (`synthelion/privacy_rules.yaml`), covering every PrivacyGuard category — checksum-validated (phone, email, IBAN, credit card, national/tax IDs, SSNs) and context-only (vehicle plates, badge IDs, business IDs, credentials, social handles, legal case numbers, booking references, minor-data indicators) — inserted into real multilingual sentences. Tiny transformer encoder (~5M params), CPU-only, ships inside the wheel — no network call, no external dependency, ever. Train your own checkpoint with `python devtools/train_privacyguardml.py`.
 
 ```
-# One-time install — downloads the model + required libraries (needs network once)
-synthelion models install
-
 # Show what's installed and where
 synthelion models status
 ```
@@ -146,7 +141,7 @@ Then enable it in `~/.synthelion/config.json` (or toggle in the dashboard Settin
 {
   "privacy": {
     "use_ml": true,
-    "ml_model": "gliner_small-v2.1",
+    "ml_model": "privacyguardml",
     "ml_min_confidence": 0.6
   }
 }
@@ -907,6 +902,29 @@ pip install --upgrade synthelion
 ### With uv / uvx
 
 uvx always fetches the latest version automatically — nothing to do.
+
+---
+
+## Developer setup — from a git clone
+
+`git clone` alone does **not** give you a working checkout: worddata (per-language function-word/IDF/POS tables, ~143MB) and the ML checkpoints (SynthelionML, PrivacyGuardML) are excluded from git and from the published PyPI wheel — both ship from Hugging Face instead and are normally auto-downloaded on first use into `~/.synthelion/`. For development you want them **inside the repo tree** instead (`synthelion/worddata/`, `synthelion/ml_models/`), so run the setup script once after cloning:
+
+**Windows (PowerShell):**
+```powershell
+.\install_devenv.ps1
+```
+
+**Linux / macOS:**
+```bash
+chmod +x install_devenv.sh
+./install_devenv.sh
+```
+
+Either script downloads worddata + both model checkpoints from Hugging Face (`digitalsolutiosai/synthelion-worddata`, `digitalsolutiosai/synthellion`, `digitalsolutiosai/privacyguardml`) directly into the repo, then installs Synthelion in editable mode with dev dependencies (`pip install -e ".[dev]"`). After that:
+
+```bash
+pytest tests/ -q
+```
 
 ---
 

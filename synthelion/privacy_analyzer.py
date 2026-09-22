@@ -23,7 +23,7 @@ from typing import Any
 import regex as re
 import yaml
 
-from synthelion.privacy_ml import MLSpan, get_ml_detector
+from synthelion.privacy_ml import DEFAULT_MODEL_NAME as _DEFAULT_ML_MODEL, MLSpan, get_ml_detector
 from synthelion.privacy_session import PrivacySession
 from synthelion.privacy_validators import get_validator
 
@@ -102,16 +102,46 @@ _ML_LABEL_CATEGORIES: dict[str, frozenset[str]] = {
     "iban number": frozenset({"IBAN"}),
     "bank account number": frozenset({"IBAN"}),
     "bank account number (iban)": frozenset({"IBAN"}),
-    "national identification number": frozenset(_PERSONAL_ID_CATEGORIES - {"Email", "Phone E.164"}) | frozenset({"Maltese ID Number"}),
+    "national identification number": frozenset(_PERSONAL_ID_CATEGORIES - {"Email", "Phone E.164"}) | frozenset({
+        "Maltese ID Number",
+        # Non-EU / ID-card-style rules with a real checksum (IDCARD_DE, NINO_GB,
+        # AHV_CH, ID_CN) that were simply missing from this table — found while
+        # verifying every checksum-validated privacy_rules.yaml category has an
+        # ML confirmation path (see devtools/train_privacyguardml.py).
+        "German ID Card", "UK National Insurance Number (NINO)", "Swiss AHV/AVS Number",
+        "Chinese Resident ID Number",
+    }),
     "tax identification number": frozenset({
         "Italian Tax Code (CF)", "German Tax ID (Steuer-Id)", "Hungarian Tax ID",
         "Portuguese Tax Number (NIF)", "Greek Tax Number (AFM)", "Polish VAT (NIP)",
         "Italian VAT Number", "Spanish Tax/ID Number (NIF/NIE)", "Czech Business ID",
+        "Russian Taxpayer ID (INN)", "Ukrainian Taxpayer Number (RNOKPP)",
     }),
-    "social security number": frozenset({"French Social Security (NIR)"}),
+    "social security number": frozenset({
+        "French Social Security (NIR)",
+        # No checksum on either (both are shape + context_keywords rules,
+        # same posture PrivacyGuard already accepts for these two) — ML
+        # confirmation helps exactly the same way it does everywhere else:
+        # recovering a bare value when the context keyword isn't nearby.
+        "Austrian Social Insurance", "Greek Social Security (AMKA)",
+    }),
     "gps coordinates": frozenset({"GPS Coordinates"}),
     "passport number": frozenset(),
     "driver's license number": frozenset(),
+    # Remaining PrivacyGuard rule categories with no checksum, added so every
+    # catalog entry — including non-financial/non-identity ones like legal
+    # acts and credentials — has an ML confirmation path, not just the
+    # checksum-validated subset.
+    "vehicle license plate": frozenset({"EU Vehicle License Plate"}),
+    "employee badge id": frozenset({"Employee / Badge ID"}),
+    "business identification number": frozenset({
+        "French Business ID (SIREN/SIRET)", "Austrian VAT (UID)",
+    }),
+    "credential or secret": frozenset({"Password/Secret", "JWT/Token"}),
+    "social media handle": frozenset({"Social / Messenger Handle"}),
+    "legal case number": frozenset({"Legal Case / File Number"}),
+    "booking reference": frozenset({"PNR / Booking Code"}),
+    "minor age indicator": frozenset({"Minor Data (<16)"}),
 }
 
 # (en, it, de, fr, es) localized message tables.
@@ -254,16 +284,17 @@ class PrivacyAnalyzer:
     ) -> None:
         """``use_ml=False`` (the default) is exactly today's regex+checksum
         analyzer, zero ML, no extra CPU. With ``use_ml=True`` the analysis asks
-        an optional zero-shot NER model (`privacy_ml.PrivacyMLDetector`) to
-        confirm genuinely-sensitive bare values that the context-keyword gate
-        would otherwise reject — see :func:`_match_is_confirmed`. ``ml_detector``
+        Synthelion's own PrivacyGuardML model (`privacyguardml.PrivacyGuardMLDetector`,
+        via `privacy_ml.get_ml_detector`) to confirm genuinely-sensitive bare
+        values that the context-keyword gate would otherwise reject — see
+        :func:`_match_is_confirmed`. ``ml_detector``
         lets callers inject a detector (used by tests); it defaults to the
         module-level cached :func:`privacy_ml.get_ml_detector`."""
         self._lock = threading.Lock()
         self._rules: list[CompiledRule] = []
         self._whitelist: set[str] = set()
         self._use_ml = use_ml
-        self._ml_model = ml_model or "gliner_small-v2.1"
+        self._ml_model = ml_model or _DEFAULT_ML_MODEL
         self._ml_min_confidence = ml_min_confidence
         self._injected_ml_detector = ml_detector
         self._load_rules_from_text(_load_default_rules_text())

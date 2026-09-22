@@ -312,22 +312,12 @@ def main() -> None:
     p_mask.add_argument("--language", "-L", default=None, help="ISO 639-3 code (default: from privacy config)")
     p_mask.add_argument("--json", action="store_true")
 
-    # models — offline PrivacyGuard ML models (bundled inside Synthelion, no
-    # runtime network dependency; runtime only loads them from disk).
+    # models — Synthelion's own bundled ML models (PrivacyGuardML, SynthelionML),
+    # no third-party download, no runtime network dependency ever.
     p_models = sub.add_parser(
-        "models", help="Manage the locally bundled PrivacyGuard ML models (see the UI toggle 'privacy.use_ml')"
+        "models", help="Show the locally bundled ML models (see the UI toggle 'privacy.use_ml')"
     )
     models_sub = p_models.add_subparsers(dest="models_cmd", required=True)
-    _p_models_install = models_sub.add_parser(
-        "install", help="Download an ML model into Synthelion's local models dir (requires network once; afterwards fully offline)"
-    )
-    _p_models_install.add_argument("--model", default="urchade/gliner_small-v2.1", help="Hugging Face model id to install")
-    _p_models_install.add_argument(
-        "--name", default=None, help="Local short name for the model (default: last path segment of --model)"
-    )
-    _p_models_install.add_argument(
-        "--dest", default=None, help="Target dir. Default: the packaged synthelion/ml_models dir if writable, else ~/.synthelion/ml_models"
-    )
     models_sub.add_parser("status", help="List the ML models found locally and where they live")
 
     # enterprise
@@ -400,6 +390,19 @@ def main() -> None:
     p_ent_migrate_key.add_argument("--path", required=True, help="Path to the old key file")
 
     args = parser.parse_args()
+
+    # Worddata/ML checkpoints ship from Hugging Face rather than the wheel
+    # (see synthelion/_asset_download.py) — check once at startup so a
+    # missing asset is a visible warning (and a download) here, not a silent
+    # surprise buried inside whatever the command does. Skipped for `version`
+    # and `models` (status/diagnostics commands that shouldn't themselves
+    # trigger a multi-hundred-MB download).
+    if args.cmd not in ("version", "models"):
+        try:
+            from synthelion._asset_download import check_and_fetch_startup_assets
+            check_and_fetch_startup_assets()
+        except Exception:
+            pass  # degrade exactly like a missing bundled asset — never block the command
 
     if args.cmd == "version":
         _cmd_version(args)
@@ -800,12 +803,10 @@ def _cmd_summarize(args) -> None:
 
 
 def _cmd_models(args) -> None:
-    """`synthelion models install|status` — manage the locally bundled
-    PrivacyGuard ML models. The privacy analyzer itself NEVER downloads at
-    runtime: installing the model here once makes everything else fully
-    offline. The install command also handles the required ML libraries
-    (gliner, torch, huggingface_hub) automatically."""
-    from synthelion.privacy_ml import install_model, list_installed_models, models_root_candidates
+    """`synthelion models status` — report the locally bundled ML models.
+    Both PrivacyGuardML and SynthelionML ship inside the wheel; there is
+    nothing to download, so this is a status report, not an installer."""
+    from synthelion.privacy_ml import list_installed_models, models_root_candidates
 
     if args.models_cmd == "status":
         roots = models_root_candidates()
@@ -814,27 +815,15 @@ def _cmd_models(args) -> None:
         for r in roots:
             print(f"  {'present' if r.is_dir() else 'absent':7} {r}")
         if not found:
-            print("\nNo PrivacyGuard ML models installed. Run `synthelion models install` "
-                  "(one network call) to enable privacy.use_ml offline.")
+            print("\nNo PrivacyGuardML checkpoint found. Train one with "
+                  "`python devtools/train_privacyguardml.py` — until then, "
+                  "privacy.use_ml falls back to regex-only analysis.")
         else:
             print("\nInstalled PrivacyGuard models:")
             for name, path, size in found:
                 print(f"  {name:24} {path}  ({size / (1024 * 1024):.1f} MB)")
         _report_synthelionml_status()
         return
-
-    if args.models_cmd == "install":
-        _ensure_ml_libraries()
-        try:
-            name, path, size = install_model(
-                model_id=args.model, name=args.name, dest=args.dest,
-            )
-        except RuntimeError as exc:
-            print(f"ERROR: {exc}", file=sys.stderr)
-            raise SystemExit(1) from exc
-        print(f"Installed ML model {args.model!r} -> {path}")
-        print(f"Short name: {name}  (set privacy.ml_model to it in the config)")
-        print(f"Size: {size / (1024 * 1024):.1f} MB — analysis now runs fully offline.")
 
 
 def _cmd_enterprise(args) -> None:
@@ -1019,23 +1008,7 @@ def _report_synthelionml_status() -> None:
         has_torch = True
     except ImportError:
         has_torch = False
-    print(f"  torch     : {'present' if has_torch else 'absent (run `synthelion models install` to enable the ML level)'}")
-
-
-def _ensure_ml_libraries() -> None:
-    """Install gliner + torch + huggingface_hub via pip if any are missing."""
-    missing = []
-    for pkg, import_name in [("gliner", "gliner"), ("torch", "torch"), ("huggingface_hub", "huggingface_hub")]:
-        try:
-            __import__(import_name)
-        except ImportError:
-            missing.append(pkg)
-    if not missing:
-        return
-    print(f"Installing required ML libraries: {', '.join(missing)} ...")
-    subprocess.check_call(
-        [sys.executable, "-m", "pip", "install", "--quiet", *missing],
-    )
+    print(f"  torch     : {'present' if has_torch else 'absent (pip install torch to enable ML levels)'}")
 
 
 def _cmd_status(args) -> None:

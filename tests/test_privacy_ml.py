@@ -3,9 +3,10 @@
 """Tests for the optional ML-assisted confirmation tier (privacy.use_ml).
 
 These tests exercise the *integration* between PrivacyAnalyzer and a span-
-producing detector using a deterministic fake (no GLiNER download, no network,
-no CPU cost). The real GLiNER wrapper (privacy_ml.PrivacyMLDetector) is
-covered only for its degradation contract, not for inference quality.
+producing detector using a deterministic fake (no real inference, no CPU
+cost). The real backend (privacyguardml.PrivacyGuardMLDetector, Synthelion's
+own model — no third-party model is used or supported) is covered in
+tests/test_privacyguardml.py.
 """
 from __future__ import annotations
 
@@ -144,7 +145,7 @@ class TestPrivacyMLConfig:
         from synthelion.config import default_config, privacy_config
         defaults = privacy_config(default_config())
         assert defaults["use_ml"] is False  # CPU cost is opt-in
-        assert defaults["ml_model"] == "gliner_small-v2.1"  # local bundled name
+        assert defaults["ml_model"] == "privacyguardml"  # our own in-house model
         assert defaults["ml_min_confidence"] == 0.6
 
     def test_from_config_builds_ml_analyzer(self):
@@ -162,87 +163,71 @@ class TestPrivacyMLConfig:
 
 
 class TestPrivacyMLPathResolution:
-    """resolve_ml_model_path is purely local — no network, no gliner import."""
+    """list_installed_models is purely local — no network, no third-party
+    import — and only ever lists a checkpoint that declares itself
+    `model_type: "privacyguardml"`, since that is the only backend supported."""
 
-    def _make_model_dir(self, root, name):
-        d = root / name
-        d.mkdir(parents=True)
-        (d / "config.json").write_text('{"name":"x"}')
-        (d / "model.safetensors").write_bytes(b"\x00" * 12)
-        return d
+    def _isolate_roots(self, tmp_path, monkeypatch):
+        """A real PrivacyGuardML checkpoint ships in synthelion/ml_models/ —
+        list_installed_models() merges every root, so an env override alone
+        doesn't hide it; the packaged (and user) roots must be pointed
+        elsewhere for these tests to see a clean "nothing installed" state."""
+        import synthelion.privacy_ml as pm
+        monkeypatch.setattr(pm, "packaged_models_dir", lambda: tmp_path / "no_packaged")
+        monkeypatch.setattr(pm, "user_models_dir", lambda: tmp_path / "no_user")
 
-    def test_resolve_direct_path(self, tmp_path):
-        from synthelion.privacy_ml import resolve_ml_model_path
-        d = self._make_model_dir(tmp_path, "mymodel")
-        assert resolve_ml_model_path(str(d)) == d
-
-    def test_resolve_short_name_under_root(self, tmp_path, monkeypatch):
-        from synthelion.privacy_ml import resolve_ml_model_path, user_models_dir
-        monkeypatch.setenv("SYNTHELION_ML_MODELS_DIR", str(tmp_path))
-        self._make_model_dir(tmp_path, "gliner_small-v2.1")
-        assert resolve_ml_model_path("gliner_small-v2.1").parent == tmp_path
-
-    def test_resolve_none_when_absent(self, tmp_path, monkeypatch):
-        from synthelion.privacy_ml import resolve_ml_model_path
-        monkeypatch.setenv("SYNTHELION_ML_MODELS_DIR", str(tmp_path))
-        assert resolve_ml_model_path("does-not-exist") is None
-
-    def test_resolve_ignores_invalid_dir(self, tmp_path, monkeypatch):
-        from synthelion.privacy_ml import resolve_ml_model_path
-        bad = tmp_path / "bad"
-        bad.mkdir()
-        (bad / "config.json").write_text("x")
-        monkeypatch.setenv("SYNTHELION_ML_MODELS_DIR", str(tmp_path))
-        assert resolve_ml_model_path("bad") is None  # no weights file
-
-    def test_list_installed_empty(self, tmp_path, monkeypatch):
-        from synthelion.privacy_ml import list_installed_models
-        monkeypatch.setenv("SYNTHELION_ML_MODELS_DIR", str(tmp_path))
-        assert list_installed_models() == []
-
-    def _write_model_dir(self, root, name, model_type=None):
-        """A directory with the GLiNER-shaped layout: config.json + weights."""
+    def _write_model_dir(self, root, name, model_type=None, weight_file="model.bin"):
         import json
         d = root / name
         d.mkdir(parents=True)
         config = {"model_type": model_type} if model_type else {}
         (d / "config.json").write_text(json.dumps(config), encoding="utf-8")
-        (d / "model.safetensors").write_text("weights", encoding="utf-8")
+        (d / weight_file).write_text("weights", encoding="utf-8")
         return d
+
+    def test_list_installed_empty(self, tmp_path, monkeypatch):
+        from synthelion.privacy_ml import list_installed_models
+        self._isolate_roots(tmp_path, monkeypatch)
+        monkeypatch.setenv("SYNTHELION_ML_MODELS_DIR", str(tmp_path / "env"))
+        assert list_installed_models() == []
+
+    def test_privacyguardml_checkpoint_is_listed(self, tmp_path, monkeypatch):
+        from synthelion.privacy_ml import list_installed_models
+        self._isolate_roots(tmp_path, monkeypatch)
+        env_root = tmp_path / "env"
+        self._write_model_dir(env_root, "privacyguardml", model_type="privacyguardml")
+        monkeypatch.setenv("SYNTHELION_ML_MODELS_DIR", str(env_root))
+        assert [n for n, _, _ in list_installed_models()] == ["privacyguardml"]
 
     def test_synthelionml_checkpoint_is_not_a_privacy_model(self, tmp_path, monkeypatch):
         """The compression checkpoint shares the ml_models/ root and has the
         same config.json + weights shape, but it is a different subsystem's
-        model — it must never be offered as a PII model, or GLiNER would be
-        handed a compression checkpoint to load."""
-        from synthelion.privacy_ml import list_installed_models, resolve_ml_model_path
-        self._write_model_dir(tmp_path, "synthelionml", model_type="synthelionml")
-        monkeypatch.setenv("SYNTHELION_ML_MODELS_DIR", str(tmp_path))
-        assert list_installed_models() == []
-        assert resolve_ml_model_path("synthelionml") is None
-
-    def test_real_privacy_model_is_still_listed(self, tmp_path, monkeypatch):
-        """The exclusion must be narrow: an actual GLiNER model still resolves."""
-        from synthelion.privacy_ml import list_installed_models, resolve_ml_model_path
-        self._write_model_dir(tmp_path, "gliner-small", model_type="gliner")
-        monkeypatch.setenv("SYNTHELION_ML_MODELS_DIR", str(tmp_path))
-        assert [n for n, _, _ in list_installed_models()] == ["gliner-small"]
-        assert resolve_ml_model_path("gliner-small") is not None
-
-    def test_model_without_declared_type_is_still_listed(self, tmp_path, monkeypatch):
-        """Most GLiNER checkpoints don't declare a model_type at all — absence
-        must not be read as 'exclude'."""
+        model — it must never be offered as a PII model."""
         from synthelion.privacy_ml import list_installed_models
-        self._write_model_dir(tmp_path, "plain-model")
-        monkeypatch.setenv("SYNTHELION_ML_MODELS_DIR", str(tmp_path))
-        assert [n for n, _, _ in list_installed_models()] == ["plain-model"]
+        self._isolate_roots(tmp_path, monkeypatch)
+        env_root = tmp_path / "env"
+        self._write_model_dir(env_root, "synthelionml", model_type="synthelionml")
+        monkeypatch.setenv("SYNTHELION_ML_MODELS_DIR", str(env_root))
+        assert list_installed_models() == []
+
+    def test_model_without_declared_type_is_not_listed(self, tmp_path, monkeypatch):
+        """Unlike the old GLiNER-era exclusion-list check, only an explicit
+        `model_type: "privacyguardml"` counts — absence is not "ours"."""
+        from synthelion.privacy_ml import list_installed_models
+        self._isolate_roots(tmp_path, monkeypatch)
+        env_root = tmp_path / "env"
+        self._write_model_dir(env_root, "plain-model")
+        monkeypatch.setenv("SYNTHELION_ML_MODELS_DIR", str(env_root))
+        assert list_installed_models() == []
 
     def test_unreadable_config_does_not_crash_the_scan(self, tmp_path, monkeypatch):
-        """A corrupt config.json must not take down `models list`."""
+        """A corrupt config.json must not take down `models status`."""
         from synthelion.privacy_ml import list_installed_models
-        d = tmp_path / "broken"
-        d.mkdir()
+        self._isolate_roots(tmp_path, monkeypatch)
+        env_root = tmp_path / "env"
+        d = env_root / "broken"
+        d.mkdir(parents=True)
         (d / "config.json").write_text("{not json", encoding="utf-8")
-        (d / "model.safetensors").write_text("weights", encoding="utf-8")
-        monkeypatch.setenv("SYNTHELION_ML_MODELS_DIR", str(tmp_path))
-        assert [n for n, _, _ in list_installed_models()] == ["broken"]
+        (d / "model.bin").write_text("weights", encoding="utf-8")
+        monkeypatch.setenv("SYNTHELION_ML_MODELS_DIR", str(env_root))
+        assert list_installed_models() == []

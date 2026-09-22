@@ -8,6 +8,20 @@ from pathlib import Path
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def no_network_asset_download(monkeypatch):
+    """Every worddata/model resolution path falls back to a Hugging Face
+    download when nothing is found locally (see `synthelion._asset_download`).
+    Without this, a test environment with no local checkpoint would trigger a
+    real network call on every run — slow, non-deterministic, and broken
+    offline. Tests get the same "nothing available" degradation a real
+    offline install would see; opt out per-test by monkeypatching
+    `fetch_once` again if a test specifically needs to exercise the download
+    path (see tests/test_word_provider.py / test_privacyguardml.py)."""
+    import synthelion._asset_download as ad
+    monkeypatch.setattr(ad, "fetch_once", lambda *a, **k: None)
+
+
 @pytest.fixture
 def isolated_home(tmp_path, monkeypatch):
     """Redirect ``Path.home()`` so a test writes no state into the real

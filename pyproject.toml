@@ -32,6 +32,12 @@ dependencies = [
     "mcp>=1.0",
     "pyyaml>=6.0",
     "sqlparse>=0.5",
+    # worddata (per-language function-word/IDF/POS tables, needed by every
+    # compress() call) ships from Hugging Face rather than inside the wheel
+    # to keep the published package under PyPI's size limit — see
+    # synthelion/_asset_download.py. Required, not optional: without it the
+    # first compress() call has no local worddata to auto-fetch.
+    "huggingface_hub>=0.20",
     # Windows-only: required to register/run the native Windows service
     # (`synthelion service install`). Installed automatically on Windows,
     # skipped on Linux/macOS.
@@ -56,11 +62,11 @@ postgres = ["psycopg[binary]>=3.1"]
 cluster = ["redis>=5.0", "psycopg[binary]>=3.1", "qdrant-client>=1.9"]
 documents = ["pypdf>=4.0", "python-docx>=1.1", "openpyxl>=3.1"]
 enterprise = ["cryptography>=41.0", "keyring>=24.0"]
-# ML tier for PrivacyGuard (privacy.use_ml). NO pip optional dependency on
-# purpose: `synthelion models install` handles the model download AND the
-# required libraries (gliner, torch, huggingface_hub) via a pip install call
-# at install time — the package itself stays lightweight (zero ML in its
-# dependency tree).
+# ML tiers (SynthelionML compression, PrivacyGuardML privacy.use_ml) need only
+# `torch` at runtime, loading their own bundled checkpoints — no third-party
+# model, no download. NOT listed as a hard dependency on purpose: `pip install
+# torch` is opt-in, so the package itself stays lightweight (zero ML in its
+# default dependency tree).
 all = [
     "openai>=1.0", "langchain-core>=0.1", "anthropic>=0.25", "crewai>=1.15,<2",
     "chromadb>=0.4", "qdrant-client>=1.9", "redis>=5.0", "psycopg[binary]>=3.1",
@@ -77,14 +83,17 @@ where = ["."]
 include = ["synthelion*"]
 
 [tool.setuptools.package-data]
+# worddata/*.br and ml_models/ are deliberately NOT listed here — both moved
+# to Hugging Face (digitalsolutiosai/synthelion-worddata,
+# digitalsolutiosai/synthellion, digitalsolutiosai/privacyguardml) and are
+# fetched on first use (see synthelion/_asset_download.py) instead of being
+# bundled, to keep the published wheel under PyPI's size limit. A build that
+# wants a fully offline-from-first-install wheel can still populate
+# synthelion/worddata/*.br and synthelion/ml_models/ before building — these
+# globs pick them up automatically if present.
 synthelion = [
-    "worddata/*.br",
     "privacy_rules.yaml",
     "py.typed",
-    "ml_models/*",
-    "ml_models/*/*",
-    "ml_models/*/*/*",
-    "ml_models/*/*/*/*",
     "plugins/dashboard_assets/*.html",
     "plugins/dashboard_assets/*.css",
     "plugins/dashboard_assets/*.js",
@@ -92,18 +101,6 @@ synthelion = [
     "plugins/dashboard_assets/vendor/chartjs/*",
     "plugins/dashboard_assets/vendor/echarts/*",
     "plugins/dashboard_assets/img/*",
-]
-
-[tool.setuptools.exclude-package-data]
-# Redundant checkpoint formats — only model.bin is ever loaded at runtime
-# (synthelionml.py's weights_path lookup), the rest are local conversion
-# artifacts from scripts/convert_synthelionml.py that shouldn't inflate the
-# published wheel with ~80MB nothing imports.
-synthelion = [
-    "ml_models/*/*.safetensors",
-    "ml_models/*/*.safetensors.index.json",
-    "ml_models/*/*.onnx",
-    "ml_models/*/preprocessor_config.json",
 ]
 
 [tool.pytest.ini_options]

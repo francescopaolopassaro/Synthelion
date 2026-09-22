@@ -97,6 +97,16 @@ def resolve_ml_model_path(short_name: str | None = None) -> Path | None:
         candidate = root / name
         if _looks_like_model_dir(candidate):
             return candidate
+
+    if name == _MODEL_DIR_NAME:
+        from synthelion._asset_download import SYNTHELIONML_REPO_ID, fetch_once
+        downloaded = fetch_once(
+            SYNTHELIONML_REPO_ID, "model",
+            Path.home() / ".synthelion" / "ml_models" / _MODEL_DIR_NAME,
+            "SynthelionML checkpoint",
+        )
+        if downloaded is not None and _looks_like_model_dir(downloaded):
+            return downloaded
     return None
 
 

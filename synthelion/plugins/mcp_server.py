@@ -147,6 +147,14 @@ def _check_and_update() -> None:
         _update["status"] = "failed"
 
 
+def _check_startup_assets() -> None:
+    try:
+        from synthelion._asset_download import check_and_fetch_startup_assets
+        check_and_fetch_startup_assets()
+    except Exception:
+        pass  # degrade exactly like a missing bundled asset — never break startup
+
+
 # ── server ────────────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -162,8 +170,14 @@ def main() -> None:
         )
         raise SystemExit(1)
 
-    # Start version check in background — does not block server startup
+    # Start version check + asset presence check in background — neither
+    # blocks server startup. Worddata/ML checkpoints ship from Hugging Face
+    # rather than the wheel (see synthelion/_asset_download.py); the lazy
+    # per-call resolvers already download on first use, but checking here too
+    # means the warning (and the download) happens once, up front, instead of
+    # silently inside whatever tool call happens to need it first.
     threading.Thread(target=_check_and_update, daemon=True).start()
+    threading.Thread(target=_check_startup_assets, daemon=True).start()
 
     app = Server("synthelion")
     _tool_defs = get_tool_definitions()

@@ -1118,18 +1118,17 @@
               <div id="privacy-ml-fields" class="mb-3">
                 <div class="mb-2">
                   <label class="form-label text-sm text-secondary mb-1">ML model (local, short name)</label>
-                  <input type="text" class="form-control" id="privacy-ml-model" placeholder="gliner_small-v2.1">
+                  <input type="text" class="form-control" id="privacy-ml-model" placeholder="privacyguardml">
                 </div>
                 <div class="mb-2">
                   <label class="form-label text-sm text-secondary mb-1">ML min confidence (0–1)</label>
                   <input type="number" class="form-control" id="privacy-ml-min-confidence" min="0" max="1" step="0.05" value="0.6">
                 </div>
                 <p class="text-xs text-danger mb-0 mt-1">
-                  <strong>Requires CPU usage:</strong> with this on, a local zero-shot NER model runs on every analyzed text.
-                  Models are bundled inside Synthelion and analysis is 100% offline &mdash; install one once with
-                  <code>synthelion models install</code> (one network call), then enable the toggle. OFF by default:
-                  the regex + checksum pipeline stays zero-ML, and ML only confirms genuinely sensitive bare values —
-                  it never overrides a failed checksum.
+                  <strong>Requires CPU usage:</strong> with this on, Synthelion's own PrivacyGuardML model runs on
+                  every analyzed text. It ships inside Synthelion, fully offline, with no third-party model and no
+                  download step. OFF by default: the regex + checksum pipeline stays zero-ML, and ML only confirms
+                  genuinely sensitive bare values — it never overrides a failed checksum.
                 </p>
               </div>
               <div class="form-check form-switch mb-2">

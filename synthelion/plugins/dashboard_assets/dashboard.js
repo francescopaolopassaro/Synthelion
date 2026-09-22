@@ -662,7 +662,7 @@
       document.getElementById("privacy-injection-guard").checked = config.privacy.prompt_injection_guard;
       document.getElementById("privacy-transparency-notice").checked = config.privacy.ai_transparency_notice;
       document.getElementById("privacy-use-ml").checked = !!config.privacy.use_ml;
-      document.getElementById("privacy-ml-model").value = config.privacy.ml_model || "gliner_small-v2.1";
+      document.getElementById("privacy-ml-model").value = config.privacy.ml_model || "privacyguardml";
       document.getElementById("privacy-ml-min-confidence").value = String(config.privacy.ml_min_confidence || 0.6);
       markFilled("privacy-ml-model");
       togglePrivacyMlFields();
@@ -697,7 +697,7 @@
         prompt_injection_guard: document.getElementById("privacy-injection-guard").checked,
         ai_transparency_notice: document.getElementById("privacy-transparency-notice").checked,
         use_ml: document.getElementById("privacy-use-ml").checked,
-        ml_model: document.getElementById("privacy-ml-model").value.trim() || "gliner_small-v2.1",
+        ml_model: document.getElementById("privacy-ml-model").value.trim() || "privacyguardml",
         ml_min_confidence: Number(document.getElementById("privacy-ml-min-confidence").value) || 0.6,
         block_on_risk: document.getElementById("privacy-block-on-risk").checked,
         block_min_score: Number(document.getElementById("privacy-block-min-score").value),

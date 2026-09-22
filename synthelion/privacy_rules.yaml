@@ -53,8 +53,12 @@ countries:
       - category: "Phone E.164"
         # Two alternates: a `+`-prefixed number (E.164 canonical form, a str-only
         # boundary cannot precede `+`, hence the separate branch) and a bare local
-        # number which still needs a telecom keyword to be confirmed.
-        pattern: '\+[1-9]\d{6,14}\b|\b[1-9]\d{6,14}\b'
+        # number which still needs a telecom keyword to be confirmed. Each digit
+        # after the first may be preceded by one space/dot/dash separator, so a
+        # number typed the way people actually type it ("+39 333 1234567",
+        # "555-123-4567") is still a candidate match — still gated by
+        # requires_context exactly as before, this only widens the shape.
+        pattern: '\+[1-9](?:[ .-]?\d){6,14}\b|\b[1-9](?:[ .-]?\d){6,14}\b'
         base_weight: 10
         # No checksum exists for phone numbers, and the format is any 7-15 digit
         # run — a bare number in prose is not evidence. Only count a match when a
@@ -71,7 +75,12 @@ countries:
         context_keywords: ["iban", "conto", "bank", "compte", "cuenta", "konto", "rachunek"]
         compliance_tags: ["PCI-DSS", "SEPA"]
       - category: "Credit Card"
-        pattern: '\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13}|6(?:011|5[0-9]{2})[0-9]{12})\b'
+        # Each digit after the scheme prefix may be preceded by one space/dash
+        # separator — cards are as often printed "4539 1488 0343 6467" as typed
+        # compact. Luhn (validate_luhn) already strips non-digits before
+        # checksumming, so this only widens what counts as a candidate match;
+        # a failed checksum still rejects it exactly as before.
+        pattern: '\b(?:4(?:[ -]?[0-9]){12}(?:[ -]?[0-9]{3})?|5[1-5](?:[ -]?[0-9]){14}|3[47](?:[ -]?[0-9]){13}|6(?:011|5[0-9]{2})(?:[ -]?[0-9]){12})\b'
         base_weight: 25
         validator_name: "LUHN"
         context_keywords: ["card", "credit", "debit", "tarjeta", "carte", "karta", "pago"]

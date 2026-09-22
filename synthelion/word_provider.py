@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import importlib.resources
+import os
 import threading
 from functools import lru_cache
+from pathlib import Path
 
 import brotli
 
@@ -42,9 +44,51 @@ class FunctionWordProvider:
     _generic_cache: dict[str, frozenset[str]] = {}
     _pos_cache: dict[str, dict[str, str]] = {}
 
+    _resolved_worddata_dir: Path | None = None
+    _resolve_lock = threading.Lock()
+
     @classmethod
-    def _worddata_path(cls) -> importlib.resources.abc.Traversable:
-        return importlib.resources.files("synthelion.worddata")
+    def _worddata_path(cls):
+        """Resolve the worddata directory: env override, `~/.synthelion/worddata`,
+        the packaged `synthelion/worddata` (present only if a build bundled it),
+        else one download from Hugging Face into `~/.synthelion/worddata` — see
+        `synthelion._asset_download`. Cached after the first successful resolve
+        since this is called on every language lookup.
+        """
+        if cls._resolved_worddata_dir is not None:
+            return cls._resolved_worddata_dir
+        with cls._resolve_lock:
+            if cls._resolved_worddata_dir is not None:
+                return cls._resolved_worddata_dir
+
+            def _has_data(d) -> bool:
+                try:
+                    return d.is_dir() and (d / "_index.br").is_file()
+                except OSError:
+                    return False
+
+            env = os.environ.get("SYNTHELION_WORDDATA_DIR")
+            candidates = [Path(env)] if env else []
+            candidates.append(Path.home() / ".synthelion" / "worddata")
+            packaged = importlib.resources.files("synthelion.worddata")
+            candidates.append(Path(str(packaged)))
+
+            for candidate in candidates:
+                if _has_data(candidate):
+                    cls._resolved_worddata_dir = candidate
+                    return candidate
+
+            from synthelion._asset_download import WORDDATA_REPO_ID, fetch_once
+            downloaded = fetch_once(
+                WORDDATA_REPO_ID, "dataset",
+                Path.home() / ".synthelion" / "worddata",
+                "Synthelion worddata",
+            )
+            # Fall back to the packaged (possibly empty) dir so callers keep
+            # getting a Traversable-like object rather than None — every read
+            # site already handles a missing individual file gracefully.
+            cls._resolved_worddata_dir = downloaded or Path(str(packaged))
+            return cls._resolved_worddata_dir
 
     @classmethod
     def _load_index(cls) -> dict[str, tuple[str, str, frozenset[str]]]:
