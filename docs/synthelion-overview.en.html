@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Synthelion — Complete Feature Overview</title>
+<meta name="description" content="A complete overview of Synthelion: universal token compressor, PrivacyGuard, EnterpriseGuard, agent guardrails, AI Compliance Engine, dashboard and more.">
+<style>
+  :root {
+    --bg: #ffffff;
+    --bg-alt: #f7f8fa;
+    --card: #ffffff;
+    --border: #e3e6eb;
+    --text: #1c2128;
+    --text-muted: #57606a;
+    --accent: #2f5fda;
+    --accent-soft: #eef2ff;
+    --code-bg: #0d1117;
+    --code-text: #e6edf3;
+    --good: #1a7f37;
+    --warn: #9a6700;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0d1117;
+      --bg-alt: #12161d;
+      --card: #161b22;
+      --border: #2a313c;
+      --text: #e6edf3;
+      --text-muted: #9aa5b1;
+      --accent: #7aa2f7;
+      --accent-soft: #17204a;
+      --code-bg: #05070a;
+      --code-text: #e6edf3;
+      --good: #4ac26b;
+      --warn: #d4a72c;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d1117;
+    --bg-alt: #12161d;
+    --card: #161b22;
+    --border: #2a313c;
+    --text: #e6edf3;
+    --text-muted: #9aa5b1;
+    --accent: #7aa2f7;
+    --accent-soft: #17204a;
+    --code-bg: #05070a;
+    --code-text: #e6edf3;
+    --good: #4ac26b;
+    --warn: #d4a72c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+  }
+  a { color: var(--accent); }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 0 20px 80px; }
+  header.hero {
+    background: linear-gradient(160deg, var(--accent-soft), var(--bg));
+    border-bottom: 1px solid var(--border);
+    padding: 56px 20px 40px;
+  }
+  header.hero .wrap { padding: 0; }
+  .eyebrow {
+    display: inline-block;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--accent);
+    background: var(--accent-soft);
+    padding: 4px 10px;
+    border-radius: 999px;
+    margin-bottom: 16px;
+  }
+  h1 { font-size: 2.4rem; margin: 0 0 12px; letter-spacing: -0.02em; }
+  .lead { font-size: 1.15rem; color: var(--text-muted); max-width: 65ch; margin: 0 0 24px; }
+  .lang-switch { font-size: 14px; }
+  .lang-switch a { text-decoration: none; padding: 4px 10px; border: 1px solid var(--border); border-radius: 6px; margin-right: 6px; }
+  .lang-switch a.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  nav.toc {
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin: 32px 0;
+  }
+  nav.toc h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); margin: 0 0 10px; }
+  nav.toc ul { columns: 2; column-gap: 24px; margin: 0; padding-left: 18px; }
+  nav.toc li { break-inside: avoid; margin-bottom: 6px; font-size: 14.5px; }
+  section { margin: 56px 0; scroll-margin-top: 20px; }
+  section h2 {
+    font-size: 1.6rem;
+    margin: 0 0 6px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--border);
+  }
+  section h3 { font-size: 1.15rem; margin: 28px 0 8px; }
+  .badge {
+    display: inline-block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    background: var(--accent-soft);
+    padding: 2px 9px;
+    border-radius: 999px;
+    margin-left: 8px;
+    vertical-align: middle;
+  }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 20px 0; }
+  @media (max-width: 700px) { .grid { grid-template-columns: 1fr; } nav.toc ul { columns: 1; } }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 20px;
+  }
+  .card h4 { margin: 0 0 6px; font-size: 1rem; }
+  .card p { margin: 0; color: var(--text-muted); font-size: 14.5px; }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14.5px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); }
+  th { color: var(--text-muted); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: .03em; }
+  code {
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-size: 0.9em;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  pre {
+    background: var(--code-bg);
+    color: var(--code-text);
+    border-radius: 10px;
+    padding: 16px 18px;
+    overflow-x: auto;
+    font-size: 13.5px;
+    line-height: 1.55;
+  }
+  pre code { background: none; border: none; padding: 0; color: inherit; }
+  figure { margin: 20px 0; }
+  figure img {
+    width: 100%;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    display: block;
+  }
+  figcaption { font-size: 13px; color: var(--text-muted); margin-top: 8px; text-align: center; }
+  .stat-row { display: flex; gap: 28px; flex-wrap: wrap; margin: 24px 0; }
+  .stat { }
+  .stat .num { font-size: 1.9rem; font-weight: 700; color: var(--accent); }
+  .stat .label { font-size: 13px; color: var(--text-muted); }
+  .quote {
+    border-left: 3px solid var(--accent);
+    padding: 4px 20px;
+    color: var(--text-muted);
+    font-size: 15px;
+    margin: 20px 0;
+  }
+  footer {
+    border-top: 1px solid var(--border);
+    margin-top: 60px;
+    padding-top: 24px;
+    color: var(--text-muted);
+    font-size: 13.5px;
+  }
+  .theme-toggle { position: fixed; top: 18px; right: 18px; }
+  .theme-toggle button {
+    background: var(--card); color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 10px; font-size: 12px; cursor: pointer;
+  }
+</style>
+</head>
+<body>
+
+<div class="theme-toggle"><button id="themeBtn" type="button">Toggle theme</button></div>
+
+<header class="hero">
+  <div class="wrap">
+    <span class="eyebrow">Complete feature overview</span>
+    <div class="lang-switch" style="float:right">
+      <a href="synthelion-overview.en.html" class="active">EN</a>
+      <a href="synthelion-overview.it.html">IT</a>
+    </div>
+    <h1>Synthelion</h1>
+    <p class="lead">A universal token compressor and security layer for AI agents — MCP-native, 50+ languages, zero ML models required, with an optional fully offline, self-trained ML confirmation tier for privacy detection.</p>
+    <div class="stat-row">
+      <div class="stat"><div class="num">50+</div><div class="label">languages</div></div>
+      <div class="stat"><div class="num">46</div><div class="label">MCP tools</div></div>
+      <div class="stat"><div class="num">≤10&nbsp;MB</div><div class="label">wheel on PyPI</div></div>
+      <div class="stat"><div class="num">0</div><div class="label">required ML models</div></div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<nav class="toc" aria-label="Table of contents">
+  <h2>On this page</h2>
+  <ul>
+    <li><a href="#why">Why Synthelion</a></li>
+    <li><a href="#compression">Compression engine &amp; levels</a></li>
+    <li><a href="#synthelionml">SynthelionML</a></li>
+    <li><a href="#privacyguard">PrivacyGuard</a></li>
+    <li><a href="#privacyguardml">PrivacyGuardML</a></li>
+    <li><a href="#enterpriseguard">EnterpriseGuard</a></li>
+    <li><a href="#guardrails">Agent guardrails</a></li>
+    <li><a href="#compliance">AI Compliance Engine</a></li>
+    <li><a href="#proxy">Local proxy</a></li>
+    <li><a href="#enterprise">Enterprise — users &amp; keys</a></li>
+    <li><a href="#dashboard">Web dashboard</a></li>
+    <li><a href="#cluster">Cluster deployment</a></li>
+    <li><a href="#integrations">Integrations &amp; tools</a></li>
+    <li><a href="#install">Installation</a></li>
+  </ul>
+</nav>
+
+<section id="why">
+  <h2>Why Synthelion?</h2>
+  <p>Every token sent to a model costs money and time. Synthelion removes the words that carry no meaning — articles, prepositions, conjunctions, auxiliary verbs — and reduces inflected words to their base form. The model receives the same information, without the grammatical packaging.</p>
+  <div class="grid">
+    <div class="card"><h4>Zero ML by default</h4><p>The core compression and PrivacyGuard pipelines are deterministic heuristics — curated word lists, BM25, TF-IDF, regex + checksum validators. No network calls, nothing to download to get started.</p></div>
+    <div class="card"><h4>50+ languages out of the box</h4><p>No per-language configuration. Language is auto-detected, or pass an explicit ISO 639-3 code.</p></div>
+    <div class="card"><h4>Content-aware routing</h4><p>JSON, HTML, git diffs, logs, code and prose each get a dedicated compression strategy, with a universal anti-expansion guard so output is never bigger than input.</p></div>
+    <div class="card"><h4>Adaptive by design</h4><p>Compression escalates for larger inputs, results are cached by content hash, and repeated tool calls are diffed instead of resent in full.</p></div>
+    <div class="card"><h4>Safety-conscious</h4><p>Credential-shaped text (API keys, tokens, PEM blocks) is redacted before it's ever persisted to disk; destructive commands are flagged before compression could obscure them.</p></div>
+    <div class="card"><h4>MCP-native</h4><p>46 tools, <code>readOnlyHint</code>-annotated where safe for parallel calls, plus first-class OpenAI/LangChain/CrewAI/Claude adapters and a plain Python API.</p></div>
+  </div>
+  <p class="quote">Beyond every competitor we looked at, Synthelion is the only library that handles both security and token optimization end-to-end, in one package — built on years of work on the Caveman C# suite.</p>
+</section>
+
+<section id="compression">
+  <h2>Compression engine &amp; levels</h2>
+  <p>All levels are additive — an earlier level is never removed or replaced when a new one ships. Negation particles ("non"/"not"/"ne...pas"/"no"/"nicht"/"não"/"不") are always protected at every level, in every language, because dropping a negation doesn't just cost fluency — it inverts meaning.</p>
+  <table>
+    <thead><tr><th>Level</th><th>What it removes</th><th>Typical savings</th></tr></thead>
+    <tbody>
+      <tr><td><code>light</code></td><td>Stop words (articles, prepositions, conjunctions…)</td><td>25–55%</td></tr>
+      <tr><td><code>semantic</code></td><td>Stop words + lemmatization to base form</td><td>30–55%</td></tr>
+      <tr><td><code>aggressive</code></td><td>Everything above + generic verbs and descriptive adjectives</td><td>35–75%</td></tr>
+      <tr><td><code>statistical</code></td><td>TF-IDF word scoring — keeps words above the prompt's own median relevance</td><td>40–65%</td></tr>
+      <tr><td><code>syntactic</code></td><td>Rule-based pruning, keeps grammatical glue only where it touches a surviving word</td><td>45–70%</td></tr>
+      <tr><td><code>synthelionml</code></td><td>Learned per-token keep/drop classifier — falls back to <code>syntactic</code> if the checkpoint isn't installed</td><td>≥65%</td></tr>
+    </tbody>
+  </table>
+  <p>Default level is <code>semantic</code>. Content-aware routing detects JSON, code, SQL, HTML, git diffs and logs automatically, and sends each to a dedicated structure-preserving compressor instead of the word-level filters above — a JSON payload keeps every brace and quote; a prose paragraph gets the full linguistic treatment.</p>
+</section>
+
+<section id="synthelionml">
+  <h2>SynthelionML <span class="badge">optional, offline, CPU</span></h2>
+  <p>A learned complement to the rule-based compressor: a small transformer encoder (~10M parameters, 2 layers, d=128) trained with self-distillation on Wikipedia corpora across 39 languages. The rule-based AGGRESSIVE compressor provides ground-truth keep/drop labels; the encoder learns to generalise beyond simple rules by attending to surrounding token context.</p>
+  <div class="grid">
+    <div class="card"><h4>Fully offline, CPU-only</h4><p>No GPU required. The checkpoint ships from Hugging Face and downloads once into <code>~/.synthelion/</code>, never at every run.</p></div>
+    <div class="card"><h4>Graceful fallback</h4><p>If the checkpoint isn't installed, the <code>synthelionml</code> level silently falls back to <code>syntactic</code> rather than failing.</p></div>
+  </div>
+</section>
+
+<section id="privacyguard">
+  <h2>Privacy &amp; Security — PrivacyGuard</h2>
+  <p>Every prompt is scanned for personally identifiable and sensitive information <strong>before</strong> it reaches the model — automatically, offline, by default. Detected values are replaced with typed placeholders (<code>[PG_1]</code>, <code>[PG_2]</code>...) and restored transparently once the model's response comes back, so the model never sees the real values but your code still gets them.</p>
+  <pre><code># Contact me at mario.rossi@example.it, IBAN IT60X0542811101000000123456
+# -> Contact me at [PG_2], IBAN [PG_1]
+# ... once the response comes back with the placeholders intact:
+# -> Contact me at mario.rossi@example.it, IBAN IT60X0542811101000000123456</code></pre>
+  <p>The core tier is regex + algorithmic checksum validation (Luhn for credit cards, ISO 7064 mod-97 for IBAN, and ~30 country-specific national-ID/tax-ID checksums) — deliberately zero-ML, so it never guesses. A bare 11-digit number in prose is never treated as a national ID unless the checksum passes and a context keyword is nearby.</p>
+  <figure><img src="dashboard-privacy.png" alt="Synthelion dashboard — Privacy page"><figcaption>The dashboard's Privacy page: master switch, auto-masking, prompt-injection guard, whitelist, and a live tester.</figcaption></figure>
+</section>
+
+<section id="privacyguardml">
+  <h2>PrivacyGuardML <span class="badge">optional, offline, CPU, our own model</span></h2>
+  <p>An opt-in ML-assisted confirmation tier for users who need higher recall on genuinely sensitive bare values — a phone number in a log line, an IBAN in a spreadsheet header — that appear without a surrounding context keyword. <strong>Synthelion's own model, not a third-party download.</strong></p>
+  <p>Same self-distillation philosophy as SynthelionML: trained on synthetic PII values generated from Synthelion's own checksum validators and rule patterns, inserted into real multilingual sentences across 39 languages. A failed algorithmic checksum still vetoes detection no matter what the model says — ML only recovers recall the strict context gate intentionally trades away, it never introduces a false positive the validator would reject.</p>
+  <div class="grid">
+    <div class="card"><h4>16 categories covered</h4><p>Every PrivacyGuard rule category has an ML confirmation path — phone, email, credit card, IBAN, national/tax IDs, SSN, GPS, vehicle plates, badge IDs, business IDs, credentials, social handles, legal case numbers, booking references, minor-data indicators.</p></div>
+    <div class="card"><h4>Tiny, fast, offline</h4><p>~5M-parameter transformer encoder, CPU-only, downloads once from Hugging Face into <code>~/.synthelion/</code>.</p></div>
+  </div>
+  <pre><code>{
+  "privacy": {
+    "use_ml": true,
+    "ml_model": "privacyguardml",
+    "ml_min_confidence": 0.6
+  }
+}</code></pre>
+</section>
+
+<section id="enterpriseguard">
+  <h2>EnterpriseGuard <span class="badge">outbound DLP firewall</span></h2>
+  <p>A <strong>hard block-or-allow firewall</strong>, distinct from PrivacyGuard (masked-and-continue): for enterprise secrets that have no safe redacted form — cloud/database/FTP/git credentials, private keys, bulk <code>.env</code> dumps — plus user-defined file "security zones" that must never be read into an agent's context at all.</p>
+  <div class="grid">
+    <div class="card"><h4>Content scanning</h4><p>AWS/Azure/GCP credentials, DB connection strings, PEM keys, GitHub/Slack/Bearer tokens, bulk <code>.env</code> dumps — always block, never mask.</p></div>
+    <div class="card"><h4>File security zones</h4><p>Glob patterns an agent must never read, enforced before the read via a <code>PreToolUse</code>-style hook. Sensible defaults already blocked (<code>.env</code>, SSH/PEM keys, kubeconfig, ...).</p></div>
+    <div class="card"><h4>SSRF / cloud-metadata egress</h4><p>A fetch/webhook URL targeting a cloud metadata endpoint or a private address is vetoed the same way a blocked file path is.</p></div>
+    <div class="card"><h4>Destructive-shell commands</h4><p><code>rm -rf</code>, <code>drop table</code>, <code>git push --force</code> — blocked outright, not just advisory-flagged.</p></div>
+    <div class="card"><h4>Per-client policies</h4><p>Register a client by IP or MAC with its own extra protected paths — a never-before-seen client is auto-discovered and registered <em>disabled</em> until an admin reviews it.</p></div>
+    <div class="card"><h4>Audit log, not a data store</h4><p>A cross-process JSONL log records category/rule/source/timestamp — never the triggering text or path itself.</p></div>
+  </div>
+</section>
+
+<section id="guardrails">
+  <h2>Agent guardrails <span class="badge">per-agent-type policy engine</span></h2>
+  <p>EnterpriseGuard asks "is this forbidden for anyone?" — this asks the narrower question a policy actually cares about: "is this acceptable for <em>this kind</em> of agent?" Seven profiles, each stacked on a baseline applied to every agent: <code>base</code>, <code>dev</code>, <code>support</code>, <code>rag</code>, <code>data</code>, <code>ops</code>, <code>browser</code>.</p>
+  <h3>Three things that exist nowhere else in Synthelion</h3>
+  <div class="grid">
+    <div class="card"><h4>Gating — a third outcome</h4><p>Next to allow and block: a force push, <code>terraform apply</code>, an IAM grant, a refund over the cap — all legitimate, all needing a human to say yes. A gated call is refused <em>with its reason</em>, never silently allowed.</p></div>
+    <div class="card"><h4>Chain breaking</h4><p>Some attacks are invisible one call at a time — read something private, then send it outward. The breaker correlates the two within a session and cuts the egress, using an append-only file so it works across processes.</p></div>
+  </div>
+  <p>It delegates rather than reimplements: credentials and protected paths go to EnterpriseGuard, SSRF to <code>ssrf_guard</code>, runaway loops to <code>loop_guard</code>, PII to PrivacyGuard, spend caps to the proxy budget tracker.</p>
+</section>
+
+<section id="compliance">
+  <h2>AI Compliance Engine</h2>
+  <p>A governance gate in front of every guard above. It's an aggregation layer — the detection already exists elsewhere; what's new is everything a compliance function needs that no individual guard provides on its own.</p>
+  <div class="grid">
+    <div class="card"><h4>One rule registry</h4><p>19 controls, each with a risk level, a remediation action (block/redact/warn/log-only), an input/output scope and an on/off switch — bound to the guard that implements it.</p></div>
+    <div class="card"><h4>Traceability matrix</h4><p>Each control mapped to the article of law it satisfies, generated from the live configuration — switch a control off and its obligation appears uncovered, rather than continuing to look compliant on paper.</p></div>
+    <div class="card"><h4>Tamper-evident audit trail</h4><p>Each entry hashes the one before it; an edited or removed entry breaks every link after it. Stores a SHA-256 fingerprint of each payload, never the prompt or response.</p></div>
+    <div class="card"><h4>Three engine states</h4><p><code>active</code> enforces; <code>staging</code> evaluates and logs every rule but never blocks or rewrites, so a policy can be measured against real traffic before it starts refusing calls; <code>inactive</code> is off.</p></div>
+  </div>
+
+  <h3>Legal frameworks covered</h3>
+  <table>
+    <thead><tr><th>Framework</th><th>What we cover</th></tr></thead>
+    <tbody>
+      <tr><td><strong>EU AI Act</strong> (Reg. 2024/1689)</td><td>Data governance for high-risk systems (Art. 10), human oversight (Art. 14), accuracy/robustness/cybersecurity (Art. 15), transparency to deployers (Art. 13), transparency obligations (Art. 50), marking of generated content (Art. 50(2)), GPAI copyright obligations (Art. 53), prohibited practices (Art. 5), technical file (Annex IV)</td></tr>
+      <tr><td><strong>GDPR</strong> (Reg. 2016/679)</td><td>Data minimisation (Art. 5(1)(c)), privacy by design/default (Art. 25), special categories of data (Art. 9), transfers outside the EEA (Chapter V), DPIA (Art. 35)</td></tr>
+      <tr><td><strong>NIS 2 / DORA</strong></td><td>Technical measures to manage cybersecurity risk (Art. 21)</td></tr>
+      <tr><td><strong>ISO/IEC 42001</strong></td><td>Protection of authentication information (A.8)</td></tr>
+      <tr><td><strong>PCI-DSS</strong></td><td>Protection of cardholder data</td></tr>
+      <tr><td><strong>DSA</strong> (Reg. 2022/2065)</td><td>Systemic-risk mitigation for harmful content (Art. 34)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>The 19 controls, by category</h3>
+  <div class="grid">
+    <div class="card"><h4>Privacy</h4><p>PII detection and redaction, financial and health data (PCI-DSS/Art. 9), clinical health data (PHI), cross-border transfer / data-residency control.</p></div>
+    <div class="card"><h4>Security</h4><p>Secrets/API-key detection, prompt-injection and jailbreak defence, per-agent-type guardrails, destructive-command detection, credential-shape secondary screen, generated-code vulnerability scanning.</p></div>
+    <div class="card"><h4>Content safety</h4><p>Toxicity and hate-speech filter, hazardous/illegal-activity screening.</p></div>
+    <div class="card"><h4>Transparency</h4><p>AI-interaction disclosure, machine-readable marking of AI-generated content.</p></div>
+    <div class="card"><h4>Quality</h4><p>Output sanitisation, factuality/hallucination detection, copyright and licence screening, RAG data provenance and source citation.</p></div>
+    <div class="card"><h4>Custom</h4><p>Administrator-defined regex and keyword rules, merged into the registry at config load time.</p></div>
+  </div>
+
+  <h3>The four documents — JSON and PDF</h3>
+  <table>
+    <thead><tr><th>Document</th><th>Legal reference</th><th>What it contains</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Technical file</strong></td><td>AI Act Art. 11 / Annex IV</td><td>System description, which controls are active and their status, the versioned system-instruction registry</td></tr>
+      <tr><td><strong>DPIA</strong></td><td>GDPR Art. 35</td><td>Data protection impact assessment, a pre-filled working draft with the sections needing organisational judgement left as explicit open items</td></tr>
+      <tr><td><strong>FRIA</strong></td><td>AI Act Art. 27</td><td>Fundamental rights impact assessment, same pre-filled-draft approach as the DPIA</td></tr>
+      <tr><td><strong>Executive report</strong></td><td>—</td><td>Periodic report on controls, blocks and events, generated from the live configuration and audit trail</td></tr>
+    </tbody>
+  </table>
+  <p>The PDF writer has no external dependencies — built from scratch inside Synthelion. It emits valid PDF 1.4 with automatic pagination, tables, bar charts and the Synthelion mark, and transliterates characters outside WinAnsi rather than dropping them. It is not PDF/A: archival conformance additionally needs embedded fonts, an XMP packet and an output intent, and claiming it without those would be false.</p>
+
+  <figure><img src="dashboard-compliance.png" alt="Synthelion dashboard — AI Compliance page"><figcaption>The Compliance page: risk level, remediation action and scope per control, with the live traceability matrix.</figcaption></figure>
+</section>
+
+<section id="proxy">
+  <h2>Local proxy — any agent, any provider</h2>
+  <p>Works even where MCP/hooks don't: a local reverse proxy enforces PII masking and compression server-side for any agent that supports a custom API base URL (Cursor, Aider, Codex CLI, Claude Code), with automatic failover across up to 10 backup providers and a circuit breaker — behind the same firewall that protects the dashboard.</p>
+  <figure><img src="dashboard-proxy-status.png" alt="Synthelion dashboard — Proxy status page"><figcaption>Proxy status: upstreams, failover chain, circuit-breaker state.</figcaption></figure>
+</section>
+
+<section id="enterprise">
+  <h2>Enterprise <span class="badge">multi-user &amp; key management</span></h2>
+  <p>Built for giving an entire team access to AI models without ever handing out the real provider API keys. <strong>Every employee gets a virtual proxy token, not the provider's key.</strong> Real keys (OpenAI, Anthropic, Gemini, Groq, Mistral, DeepSeek, xAI, Together, OpenRouter) stay encrypted with AES-256-GCM server-side, in a database the end user never sees and can never extract from their own machine.</p>
+  <p>The proxy authenticates the virtual token, maps it to a user, a subscription plan and an assigned provider key, enforces the quota, and only then uses the real key to forward the request — so every company PC running AI goes through the same central control point.</p>
+  <div class="grid">
+    <div class="card"><h4>Instant revocation</h4><p>If an employee leaves, or a laptop is lost, disabling that one virtual token is enough — no real key to rotate across every other system.</p></div>
+    <div class="card"><h4>Per-person or per-team plans</h4><p>Metered or monthly subscriptions, with the quota enforced automatically by the proxy based on the assigned plan.</p></div>
+    <div class="card"><h4>Consumption &amp; cost per user</h4><p>Dashboard view of estimated spend and a ranking of the most-used models per person, computed against the tightest plan they hold.</p></div>
+    <div class="card"><h4>Protected master key</h4><p>Generated automatically when the database is created and stored in the OS credential store — never a plaintext file, visible only via a local admin CLI command.</p></div>
+  </div>
+  <figure><img src="dashboard-enterprise-users.png" alt="Synthelion dashboard — Enterprise users page"><figcaption>Users: employees, virtual proxy tokens, assigned provider keys and plans, with consumption and a model-usage ranking.</figcaption></figure>
+</section>
+
+<section id="dashboard">
+  <h2>Web dashboard</h2>
+  <p>A local, multi-page admin panel — no external calls, no CDN, works offline. Every <code>synthelion-mcp</code> process and every CLI/hook invocation writes to the same lock-free ledger, and the dashboard aggregates them live.</p>
+  <pre><code>synthelion serve-dashboard                    # http://127.0.0.1:8787
+synthelion dashboard-passwd                   # change the default admin/admin credentials</code></pre>
+  <figure><img src="dashboard-overview.png" alt="Synthelion dashboard — Overview page"><figcaption>Overview: calls, tokens saved, efficiency, CO₂ saved, latency — with sparklines and charts rendered by Apache ECharts (vendored locally).</figcaption></figure>
+  <figure><img src="dashboard-live-monitor.png" alt="Synthelion dashboard — Live monitor page"><figcaption>Live monitor: one stream merging proxy requests, WAF matches, EnterpriseGuard blocks and agent-policy decisions.</figcaption></figure>
+  <figure><img src="dashboard-security.png" alt="Synthelion dashboard — Security page"><figcaption>Security: WAF/firewall panel plus the EnterpriseGuard card — category toggles, protected paths, per-client registry.</figcaption></figure>
+</section>
+
+<section id="cluster">
+  <h2>Cluster deployment</h2>
+  <p>For AI-provider-scale deployments — many nodes, thousands of concurrent agent sessions — point every node at a shared session/vector store instead of each running its own. A lightweight master/slave fleet layer sits on top: "Become master" generates a node ID and a shared token; other nodes join with it and appear in the master's node table with live calls/tokens-saved/version. One-click downloads for a pre-wired <code>docker-compose.yml</code> and Kubernetes manifest.</p>
+  <figure><img src="dashboard-cluster.png" alt="Synthelion dashboard — Cluster page"><figcaption>Cluster: master/slave node table, join token, one-click Docker/Kubernetes manifests.</figcaption></figure>
+</section>
+
+<section id="integrations">
+  <h2>Integrations &amp; tools</h2>
+  <div class="grid">
+    <div class="card"><h4>46 MCP tools</h4><p><code>readOnlyHint</code>-annotated where safe for parallel calls — compression, privacy analysis, safety checks, memory, summarization, project wiki, and more.</p></div>
+    <div class="card"><h4>OpenAI</h4><p>GPT-4, GPT-4o, Codex, and any OpenAI-compatible API — drop-in compression wrapper.</p></div>
+    <div class="card"><h4>LangChain</h4><p>LangGraph, LCEL, ReAct agents.</p></div>
+    <div class="card"><h4>CrewAI</h4><p>Auto-compression for agents and crews.</p></div>
+    <div class="card"><h4>Claude &amp; OpenAI Adapters</h4><p>Auto-compression with one import.</p></div>
+    <div class="card"><h4>RagAgent</h4><p>Stateful agent with memory, RAG, and cost tracking built in.</p></div>
+    <div class="card"><h4>Python API</h4><p>For any custom agent or pipeline.</p></div>
+    <div class="card"><h4>CLI</h4><p>Shell scripts, pipelines, any language.</p></div>
+  </div>
+</section>
+
+<section id="install">
+  <h2>Installation</h2>
+  <pre><code># Windows (PowerShell)
+irm https://raw.githubusercontent.com/francescopaolopassaro/synthelion/main/install.ps1 | iex
+
+# Linux / macOS
+curl -fsSL https://raw.githubusercontent.com/francescopaolopassaro/synthelion/main/install.sh | bash
+
+# All platforms
+pip install synthelion</code></pre>
+  <p>worddata (per-language function-word/IDF/POS tables) and the ML checkpoints ship from Hugging Face and download once on first use — the published package stays a few MB, not a few hundred.</p>
+  <p>50+ languages: Afrikaans, Arabic, Armenian, Basque, Belarusian, Bengali, Bulgarian, Catalan, Chinese, Croatian, Czech, Danish, Dutch, English, Estonian, Finnish, French, Galician, German, Greek, Hebrew, Hindi, Hungarian, Icelandic, Indonesian, Irish, Italian, Japanese, Kannada, Kazakh, Korean, Latin, Latvian, Lithuanian, Macedonian, Malay, Marathi, Norwegian, Persian, Polish, Portuguese, Romanian, Russian, Serbian, Slovak, Slovenian, Spanish, Swedish, Tamil, Telugu, Thai, Turkish, Ukrainian, Urdu, Vietnamese.</p>
+</section>
+
+<footer>
+  <p>Synthelion — © 2026 Passaro Francesco Paolo — Digitalsolutions.it. Part of the Caveman security &amp; compression suite.</p>
+  <p><a href="https://github.com/francescopaolopassaro/synthelion">GitHub</a> · <a href="https://pypi.org/project/synthelion/">PyPI</a></p>
+</footer>
+
+</div>
+
+<script>
+(function() {
+  var btn = document.getElementById('themeBtn');
+  var root = document.documentElement;
+  try {
+    var saved = localStorage.getItem('synthelion-theme');
+    if (saved) root.setAttribute('data-theme', saved);
+  } catch (e) {}
+  btn.addEventListener('click', function() {
+    var current = root.getAttribute('data-theme');
+    var next = current === 'dark' ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    try { localStorage.setItem('synthelion-theme', next); } catch (e) {}
+  });
+})();
+</script>
+</body>
+</html>

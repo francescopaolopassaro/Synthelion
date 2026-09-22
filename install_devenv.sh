@@ -62,7 +62,7 @@ info "Downloading worddata (56+ languages, ~143MB)..."
 "$PYTHON" - <<'PYEOF'
 from huggingface_hub import snapshot_download
 snapshot_download(
-    repo_id="digitalsolutiosai/synthelion-worddata", repo_type="dataset",
+    repo_id="digitalsolutionsai/synthelion-worddata", repo_type="dataset",
     local_dir="synthelion/worddata",
 )
 PYEOF
@@ -72,7 +72,7 @@ info "Downloading SynthelionML checkpoint (~40MB)..."
 "$PYTHON" - <<'PYEOF'
 from huggingface_hub import snapshot_download
 snapshot_download(
-    repo_id="digitalsolutiosai/synthellion", repo_type="model",
+    repo_id="digitalsolutionsai/synthellion", repo_type="model",
     local_dir="synthelion/ml_models/synthelionml",
 )
 PYEOF
@@ -82,7 +82,7 @@ info "Downloading PrivacyGuardML checkpoint (~25MB)..."
 "$PYTHON" - <<'PYEOF'
 from huggingface_hub import snapshot_download
 snapshot_download(
-    repo_id="digitalsolutiosai/privacyguardml", repo_type="model",
+    repo_id="digitalsolutionsai/privacyguardml", repo_type="model",
     local_dir="synthelion/ml_models/privacyguardml",
 )
 PYEOF

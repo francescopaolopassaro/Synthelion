@@ -5,10 +5,10 @@ Hugging Face instead of inside the PyPI wheel, to keep the published package
 under PyPI's size limit. Every asset here is Synthelion's own work — no
 third-party content — just hosted externally because of size, not authorship:
 
-- `digitalsolutiosai/synthelion-worddata` (dataset) — per-language function
+- `digitalsolutionsai/synthelion-worddata` (dataset) — per-language function
   word / IDF / POS tables, used by every `compress()` call.
-- `digitalsolutiosai/synthellion` (model) — SynthelionML compression checkpoint.
-- `digitalsolutiosai/privacyguardml` (model) — PrivacyGuardML PII-confirmation
+- `digitalsolutionsai/synthellion` (model) — SynthelionML compression checkpoint.
+- `digitalsolutionsai/privacyguardml` (model) — PrivacyGuardML PII-confirmation
   checkpoint.
 
 Resolution for each asset checks, in order: an env var override, then
@@ -27,9 +27,9 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-WORDDATA_REPO_ID = "digitalsolutiosai/synthelion-worddata"
-SYNTHELIONML_REPO_ID = "digitalsolutiosai/synthellion"
-PRIVACYGUARDML_REPO_ID = "digitalsolutiosai/privacyguardml"
+WORDDATA_REPO_ID = "digitalsolutionsai/synthelion-worddata"
+SYNTHELIONML_REPO_ID = "digitalsolutionsai/synthellion"
+PRIVACYGUARDML_REPO_ID = "digitalsolutionsai/privacyguardml"
 
 _download_lock = threading.Lock()
 _attempted: set[str] = set()

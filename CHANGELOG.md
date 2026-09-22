@@ -4,6 +4,16 @@ All notable changes to Synthelion are documented here.
 
 ---
 
+## [1.2.5.1] — 2026-09-22
+
+### Fixed — wrong Hugging Face organization name
+- The Hugging Face account was renamed to `digitalsolutionsai`; all `repo_id` references
+  (`_asset_download.py`, `install_devenv.sh`, `install_devenv.ps1`, `pyproject.toml`,
+  `README.md`) previously pointed at the old, misspelled `digitalsolutiosai` and have been
+  corrected.
+
+---
+
 ## [1.2.5] — 2026-08-04
 
 ### Fixed — every prose compression level silently destroyed structured content

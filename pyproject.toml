@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "synthelion"
-version = "1.2.5"
+version = "1.2.5.1"
 description = "Universal token compressor for AI agents — MCP, OpenAI, LangChain, CLI. 50+ languages, zero ML models."
 readme = "README.md"
 license = "LicenseRef-Proprietary"
@@ -84,8 +84,8 @@ include = ["synthelion*"]
 
 [tool.setuptools.package-data]
 # worddata/*.br and ml_models/ are deliberately NOT listed here — both moved
-# to Hugging Face (digitalsolutiosai/synthelion-worddata,
-# digitalsolutiosai/synthellion, digitalsolutiosai/privacyguardml) and are
+# to Hugging Face (digitalsolutionsai/synthelion-worddata,
+# digitalsolutionsai/synthellion, digitalsolutionsai/privacyguardml) and are
 # fetched on first use (see synthelion/_asset_download.py) instead of being
 # bundled, to keep the published wheel under PyPI's size limit. A build that
 # wants a fully offline-from-first-install wheel can still populate

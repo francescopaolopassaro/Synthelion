@@ -55,13 +55,13 @@ Write-Ok "huggingface_hub ready"
 
 # Python string literals below use single quotes on purpose: PowerShell's
 # argv marshalling to a native exe can strip embedded double-quote characters
-# from a here-string argument, which silently turns "digitalsolutiosai/..."
+# from a here-string argument, which silently turns "digitalsolutionsai/..."
 # into a bare (and syntactically broken) expression on the Python side.
 Write-Info "Downloading worddata (56+ languages, ~143MB)..."
 & $python -c @'
 from huggingface_hub import snapshot_download
 snapshot_download(
-    repo_id='digitalsolutiosai/synthelion-worddata', repo_type='dataset',
+    repo_id='digitalsolutionsai/synthelion-worddata', repo_type='dataset',
     local_dir='synthelion/worddata',
 )
 '@
@@ -72,7 +72,7 @@ Write-Info "Downloading SynthelionML checkpoint (~40MB)..."
 & $python -c @'
 from huggingface_hub import snapshot_download
 snapshot_download(
-    repo_id='digitalsolutiosai/synthellion', repo_type='model',
+    repo_id='digitalsolutionsai/synthellion', repo_type='model',
     local_dir='synthelion/ml_models/synthelionml',
 )
 '@
@@ -83,7 +83,7 @@ Write-Info "Downloading PrivacyGuardML checkpoint (~25MB)..."
 & $python -c @'
 from huggingface_hub import snapshot_download
 snapshot_download(
-    repo_id='digitalsolutiosai/privacyguardml', repo_type='model',
+    repo_id='digitalsolutionsai/privacyguardml', repo_type='model',
     local_dir='synthelion/ml_models/privacyguardml',
 )
 '@

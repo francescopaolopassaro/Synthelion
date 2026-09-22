@@ -924,7 +924,7 @@ chmod +x install_devenv.sh
 ./install_devenv.sh
 ```
 
-Either script downloads worddata + both model checkpoints from Hugging Face (`digitalsolutiosai/synthelion-worddata`, `digitalsolutiosai/synthellion`, `digitalsolutiosai/privacyguardml`) directly into the repo, then installs Synthelion in editable mode with dev dependencies (`pip install -e ".[dev]"`). After that:
+Either script downloads worddata + both model checkpoints from Hugging Face (`digitalsolutionsai/synthelion-worddata`, `digitalsolutionsai/synthellion`, `digitalsolutionsai/privacyguardml`) directly into the repo, then installs Synthelion in editable mode with dev dependencies (`pip install -e ".[dev]"`). After that:
 
 ```bash
 pytest tests/ -q
