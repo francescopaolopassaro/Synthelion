@@ -685,10 +685,14 @@ A governance gate in front of every guard above. It is deliberately an **aggrega
 detection already exists elsewhere in Synthelion. What is new is everything a compliance function
 needs and no individual guard can provide on its own.
 
-**One rule registry, in policy vocabulary.** Nine controls, each with a risk level
-(high/medium/low), a remediation action (block / redact / warn / log-only), an input/output scope
-and an on-off switch — bound to the guard that implements it. Rules are configuration, so a
-deployment overrides only what differs.
+**One rule registry, in policy vocabulary.** 19 controls — privacy (PII, financial/health data, PHI,
+data residency), security (secrets, prompt injection, agent policy, destructive commands,
+credential-shape screen, code vulnerability), content safety (toxicity/hate speech,
+illegal-activity), transparency (AI disclosure, AI watermarking), quality (output sanitisation,
+hallucination/grounding, copyright, RAG provenance) and admin-defined custom rules — each with a
+risk level (high/medium/low), a remediation action (block / redact / warn / log-only), an
+input/output scope and an on-off switch, bound to the guard that implements it. Rules are
+configuration, so a deployment overrides only what differs.
 
 **Organisation-level system instructions**, prepended to every request and not
 editable by the end user. They are *created* when a request carries no system
@@ -697,10 +701,10 @@ perimeter by omitting it — and every change is versioned with its content hash
 so the technical file can state what the model was told at the time of a given
 decision rather than only what it says today.
 
-**A traceability matrix from each control to the article of law it satisfies** — EU AI Act, GDPR,
-NIS 2/DORA, ISO/IEC 42001 — generated from the *live* configuration. That last part is the point:
-switch a control off and its obligations appear as uncovered, rather than continuing to look
-compliant on paper.
+**A traceability matrix from each control to the article of law it satisfies** — EU AI Act (Reg.
+2024/1689), GDPR (Reg. 2016/679), NIS 2/DORA, ISO/IEC 42001, PCI-DSS, DSA (Reg. 2022/2065) —
+generated from the *live* configuration. That last part is the point: switch a control off and its
+obligations appear as uncovered, rather than continuing to look compliant on paper.
 
 **Backend health.** A rule can be enabled in the policy while the guard behind it is switched off
 elsewhere in the configuration. That combination is the dangerous one — the technical file would
