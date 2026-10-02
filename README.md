@@ -1,5 +1,5 @@
 # Synthelion — Synthelion — Up to 70% fewer tokens. More speed, lower costs, smarter AI.
-![Synthelion Logo](Synthelion_BANNER_EN.png)
+![Synthelion Logo](Synthelion_Banner_EN.png)
 
 [![PyPI version](https://badge.fury.io/py/synthelion.svg)](https://pypi.org/project/synthelion/)
 [![Python Versions](https://img.shields.io/pypi/pyversions/synthelion.svg)](https://pypi.org/project/synthelion/)
